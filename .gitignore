@@ -30,3 +30,6 @@ exports/
 
 # NFLVERSE subproject (separate repo)
 NFLVERSE/
+
+# Tests (local-only; not shipped with the public repo)
+tests/
