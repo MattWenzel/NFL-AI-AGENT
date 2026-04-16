@@ -43,6 +43,10 @@ class ConversationInfo(BaseModel):
     updated_at: str | None = None
 
 
+class ConversationUpdate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200, description="New conversation title")
+
+
 class TurnModel(BaseModel):
     id: str
     role: str

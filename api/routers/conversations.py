@@ -8,7 +8,7 @@ since pydantic doesn't model those directly.
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.dependencies import get_store
-from api.schemas import ConversationInfo, ConversationTranscriptResponse
+from api.schemas import ConversationInfo, ConversationTranscriptResponse, ConversationUpdate
 from infra.persistence.runtime_store import RuntimeStore, safe_load_tool_input
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -103,6 +103,29 @@ async def get_conversation_transcript(
             }
             for summary in transcript.summaries
         ],
+    )
+
+
+@router.patch("/conversations/{conversation_id}", response_model=ConversationInfo)
+async def rename_conversation(
+    conversation_id: str,
+    body: ConversationUpdate,
+    store: RuntimeStore = Depends(get_store),
+):
+    """Rename a conversation."""
+    session = store.get_session(conversation_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    session.title = body.title.strip()
+    store.update_session(session)
+    entry = next((s for s in store.list_sessions() if s["id"] == conversation_id), None)
+    return ConversationInfo(
+        id=session.id,
+        message_count=entry["turn_count"] if entry else 0,
+        title=session.title,
+        provider=session.provider,
+        model=session.model,
+        updated_at=session.updated_at,
     )
 
 

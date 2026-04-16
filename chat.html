@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NFL Runtime Chat</title>
+<title>NFL AI Stats Agent</title>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
 :root {
@@ -39,7 +39,15 @@ body {
 .shell {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr) 360px;
-  min-height: 100vh;
+  height: 100vh;
+}
+
+.shell.inspector-collapsed {
+  grid-template-columns: 280px minmax(0, 1fr);
+}
+
+.shell.inspector-collapsed .inspector {
+  display: none;
 }
 
 .sidebar,
@@ -57,7 +65,9 @@ body {
 .sidebar,
 .main,
 .inspector {
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .sidebar {
@@ -163,12 +173,39 @@ body {
   flex-wrap: wrap;
 }
 
-.delete-btn {
+.conversation-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.delete-btn,
+.rename-btn {
   border: 0;
   background: transparent;
   color: var(--muted);
   font-size: 1rem;
   cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+  line-height: 1;
+}
+
+.delete-btn:hover,
+.rename-btn:hover {
+  background: rgba(110, 86, 56, 0.1);
+  color: var(--text);
+}
+
+.rename-input {
+  width: 100%;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 3px 6px;
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-strong);
+  box-sizing: border-box;
 }
 
 .main {
@@ -495,6 +532,54 @@ body {
 .inspector {
   display: flex;
   flex-direction: column;
+  position: relative;
+}
+
+.inspector-collapse {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 8px;
+}
+
+.inspector-collapse:hover {
+  background: rgba(110, 86, 56, 0.1);
+  color: var(--text);
+}
+
+.inspector-reopen {
+  position: fixed;
+  top: 18px;
+  right: 0;
+  border: 1px solid var(--border);
+  border-right: 0;
+  background: var(--panel-strong);
+  color: var(--muted);
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 10px 12px;
+  border-radius: 10px 0 0 10px;
+  box-shadow: var(--shadow);
+  z-index: 10;
+  display: none;
+}
+
+.inspector-reopen:hover {
+  color: var(--text);
+  background: var(--panel);
+}
+
+.shell.inspector-collapsed ~ .inspector-reopen,
+.shell.inspector-collapsed .inspector-reopen {
+  display: block;
 }
 
 .inspector-header h3 {
@@ -632,12 +717,15 @@ body {
     top: 0;
     bottom: 0;
     width: min(100vw, 390px);
-    transform: translateX(100%);
+    transform: translateX(0);
     transition: transform 0.2s ease;
     z-index: 30;
   }
 
-  .inspector.open { transform: translateX(0); }
+  .shell.inspector-collapsed .inspector {
+    display: flex;
+    transform: translateX(100%);
+  }
 }
 
 @media (max-width: 900px) {
@@ -657,7 +745,7 @@ body {
   <aside class="sidebar">
     <div class="sidebar-header">
       <div class="brand">
-        <h1>NFL Runtime Chat</h1>
+        <h1>NFL AI Stats Agent</h1>
         <p>Transcript-backed NFL stats agent with inspectable tool runs.</p>
       </div>
       <button class="button" id="newChatBtn">New session</button>
@@ -668,13 +756,12 @@ body {
   <main class="main">
     <header class="main-header">
       <div class="session-heading">
-        <h2 id="sessionTitle">NFL Runtime Chat</h2>
+        <h2 id="sessionTitle">NFL AI Stats Agent</h2>
         <div class="session-subtitle" id="sessionSubtitle"></div>
       </div>
       <div class="controls">
         <select id="providerSelect"></select>
         <select id="modelSelect"></select>
-        <button class="button secondary" id="inspectToggle">Inspect</button>
       </div>
     </header>
 
@@ -693,11 +780,13 @@ body {
 
   <aside class="inspector" id="inspector">
     <div class="inspector-header">
+      <button class="inspector-collapse" id="inspectorCollapse" title="Collapse inspector" aria-label="Collapse inspector">&rsaquo;</button>
       <h3>Runtime Inspector</h3>
       <p>Inspect session metadata, selected turn details, tool lifecycle, and compaction history.</p>
     </div>
     <div class="inspector-body" id="inspectorBody"></div>
   </aside>
+  <button class="inspector-reopen" id="inspectorReopen" title="Open inspector" aria-label="Open inspector">&lsaquo;</button>
 </div>
 
 <script>
@@ -718,9 +807,11 @@ const state = {
 marked.setOptions({ breaks: true, gfm: true });
 
 document.getElementById("newChatBtn").addEventListener("click", startNewSession);
-document.getElementById("inspectToggle").addEventListener("click", () => {
-  document.getElementById("inspector").classList.toggle("open");
-});
+function setInspectorCollapsed(collapsed) {
+  document.querySelector(".shell").classList.toggle("inspector-collapsed", collapsed);
+}
+document.getElementById("inspectorCollapse").addEventListener("click", () => setInspectorCollapsed(true));
+document.getElementById("inspectorReopen").addEventListener("click", () => setInspectorCollapsed(false));
 document.getElementById("providerSelect").addEventListener("change", onProviderChange);
 document.getElementById("modelSelect").addEventListener("change", onModelChange);
 document.getElementById("sendBtn").addEventListener("click", sendMessage);
@@ -863,6 +954,19 @@ async function deleteConversation(sessionId) {
   if (state.activeSessionId === sessionId) {
     startNewSession();
   }
+  render();
+}
+
+async function renameConversation(sessionId, newTitle) {
+  const updated = await fetchJSON(`/chat/conversations/${sessionId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: newTitle }),
+  });
+  const idx = state.conversations.findIndex((s) => s.id === sessionId);
+  if (idx !== -1) state.conversations[idx] = updated;
+  const transcript = state.transcripts.get(sessionId);
+  if (transcript) transcript.title = updated.title;
   render();
 }
 
@@ -1010,15 +1114,63 @@ function renderConversationList() {
             ${session.updated_at ? `<span>${escapeHtml(formatTime(session.updated_at))}</span>` : ""}
           </div>
         </div>
-        <button class="delete-btn" title="Delete session">&times;</button>
+        <div class="conversation-actions">
+          <button class="rename-btn" title="Rename session">&#9998;</button>
+          <button class="delete-btn" title="Delete session">&times;</button>
+        </div>
       </div>`;
     item.addEventListener("click", () => loadTranscript(session.id));
     item.querySelector(".delete-btn").addEventListener("click", async (e) => {
       e.stopPropagation();
+      if (!window.confirm("Delete this conversation? This can't be undone.")) return;
       await deleteConversation(session.id);
+    });
+    item.querySelector(".rename-btn").addEventListener("click", (e) => {
+      e.stopPropagation();
+      beginRename(item, session);
     });
     list.appendChild(item);
   }
+}
+
+function beginRename(item, session) {
+  const titleEl = item.querySelector(".conversation-title");
+  if (!titleEl || titleEl.querySelector("input")) return;
+  const currentTitle = session.title || "New session";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "rename-input";
+  input.value = currentTitle;
+  input.maxLength = 200;
+  titleEl.innerHTML = "";
+  titleEl.appendChild(input);
+  input.focus();
+  input.select();
+  input.addEventListener("click", (e) => e.stopPropagation());
+
+  let settled = false;
+  const cancel = () => {
+    if (settled) return;
+    settled = true;
+    titleEl.textContent = currentTitle;
+  };
+  const save = async () => {
+    if (settled) return;
+    const next = input.value.trim();
+    if (!next || next === currentTitle) { cancel(); return; }
+    settled = true;
+    try {
+      await renameConversation(session.id, next);
+    } catch (err) {
+      console.error("Rename failed:", err);
+      titleEl.textContent = currentTitle;
+    }
+  };
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); save(); }
+    else if (e.key === "Escape") { e.preventDefault(); cancel(); }
+  });
+  input.addEventListener("blur", save);
 }
 
 function renderSessionHeader() {
@@ -1026,7 +1178,7 @@ function renderSessionHeader() {
   const subtitle = document.getElementById("sessionSubtitle");
   const transcript = state.activeSessionId ? state.transcripts.get(state.activeSessionId) : null;
   if (!transcript && !state.liveTurn) {
-    title.textContent = "NFL Runtime Chat";
+    title.textContent = "NFL AI Stats Agent";
     subtitle.innerHTML = `<span class="pill">Transcript-backed</span><span class="pill">Inspect tool runs</span>`;
     return;
   }
@@ -1081,6 +1233,7 @@ function renderThread() {
   flushAssistant();
 
   if (state.liveTurn) {
+    if (state.liveTurn.userText) items.push(renderLiveUserCard());
     items.push(renderLiveTurnCard());
   }
 
@@ -1199,6 +1352,18 @@ function renderAssistantGroupCard(iterations, toolRunsByTurn, partsByTurn) {
       ${toolHtml}
       ${firstError ? `<div class="inline-status" style="background:var(--red-soft);color:var(--red)">${escapeHtml(firstError)}</div>` : ""}
       ${allToolRuns.some(run => run.status === "running") ? `<div class="inline-status"><span class="spinner"></span>Tool execution persisted in transcript</div>` : ""}
+    </article>`;
+}
+
+function renderLiveUserCard() {
+  const live = state.liveTurn;
+  return `
+    <article class="turn-card user">
+      <div class="turn-meta">
+        <div class="turn-role user"><span class="dot"></span>user</div>
+        <div>sending…</div>
+      </div>
+      <div class="turn-text">${renderMarkdown(live.userText)}</div>
     </article>`;
 }
 
