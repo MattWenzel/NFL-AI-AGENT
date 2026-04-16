@@ -7,7 +7,7 @@ import pytest
 # ---------------------------------------------------------------------------
 # 1. OFFSET preserved when LIMIT is capped
 # ---------------------------------------------------------------------------
-from agent.sql_sandbox import _ensure_limit
+from agent.tools.sql_sandbox import _ensure_limit
 
 
 class TestEnsureLimit:
@@ -80,26 +80,26 @@ class TestValidateSQLEdgeCases:
     """Tests for validate_sql — comment tolerance and multi-statement handling."""
 
     def test_leading_block_comment_accepted(self):
-        from agent.sql_sandbox import validate_sql
+        from agent.tools.sql_sandbox import validate_sql
         validate_sql("/* hi */ SELECT 1")
 
     def test_leading_line_comment_accepted(self):
-        from agent.sql_sandbox import validate_sql
+        from agent.tools.sql_sandbox import validate_sql
         validate_sql("-- note\nSELECT 1")
 
     def test_string_literal_with_semicolon_accepted(self):
         """Legal query with a semicolon inside a string must not be rejected."""
-        from agent.sql_sandbox import validate_sql
+        from agent.tools.sql_sandbox import validate_sql
         validate_sql("SELECT 'a; b' AS x")
 
     def test_multi_statement_rejected_by_sqlite(self):
         """Multi-statement is caught by SQLite at execute time."""
-        from agent.sql_sandbox import execute_safe_sql, SQLValidationError
+        from agent.tools.sql_sandbox import execute_safe_sql, SQLValidationError
         with pytest.raises(SQLValidationError, match="one statement"):
             execute_safe_sql("SELECT 1; SELECT 2")
 
     def test_ddl_still_rejected(self):
-        from agent.sql_sandbox import validate_sql, SQLValidationError
+        from agent.tools.sql_sandbox import validate_sql, SQLValidationError
         with pytest.raises(SQLValidationError):
             validate_sql("DROP TABLE players")
 
@@ -109,7 +109,7 @@ class TestSandboxIntegration:
 
     def test_parameterized_limit_query_runs(self):
         """LIMIT ? placeholder must execute without SQL syntax error."""
-        from agent.sql_sandbox import execute_safe_sql
+        from agent.tools.sql_sandbox import execute_safe_sql
         result = execute_safe_sql(
             "SELECT gsis_id FROM players WHERE position = ? LIMIT ?",
             ("QB", 3),
@@ -118,7 +118,7 @@ class TestSandboxIntegration:
 
     def test_search_players_tool_works(self):
         """Regression: _search_players must not produce duplicate LIMIT."""
-        from agent.tools import _search_players
+        from agent.tools.search_players import _search_players
         out = _search_players({"position": "QB", "limit": 3})
         # Result is a JSON string; must not contain a syntax error marker.
         assert "syntax error" not in out.lower()
@@ -425,7 +425,7 @@ class TestRuntimeStoreValidation:
 # ---------------------------------------------------------------------------
 # 8. Negative limit clamped to 1 in _search_players (Fix 1)
 # ---------------------------------------------------------------------------
-from agent.tools import _search_players
+from agent.tools.search_players import _search_players
 
 
 class TestSearchPlayersLimit:
@@ -436,10 +436,10 @@ class TestSearchPlayersLimit:
         # We only need to verify the clamped value reaches the SQL.
         # Patch execute_safe_sql to capture the params tuple.
         import unittest.mock as mock
-        from agent.sql_sandbox import SQLResult
+        from agent.tools.sql_sandbox import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("agent.tools.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("agent.tools.search_players.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": -5})
             # Last positional arg in the params tuple is the limit
             call_params = m.call_args[0][1]
@@ -447,30 +447,30 @@ class TestSearchPlayersLimit:
 
     def test_zero_limit_clamped_to_1(self):
         import unittest.mock as mock
-        from agent.sql_sandbox import SQLResult
+        from agent.tools.sql_sandbox import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("agent.tools.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("agent.tools.search_players.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": 0})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 1
 
     def test_normal_limit_unchanged(self):
         import unittest.mock as mock
-        from agent.sql_sandbox import SQLResult
+        from agent.tools.sql_sandbox import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("agent.tools.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("agent.tools.search_players.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": 25})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 25
 
     def test_over_max_clamped_to_50(self):
         import unittest.mock as mock
-        from agent.sql_sandbox import SQLResult
+        from agent.tools.sql_sandbox import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("agent.tools.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("agent.tools.search_players.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": 999})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 50
@@ -503,7 +503,7 @@ class TestChatResponseTruncated:
 # ---------------------------------------------------------------------------
 # 10. _get_joins helper returns consistent data (Fix 9)
 # ---------------------------------------------------------------------------
-from api.schema_registry import _get_joins, JOIN_EDGES
+from agent.tools.get_schema import _get_joins, JOIN_EDGES
 
 
 class TestGetJoins:
@@ -555,10 +555,10 @@ class TestSearchPlayersNonIntegerLimit:
     def test_string_limit_falls_back_to_default(self):
         """LLM sends 'ten' instead of 10 — should fall back to 10."""
         import unittest.mock as mock
-        from agent.sql_sandbox import SQLResult
+        from agent.tools.sql_sandbox import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("agent.tools.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("agent.tools.search_players.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": "ten"})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 10
@@ -566,10 +566,10 @@ class TestSearchPlayersNonIntegerLimit:
     def test_none_limit_falls_back_to_default(self):
         """limit=None should fall back to 10."""
         import unittest.mock as mock
-        from agent.sql_sandbox import SQLResult
+        from agent.tools.sql_sandbox import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("agent.tools.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("agent.tools.search_players.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": None})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 10
@@ -577,10 +577,10 @@ class TestSearchPlayersNonIntegerLimit:
     def test_float_string_limit_truncates(self):
         """'10.5' is not a valid int literal — should fall back to 10."""
         import unittest.mock as mock
-        from agent.sql_sandbox import SQLResult
+        from agent.tools.sql_sandbox import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("agent.tools.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("agent.tools.search_players.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": "10.5"})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 10

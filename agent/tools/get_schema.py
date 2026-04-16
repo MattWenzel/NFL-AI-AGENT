@@ -1,12 +1,15 @@
-"""Central schema registry: introspects databases, defines join graph, table aliases."""
+"""Schema discovery tool: table column introspection + join graph."""
 
+import json
 import sqlite3
 from pathlib import Path
 
 from config import DB_PATH, PBP_DB_PATH
+from agent.tools._helpers import _truncate
+
 
 # ---------------------------------------------------------------------------
-# Table aliases (short names for the query API)
+# Table aliases (short names paired to each table)
 # ---------------------------------------------------------------------------
 
 TABLE_ALIASES = {
@@ -26,7 +29,6 @@ TABLE_ALIASES = {
     "pbp": "play_by_play",
 }
 
-ALIAS_TO_TABLE = TABLE_ALIASES
 TABLE_TO_ALIAS = {v: k for k, v in TABLE_ALIASES.items()}
 
 # Which database each table lives in
@@ -47,12 +49,11 @@ TABLE_DATABASE = {
     "depth_charts_2025": "main",
 }
 
+
 # ---------------------------------------------------------------------------
-# Join graph: adjacency list of (table_a, table_b) -> ON clause
-# Each edge is bidirectional.  Bridge tables (player_ids) are intermediaries.
+# Join graph: (table_a, table_b) -> (a_col, b_col, cast_needed). Bidirectional.
 # ---------------------------------------------------------------------------
 
-# Join edges: (table_a, table_b) -> (a_col, b_col, cast_needed)
 JOIN_EDGES: dict[tuple[str, str], tuple[str, str, bool]] = {
     # GSIS ID direct joins
     ("players", "game_stats"): ("gsis_id", "player_id", False),
@@ -81,40 +82,18 @@ def _make_bidirectional():
     for (a, b), v in JOIN_EDGES.items():
         reverse_key = (b, a)
         if reverse_key not in JOIN_EDGES:
-            # Swap column order
             additions[reverse_key] = (v[1], v[0], v[2])
     JOIN_EDGES.update(additions)
 
 
 _make_bidirectional()
 
-# Adjacency list for BFS
-JOIN_GRAPH: dict[str, set[str]] = {}
-for (a, b) in JOIN_EDGES:
-    JOIN_GRAPH.setdefault(a, set()).add(b)
-    JOIN_GRAPH.setdefault(b, set()).add(a)
-
-# ---------------------------------------------------------------------------
-# SQL reserved words that need quoting
-# ---------------------------------------------------------------------------
-
-SQL_RESERVED = {
-    "pass", "int", "drop", "rank", "order", "group", "select", "from",
-    "where", "join", "on", "as", "and", "or", "not", "in", "like",
-    "between", "is", "null", "desc", "asc", "limit", "offset",
-    "having", "by", "table", "index", "create", "insert", "update",
-    "delete", "set", "values", "into", "check", "default", "key",
-    "primary", "foreign", "references", "unique", "constraint",
-    "run", "sack", "penalty",
-}
 
 # ---------------------------------------------------------------------------
 # Column whitelist: introspected at import time
 # ---------------------------------------------------------------------------
 
-# {table_name: {col_name: col_type}}
 TABLE_COLUMNS: dict[str, dict[str, str]] = {}
-
 
 INTERNAL_TABLES = {"sqlite_sequence"}
 
@@ -155,36 +134,10 @@ def _init_columns():
 
 _init_columns()
 
-ALL_TABLES = set(TABLE_COLUMNS.keys())
 
 # ---------------------------------------------------------------------------
 # Public helpers
 # ---------------------------------------------------------------------------
-
-
-def resolve_table_name(name: str) -> str | None:
-    """Resolve an alias or full table name. Returns None if invalid."""
-    if name in ALL_TABLES:
-        return name
-    if name in ALIAS_TO_TABLE:
-        resolved = ALIAS_TO_TABLE[name]
-        if resolved in ALL_TABLES:
-            return resolved
-    return None
-
-
-def quote_column(col: str) -> str:
-    """Quote a column name if it's a SQL reserved word."""
-    if col.lower() in SQL_RESERVED:
-        return f'"{col}"'
-    return col
-
-
-def get_join_condition(table_a: str, table_b: str) -> tuple[str, str, bool] | None:
-    """Get join columns for two tables. Returns (a_col, b_col, needs_cast) or None."""
-    key = (table_a, table_b)
-    return JOIN_EDGES.get(key)
-
 
 def _get_joins(table_name: str | None = None) -> list[dict]:
     """Return deduplicated join edges, optionally filtered to a single table.
@@ -213,7 +166,7 @@ def _get_joins(table_name: str | None = None) -> list[dict]:
 
 
 def build_schema_response() -> dict:
-    """Build the full schema response for GET /schema."""
+    """Build the full schema response covering all introspected tables."""
     tables = {}
     for table_name, columns in TABLE_COLUMNS.items():
         alias = TABLE_TO_ALIAS.get(table_name)
@@ -229,7 +182,6 @@ def build_schema_response() -> dict:
             "column_count": len(col_list),
         }
 
-    # Build join relationships
     joins = []
     for j in _get_joins():
         join_info = {
@@ -261,8 +213,6 @@ def build_table_schema(table_name: str) -> dict | None:
         {"name": col_name, "type": col_type}
         for col_name, col_type in columns.items()
     ]
-
-    # Find joins involving this table
     related_joins = _get_joins(table_name)
 
     return {
@@ -273,3 +223,18 @@ def build_table_schema(table_name: str) -> dict | None:
         "column_count": len(col_list),
         "joins": related_joins,
     }
+
+
+# ---------------------------------------------------------------------------
+# Tool entrypoint
+# ---------------------------------------------------------------------------
+
+def _get_schema(input_data: dict) -> str:
+    table_name = input_data.get("table_name", "")
+    if table_name:
+        result = build_table_schema(table_name)
+        if result is None:
+            return json.dumps({"error": f"Unknown table: {table_name}"})
+    else:
+        result = build_schema_response()
+    return _truncate(json.dumps(result))
