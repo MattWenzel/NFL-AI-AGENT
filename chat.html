@@ -63,13 +63,10 @@ body {
 }
 
 .sidebar,
+.main,
 .inspector {
   min-height: 0;
   overflow: hidden;
-}
-
-.main {
-  min-height: 0;
 }
 
 .sidebar {
@@ -234,26 +231,39 @@ body {
   font-size: 0.78rem;
 }
 
+.sidebar-footer {
+  padding: 14px 16px 18px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sidebar-footer-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-weight: 700;
+}
+
 .model-picker {
   display: flex;
-  flex-direction: row;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: nowrap;
-  white-space: nowrap;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .model-picker select {
+  width: 100%;
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 12px 14px;
+  border-radius: 10px;
+  padding: 10px 12px;
   font: inherit;
-  font-size: 0.95rem;
+  font-size: 0.88rem;
   font-weight: 600;
   background: var(--panel-strong);
   color: var(--text);
   cursor: pointer;
-  box-shadow: var(--shadow);
 }
 
 .model-picker select:hover {
@@ -486,13 +496,6 @@ body {
 .composer {
   min-width: 0;
   position: relative;
-}
-
-.composer-row .model-picker {
-  position: absolute;
-  right: calc(100% + 20px);
-  bottom: 6px;
-  z-index: 5;
 }
 
 .composer textarea {
@@ -776,6 +779,13 @@ body {
       <button class="button" id="newChatBtn">New session</button>
     </div>
     <div class="conversation-list" id="conversationList"></div>
+    <div class="sidebar-footer">
+      <div class="sidebar-footer-label">Model</div>
+      <div class="model-picker">
+        <select id="providerSelect" aria-label="Provider"></select>
+        <select id="modelSelect" aria-label="Model"></select>
+      </div>
+    </div>
   </aside>
 
   <main class="main">
@@ -783,10 +793,6 @@ body {
 
     <footer class="input-shell">
       <div class="composer-row">
-        <div class="model-picker">
-          <select id="providerSelect" aria-label="Provider"></select>
-          <select id="modelSelect" aria-label="Model"></select>
-        </div>
         <div class="composer">
           <textarea id="input" placeholder="Ask about NFL stats, exports, or a player comparison..." rows="1"></textarea>
           <button id="sendBtn" title="Send">
