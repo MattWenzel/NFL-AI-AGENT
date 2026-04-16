@@ -9,9 +9,8 @@ from agent.tools.sql_sandbox import SQLValidationError
 from agent.tools.definitions import TOOL_DEFINITIONS
 from agent.tools.create_csv_export import _create_csv_export
 from agent.tools.execute_sql import _execute_sql
-from agent.tools.get_player_info import _get_player_info
 from agent.tools.get_schema import _get_schema
-from agent.tools.search_players import _search_players
+from agent.tools.player_lookup import _get_player_info, _search_players
 
 logger = logging.getLogger(__name__)
 

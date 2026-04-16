@@ -118,7 +118,7 @@ class TestSandboxIntegration:
 
     def test_search_players_tool_works(self):
         """Regression: _search_players must not produce duplicate LIMIT."""
-        from agent.tools.search_players import _search_players
+        from agent.tools.player_lookup import _search_players
         out = _search_players({"position": "QB", "limit": 3})
         # Result is a JSON string; must not contain a syntax error marker.
         assert "syntax error" not in out.lower()
@@ -425,7 +425,7 @@ class TestRuntimeStoreValidation:
 # ---------------------------------------------------------------------------
 # 8. Negative limit clamped to 1 in _search_players (Fix 1)
 # ---------------------------------------------------------------------------
-from agent.tools.search_players import _search_players
+from agent.tools.player_lookup import _search_players
 
 
 class TestSearchPlayersLimit:
@@ -439,7 +439,7 @@ class TestSearchPlayersLimit:
         from agent.tools.sql_sandbox import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("agent.tools.search_players.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("agent.tools.player_lookup.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": -5})
             # Last positional arg in the params tuple is the limit
             call_params = m.call_args[0][1]
@@ -450,7 +450,7 @@ class TestSearchPlayersLimit:
         from agent.tools.sql_sandbox import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("agent.tools.search_players.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("agent.tools.player_lookup.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": 0})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 1
@@ -460,7 +460,7 @@ class TestSearchPlayersLimit:
         from agent.tools.sql_sandbox import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("agent.tools.search_players.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("agent.tools.player_lookup.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": 25})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 25
@@ -470,7 +470,7 @@ class TestSearchPlayersLimit:
         from agent.tools.sql_sandbox import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("agent.tools.search_players.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("agent.tools.player_lookup.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": 999})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 50
@@ -558,7 +558,7 @@ class TestSearchPlayersNonIntegerLimit:
         from agent.tools.sql_sandbox import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("agent.tools.search_players.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("agent.tools.player_lookup.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": "ten"})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 10
@@ -569,7 +569,7 @@ class TestSearchPlayersNonIntegerLimit:
         from agent.tools.sql_sandbox import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("agent.tools.search_players.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("agent.tools.player_lookup.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": None})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 10
@@ -580,7 +580,7 @@ class TestSearchPlayersNonIntegerLimit:
         from agent.tools.sql_sandbox import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("agent.tools.search_players.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("agent.tools.player_lookup.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": "10.5"})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 10
