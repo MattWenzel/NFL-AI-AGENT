@@ -6,8 +6,8 @@ Comprehensive NFL player statistics database built from [nflverse](https://githu
 
 | Database | Size | Tables | Total Rows | Years |
 |----------|------|--------|------------|-------|
-| `nflverse_v2.db` | 327 MB | 13 | ~2.25M | 1999-2025 |
-| `pbp_v2.db` | 2,082 MB | 1 | 1.28M | 1999-2025 |
+| `nflverse.db` | 327 MB | 13 | ~2.25M | 1999-2025 |
+| `pbp.db` | 2,082 MB | 1 | 1.28M | 1999-2025 |
 
 Legacy DBs (`nflverse_custom.db`, `pbp.db`) use old custom column renames — do not mix with v2.
 
@@ -28,14 +28,14 @@ Legacy DBs (`nflverse_custom.db`, `pbp.db`) use old custom column renames — do
 | **depth_charts_2025** | 476,501 | 12 | Daily depth charts (2025+, different schema) |
 | **pfr_advanced** | 7,798 | 64 | PFR advanced stats (2018-2025) |
 | **qbr** | 9,570 | 30 | ESPN Total QBR (2006-2023) |
-| **play_by_play** | 1,279,628 | 372 | Every NFL play (pbp_v2.db) |
+| **play_by_play** | 1,279,628 | 372 | Every NFL play (pbp.db) |
 
 ---
 
 ## Schema Overview
 
 ```
-                          nflverse_v2.db
+                          nflverse.db
 ┌──────────────────────────────────────────────────────────────────────────┐
 │                              PLAYERS                                    │
 │   gsis_id (PK) | display_name | position | latest_team | headshot | ...│
@@ -88,7 +88,7 @@ Legacy DBs (`nflverse_custom.db`, `pbp.db`) use old custom column renames — do
 │  2018-2025              │        │  2006-2023              │
 └─────────────────────────┘        └─────────────────────────┘
 
-                              pbp_v2.db (separate)
+                              pbp.db (separate)
 ┌──────────────────────────────────────────────────────────────────────────┐
 │                           PLAY_BY_PLAY                                  │
 │     game_id + play_id | 372 columns | EPA/WPA/CPOE | Player IDs (GSIS) │
@@ -105,7 +105,7 @@ Legacy DBs (`nflverse_custom.db`, `pbp.db`) use old custom column renames — do
 Most tables use the NFL's **Game Statistics & Information System ID (GSIS ID)** as the primary identifier:
 - Format: `00-0033873` (Patrick Mahomes)
 - Column name varies: `gsis_id` in `players`, `player_id` in `game_stats`/`season_stats`
-- Used in: `players`, `game_stats`, `season_stats`, `ngs_stats`, `depth_charts`, `depth_charts_2025`, `pbp_v2.db`
+- Used in: `players`, `game_stats`, `season_stats`, `ngs_stats`, `depth_charts`, `depth_charts_2025`, `pbp.db`
 
 ### Key Join: game_stats ↔ players
 
@@ -132,7 +132,7 @@ Different data sources use different ID systems. The `player_ids` table provides
 | `snap_counts` | `pfr_player_id` | `MahoPa00` | Via `player_ids.pfr_id` → `gsis_id` |
 | `pfr_advanced` | `pfr_id` | `MahoPa00` | Via `player_ids.pfr_id` → `gsis_id` |
 | `qbr` | `player_id` | `3139477` (ESPN) | Via `player_ids.espn_id` → `gsis_id` |
-| `pbp_v2.db` | `*_player_id` | `00-0035228` | Direct to `players.gsis_id` |
+| `pbp.db` | `*_player_id` | `00-0035228` | Direct to `players.gsis_id` |
 
 ### Join Examples
 
@@ -959,7 +959,7 @@ ESPN Total QBR (Quarterback Rating) data. Includes weekly and season totals.
 
 ---
 
-## Play-by-Play Database (`pbp_v2.db`)
+## Play-by-Play Database (`pbp.db`)
 
 Separate database containing every NFL play from 1999-2025. At 2,082 MB it is too large to combine with the main database.
 
@@ -967,7 +967,7 @@ Separate database containing every NFL play from 1999-2025. At 2,082 MB it is to
 
 **Rows:** 1,279,628 | **Years:** 1999-2025 | **Columns:** 372
 
-All player ID columns use **GSIS ID** format (`00-0035228`) for direct joins to `nflverse_v2.db.players.gsis_id`.
+All player ID columns use **GSIS ID** format (`00-0035228`) for direct joins to `nflverse.db.players.gsis_id`.
 
 v2 retains all 372 nflverse columns (the legacy `pbp.db` trimmed these to 84). The columns are organized into the following categories:
 
@@ -1059,7 +1059,7 @@ Pass over expected: `xpass`, `pass_oe`, `qb_epa`
 
 `series`, `series_success`, `series_result`, `order_sequence`, `start_time`, `time_of_day`, `weather`, `nfl_api_id`, `play_clock`, `play_deleted`, `special_teams_play`, `st_play_type`, `end_clock_time`, `end_yard_line`, `replay_or_challenge`, `replay_or_challenge_result`, `out_of_bounds`, `home_opening_kickoff`
 
-**Note:** `pbp_v2.db` has no indexes. Consider adding indexes on frequently-queried columns for better performance.
+**Note:** `pbp.db` has no indexes. Consider adding indexes on frequently-queried columns for better performance.
 
 ---
 
@@ -1073,7 +1073,7 @@ v2 databases use minimal indexes. Only 3 indexes exist:
 | `idx_season_stats_player_season` | `season_stats` | `(player_id, season)` |
 | `idx_players_gsis_id` | `players` | `gsis_id` |
 
-`pbp_v2.db` has no indexes.
+`pbp.db` has no indexes.
 
 ---
 
@@ -1227,8 +1227,8 @@ ORDER BY season;
 ### Red zone efficiency from play-by-play
 
 ```sql
--- Attach pbp_v2.db when needed
-ATTACH DATABASE 'pbp_v2.db' AS pbp;
+-- Attach pbp.db when needed
+ATTACH DATABASE 'pbp.db' AS pbp;
 
 SELECT
     p.passer_player_name,
@@ -1288,19 +1288,27 @@ Data is sourced from [nflverse](https://github.com/nflverse) via `nflreadpy` (su
 ## Build Scripts
 
 ```bash
-# Full build from scratch (all tables, all years)
-python3 scripts/update_db.py --all
+# Primary path: fetch raw parquet, then build from local files
+python3 scripts/download.py
+python3 scripts/build_db.py --all
 
 # Full build to a specific output file
-python3 scripts/update_db.py --all --output data/nflverse_v2.db
+python3 scripts/build_db.py --all --output data/nflverse.db
 
 # Incremental updates
-python3 scripts/update_db.py --years 2025
-python3 scripts/update_db.py --tables game_stats players
-python3 scripts/update_db.py --pbp --years 2025
+python3 scripts/build_db.py --years 2025
+python3 scripts/build_db.py --tables game_stats players
+python3 scripts/build_db.py --pbp --years 2025
 
 # Play-by-play (separate DB)
-python3 scripts/update_db.py --pbp --all
+python3 scripts/build_db.py --pbp --all
+
+# Fallback path: network-backed via nflreadpy (use when local parquet is stale/broken)
+python3 scripts/build_db_nflreadpy.py --all
+python3 scripts/build_db_nflreadpy.py --pbp --all
+
+# Check what's stale before running
+python3 scripts/check_updates.py
 ```
 
 ---
@@ -1316,7 +1324,7 @@ python3 scripts/update_db.py --pbp --all
 - **NGS `stat_type`**: `passing`, `rushing`, `receiving`; `week=0` = season totals.
 - **PFR `stat_type`**: `pass`, `rush`, `rec` (different naming from NGS!).
 - **QBR**: `season_type` is `"Regular"` or `"Postseason"`. **No season total rows exist** — compute with `AVG(qbr_total)` grouped by player + season. Filter `qualified = 1`.
-- **Schema drift**: Handled automatically by `scripts/update_db.py` which adds missing columns via `ALTER TABLE`.
+- **Schema drift**: Handled automatically by `scripts/pipeline.py` (invoked by `build_db.py`/`build_db_nflreadpy.py`) which adds missing columns via `ALTER TABLE`.
 - **Join path**: `game_stats.player_id = players.gsis_id` (same GSIS format, different column names).
 - **`nfl_data_py`**: Archived Sept 2025. Successor is `nflreadpy`.
 - **Draft picks**: Go back to 1980 with career stats, Pro Bowl/All-Pro counts, and HOF flag.

@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import schema, chat, exports, auth
+from api.routers import chat, exports, auth
 from agent.runtime import ChatRuntime
 from agent.runtime_store import RuntimeStore
 from config import DB_PATH, PBP_DB_PATH, RUNTIME_DB_PATH, format_file_size
@@ -28,15 +28,15 @@ async def lifespan(app: FastAPI):
     # DB checks
     if DB_PATH.exists():
         size = format_file_size(DB_PATH.stat().st_size)
-        logger.info("nflverse_v2.db: %s (%s)", DB_PATH, size)
+        logger.info("nflverse.db: %s (%s)", DB_PATH, size)
     else:
-        logger.warning("nflverse_v2.db NOT FOUND at %s — API endpoints will fail", DB_PATH)
+        logger.warning("nflverse.db NOT FOUND at %s — API endpoints will fail", DB_PATH)
 
     if PBP_DB_PATH.exists():
         size = format_file_size(PBP_DB_PATH.stat().st_size)
-        logger.info("pbp_v2.db: %s (%s)", PBP_DB_PATH, size)
+        logger.info("pbp.db: %s (%s)", PBP_DB_PATH, size)
     else:
-        logger.warning("pbp_v2.db not found at %s — PBP queries will fail", PBP_DB_PATH)
+        logger.warning("pbp.db not found at %s — PBP queries will fail", PBP_DB_PATH)
 
     # LLM provider checks
     from agent.providers import list_providers, provider_is_available
@@ -100,7 +100,6 @@ def create_app() -> FastAPI:
     )
 
     # Include routers
-    app.include_router(schema.router)
     app.include_router(chat.router)
     app.include_router(exports.router)
     app.include_router(auth.router)
@@ -109,24 +108,6 @@ def create_app() -> FastAPI:
     def health_check():
         """Health check endpoint."""
         return {"status": "ok"}
-
-    @app.get("/meta/positions")
-    def list_positions():
-        """List all positions in the database."""
-        return {
-            "positions": [
-                "QB", "RB", "WR", "TE", "K", "FB", "P",
-                "C", "G", "T", "OL", "OT",
-                "DE", "DT", "DL", "LB", "ILB", "OLB", "MLB",
-                "CB", "S", "FS", "SS", "DB",
-                "LS", "KR", "PR"
-            ]
-        }
-
-    @app.get("/meta/seasons")
-    def list_seasons():
-        """List available seasons."""
-        return {"seasons": list(range(1999, 2026))}
 
     return app
 

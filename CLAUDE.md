@@ -6,8 +6,8 @@ NFL player stats database built from [nflverse](https://github.com/nflverse/nflv
 
 | Database | Size | Tables | Rows | Years |
 |----------|------|--------|------|-------|
-| `nflverse_v2.db` | ~200 MB | 13 | 1.75M | 1999-2025 |
-| `pbp_v2.db` | ~550 MB | 1 | 1.28M | 1999-2025 |
+| `nflverse.db` | ~200 MB | 13 | 1.75M | 1999-2025 |
+| `pbp.db` | ~550 MB | 1 | 1.28M | 1999-2025 |
 
 **Full schema**: [docs/DATABASE.md](docs/DATABASE.md)
 **API reference**: [docs/API.md](docs/API.md)
@@ -19,7 +19,7 @@ NFL player stats database built from [nflverse](https://github.com/nflverse/nflv
 
 **Supplementary**: `snap_counts` (2015+), `ngs_stats` (2016+), `depth_charts` (2001-2024), `depth_charts_2025` (2025, uses `dt` datetime), `pfr_advanced` (2018+), `qbr` (2006-2023)
 
-**Play-by-play**: 1.28M plays in separate `pbp_v2.db` (too large to combine)
+**Play-by-play**: 1.28M plays in separate `pbp.db` (too large to combine)
 
 ## ID System
 
@@ -29,25 +29,12 @@ NFL player stats database built from [nflverse](https://github.com/nflverse/nflv
 - **ESPN ID** (`3139477`) - Used by `qbr`
 - Join via `player_ids` table for cross-reference
 
-## Skills
-
-### `nfl-stats` — NFL Stats Lookup
-
-Auto-triggers when the user asks any NFL stats question. Also invocable via `/nfl-stats`.
-
-Queries the local SQLite databases directly via `sqlite3`. Supports:
-- **Direct SQL** across all 13 tables with full JOIN, GROUP BY, subquery, and window function support
-- **Bridge joins** through `player_ids` for tables using PFR or ESPN IDs
-- **Play-by-play analysis** from separate `pbp_v2.db` for situational breakdowns (EPA, WPA, CPOE)
-- **Schema discovery** via `GET /schema/{table}` from the local API
-
 ## API
 
 Base URL: `http://localhost:8001` | Interactive docs: `/docs` | Read-only database.
 
 See [docs/API.md](docs/API.md) for full endpoint reference. Key access patterns:
 
-- **`GET /schema/{table}`** — column discovery
 - **`POST /chat/stream`** — AI chat with streaming
 - **`GET /exports/{filename}`** — CSV export download
 
@@ -114,9 +101,12 @@ open chat.html              # Chat UI
 python3 -m pytest tests/    # Run tests
 
 # Build scripts (in NFLVERSE/)
-python3 NFLVERSE/scripts/build_db.py --all          # Core DB (from local parquet)
-python3 NFLVERSE/scripts/update_db.py --all         # Core DB (via nflreadpy)
-python3 NFLVERSE/scripts/update_db.py --pbp --all   # Play-by-play
+python3 NFLVERSE/scripts/download.py                      # Fetch raw parquet into data/raw/
+python3 NFLVERSE/scripts/build_db.py --all                # Core DB (from local parquet)
+python3 NFLVERSE/scripts/build_db.py --pbp --all          # Play-by-play (from local parquet)
+python3 NFLVERSE/scripts/build_db_nflreadpy.py --all      # Fallback: core DB via nflreadpy (network)
+python3 NFLVERSE/scripts/build_db_nflreadpy.py --pbp --all # Fallback: PBP via nflreadpy (network)
+python3 NFLVERSE/scripts/check_updates.py                 # Check which tables/years are stale
 ```
 
 **Note**: Restart the API server (`python3 run.py`) after changing `system_prompt.py` or `tools.py` — the running server caches imports.

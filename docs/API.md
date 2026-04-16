@@ -4,26 +4,17 @@ NFL player statistics API covering **14 tables**, **2.25M+ rows**, seasons **199
 
 - **Base URL:** `http://localhost:8001`
 - **Interactive docs:** `http://localhost:8001/docs`
-- **Database files:** `NFLVERSE/data/nflverse_v2.db` (main), `NFLVERSE/data/pbp_v2.db` (play-by-play)
+- **Database files:** `NFLVERSE/data/nflverse.db` (main), `NFLVERSE/data/pbp.db` (play-by-play)
 
 ---
 
 ## Endpoint Reference
 
-### Schema Discovery
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/schema` | All 13 tables with columns, types, joins, aliases |
-| `GET` | `/schema/{table_name}` | Single table schema (accepts alias, e.g. `gs`) |
-
-### Meta & Health
+### Health
 
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/health` | Returns `{"status": "ok"}` |
-| `GET` | `/meta/positions` | List of all NFL positions |
-| `GET` | `/meta/seasons` | List of available seasons (1999-2025) |
 
 ### Chat
 

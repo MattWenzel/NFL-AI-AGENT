@@ -15,9 +15,8 @@ def load_dotenv():
                     key, _, value = line.partition("=")
                     os.environ.setdefault(key.strip(), value.strip())
 
-# v2 databases built from native nflverse column names
-DB_PATH = Path(__file__).parent / "NFLVERSE" / "data" / "nflverse_v2.db"
-PBP_DB_PATH = Path(__file__).parent / "NFLVERSE" / "data" / "pbp_v2.db"
+DB_PATH = Path(__file__).parent / "NFLVERSE" / "data" / "nflverse.db"
+PBP_DB_PATH = Path(__file__).parent / "NFLVERSE" / "data" / "pbp.db"
 
 # Conversation persistence
 RUNTIME_DB_PATH = Path(__file__).parent / "data" / "runtime.sqlite3"
