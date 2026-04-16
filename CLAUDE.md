@@ -6,12 +6,10 @@ NFL player stats database built from [nflverse](https://github.com/nflverse/nflv
 
 | Database | Size | Tables | Rows | Years |
 |----------|------|--------|------|-------|
-| `nflverse.db` | ~200 MB | 13 | 1.75M | 1999-2025 |
-| `pbp.db` | ~550 MB | 1 | 1.28M | 1999-2025 |
+| `nflverse.db` | ~327 MB | 13 | ~2.25M | 1999-2025 |
+| `pbp.db` | ~2 GB | 1 | 1.28M | 1999-2025 |
 
-**Full schema**: [docs/DATABASE.md](docs/DATABASE.md)
-**API reference**: [docs/API.md](docs/API.md)
-**Audit log**: [docs/AUDIT_LOG.md](docs/AUDIT_LOG.md) — past audit findings (fixed + false positives); check before re-auditing
+**Full schema**: [NFLVERSE/docs/DATABASE.md](NFLVERSE/docs/DATABASE.md)
 
 ## Key Tables
 
@@ -31,9 +29,9 @@ NFL player stats database built from [nflverse](https://github.com/nflverse/nflv
 
 ## API
 
-Base URL: `http://localhost:8001` | Interactive docs: `/docs` | Read-only database.
+Base URL: `http://localhost:8001` | Interactive docs: `/docs` (OpenAPI) | Read-only database.
 
-See [docs/API.md](docs/API.md) for full endpoint reference. Key access patterns:
+Key access patterns:
 
 - **`POST /chat/stream`** — AI chat with streaming
 - **`GET /exports/{filename}`** — CSV export download
@@ -50,8 +48,6 @@ Natural language interface to the database. Supports Anthropic Claude and OpenAI
 | OpenAI | `OPENAI_API_KEY` | `gpt-4o` | 128K |
 
 Select via `CHAT_PROVIDER` env var (default: `anthropic`), CLI `--provider` flag, or UI dropdown.
-
-**Provider abstraction**: [docs/PROVIDERS.md](docs/PROVIDERS.md) — canonical types (`StopReason`, `Usage`, `ToolDefinition`), `BaseLLMClient` ABC, registry/factory, per-provider implementation details, and how to add new providers.
 
 The chat runtime is transcript-backed: sessions, turns, assistant parts, tool runs, and compaction summaries are persisted in `data/runtime.sqlite3`. Long conversations are compacted by summarizing older turns and excluding older raw tool output from active prompt context while keeping the full transcript in storage.
 
