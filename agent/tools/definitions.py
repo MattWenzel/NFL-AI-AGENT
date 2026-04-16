@@ -1,6 +1,6 @@
 """Declarative tool schemas (Anthropic tool_use format) + typed exports."""
 
-from agent.providers.base import ToolDefinition
+from infra.providers.base import ToolDefinition
 
 TOOL_DEFINITIONS = [
     {

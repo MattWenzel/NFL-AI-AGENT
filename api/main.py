@@ -7,9 +7,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import chat, exports
+from api.routers import chat, conversations, exports, providers
 from agent.runtime import ChatRuntime
-from agent.runtime_store import RuntimeStore
+from infra.persistence.runtime_store import RuntimeStore
 from config import DB_PATH, PBP_DB_PATH, RUNTIME_DB_PATH, format_file_size
 
 logger = logging.getLogger(__name__)
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Startup validation and cleanup."""
     # Re-apply logging config in the worker process (reload=True spawns a fresh process)
-    from agent.logger import setup_logging
+    from infra.logger import setup_logging
     setup_logging(verbose=os.environ.get("NFLVERSE_VERBOSE") == "1")
 
     app.state.runtime_store = RuntimeStore(RUNTIME_DB_PATH)
@@ -39,7 +39,7 @@ async def lifespan(app: FastAPI):
         logger.warning("pbp.db not found at %s — PBP queries will fail", PBP_DB_PATH)
 
     # LLM provider checks
-    from agent.providers import list_providers
+    from infra.providers import list_providers
     configured = []
     for info in list_providers():
         api_key = os.environ.get(info.env_key, "")
@@ -90,6 +90,8 @@ def create_app() -> FastAPI:
 
     # Include routers
     app.include_router(chat.router)
+    app.include_router(conversations.router)
+    app.include_router(providers.router)
     app.include_router(exports.router)
 
     @app.get("/health")

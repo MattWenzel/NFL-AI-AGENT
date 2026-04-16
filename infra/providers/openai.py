@@ -6,7 +6,7 @@ import os
 import time
 from typing import AsyncIterator
 
-from agent.providers.base import (
+from infra.providers.base import (
     BaseLLMClient, LLMError, Message, MessageResponse, TextEvent, ToolUseEvent,
     StopReason, Usage, ToolDefinition,
 )

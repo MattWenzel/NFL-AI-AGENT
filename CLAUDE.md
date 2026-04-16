@@ -57,37 +57,70 @@ The chat runtime is transcript-backed: sessions, turns, assistant parts, tool ru
 
 ### Architecture
 
+Layered by flow-of-data: `api/` (HTTP transport) → `agent/` (domain: runtime + tools + prompts) → `infra/` (adapters to LLM SDKs + SQLite). `cli/` is an alternate entry point that drives the same `agent/` runtime.
+
 ```
-agent/
+api/                        # HTTP transport — thin routers
+├── main.py                 #   app factory + lifespan (validates DBs, wires store+runtime)
+├── dependencies.py         #   get_store, get_runtime, create_client_for_request, close_client
+├── schemas.py              #   all request/response Pydantic models
+├── sse.py                  #   RuntimeEvent → SSE dict serialization
+└── routers/
+    ├── chat.py             #   POST /chat/message, POST /chat/stream
+    ├── conversations.py    #   list / transcript / delete
+    ├── providers.py        #   GET /chat/providers
+    └── exports.py          #   GET /exports/{filename}
+
+agent/                      # Domain — runtime + tools + prompts
+├── runtime/
+│   ├── __init__.py         #   re-exports ChatRuntime, RuntimeEvent, RuntimeLoopError, TOOLS
+│   ├── loop.py             #   ChatRuntime: run_session, prepare_session, _execute_tool
+│   ├── events.py           #   RuntimeEvent dataclass + RuntimeLoopError
+│   ├── compaction.py       #   estimate_active_tokens, compact_if_needed
+│   └── loop_detector.py    #   raise_if_doom_loop
+├── prompts/
+│   ├── system.py           #   base prompt (~5K tokens of DB knowledge)
+│   └── hints.py            #   per-provider supplemental hints + get_system_prompt
+└── tools/
+    ├── __init__.py         #   re-exports TOOL_DEFINITIONS, TOOLS, execute_tool*
+    ├── definitions.py      #   tool schemas + TOOLS typed list
+    ├── dispatch.py         #   dispatch table + registry drift guard
+    ├── validation.py       #   input validation + error hint injection
+    ├── sql_sandbox.py      #   read-only SQL with timeout, row limit, PBP auto-attach
+    └── handlers/
+        ├── execute_sql.py
+        ├── player_lookup.py
+        ├── get_schema.py
+        └── create_csv_export.py
+
+infra/                      # External adapters
 ├── providers/
-│   ├── __init__.py        # Registry, factory (create_client), ProviderInfo, provider_is_available
-│   ├── base.py            # Canonical types + ABC + _wrap_api_errors/_translate_error
-│   ├── anthropic_provider.py  # Anthropic Claude
-│   └── openai_provider.py     # OpenAI GPT (optional SDK)
-├── runtime.py         # Shared persisted runtime loop + normalized runtime events
-├── runtime_store.py   # SQLite transcript store (sessions, turns, parts, tool runs, compaction)
-├── tools.py           # 5 tools + TOOLS (typed) / TOOL_DEFINITIONS (raw dicts)
-├── system_prompt.py   # Condensed DB knowledge (~5K tokens)
-├── provider_hints.py  # Per-provider supplemental hints + get_system_prompt(provider)
-├── sql_sandbox.py     # Read-only SQL with timeout, row limit, PBP auto-attach
-config.py              # DB paths, runtime db path, load_dotenv()
-chat_cli.py            # CLI entry point (--provider, --model flags)
-chat.html              # Browser UI (SSE streaming, provider selection)
-api/routers/chat.py    # FastAPI chat endpoints + transcript retrieval
-api/routers/exports.py # CSV export file serving + auto-cleanup
-tests/                 # pytest test suite
-data/                  # Runtime data (runtime.sqlite3 — ignored)
-backups/               # Old database files (pre-v2)
+│   ├── __init__.py         #   registry, factory (create_client), ProviderInfo
+│   ├── base.py             #   BaseLLMClient ABC + canonical types
+│   ├── anthropic.py        #   Anthropic Claude
+│   └── openai.py           #   OpenAI GPT (optional SDK)
+├── persistence/
+│   └── runtime_store.py    #   SQLite transcript store (sessions, turns, parts, tool runs)
+└── logger.py               #   setup_logging()
+
+cli/
+└── chat_cli.py             #   python3 -m cli.chat_cli (drives ChatRuntime directly)
+
+config.py                   # DB paths, runtime db path, load_dotenv()
+run.py                      # Server entry point
+chat.html                   # Browser UI (SSE streaming, provider selection)
+tests/                      # pytest test suite
+data/                       # Runtime data (runtime.sqlite3 — ignored)
 ```
 
 ## Development
 
 ```bash
-python3 run.py              # API server (port 8001)
-python3 chat_cli.py         # AI chat agent (default: Anthropic)
-python3 chat_cli.py -p openai   # Use OpenAI
-open chat.html              # Chat UI
-python3 -m pytest tests/    # Run tests
+python3 run.py                    # API server (port 8001)
+python3 -m cli.chat_cli           # AI chat agent (default: Anthropic)
+python3 -m cli.chat_cli -p openai # Use OpenAI
+open chat.html                    # Chat UI
+python3 -m pytest tests/          # Run tests
 
 # Build scripts (in NFLVERSE/)
 python3 NFLVERSE/scripts/download.py                      # Fetch raw parquet into data/raw/
@@ -98,7 +131,7 @@ python3 NFLVERSE/scripts/build_db_nflreadpy.py --pbp --all # Fallback: PBP via n
 python3 NFLVERSE/scripts/check_updates.py                 # Check which tables/years are stale
 ```
 
-**Note**: Restart the API server (`python3 run.py`) after changing `system_prompt.py` or `tools.py` — the running server caches imports.
+**Note**: Restart the API server (`python3 run.py`) after changing `agent/prompts/system.py` or `agent/tools/*` — the running server caches imports.
 
 ## Notes
 

@@ -4,7 +4,7 @@ import os
 import logging
 from dataclasses import dataclass, field
 
-from agent.providers.base import (
+from infra.providers.base import (
     BaseLLMClient, LLMError, Message, MessageResponse, TextEvent, ToolUseEvent,
     StopReason, Usage, ToolDefinition,
 )
@@ -91,7 +91,7 @@ def provider_is_available(info: "ProviderInfo") -> bool:
 
 
 # Register providers on import
-from agent.providers.anthropic_provider import AnthropicClient  # noqa: E402
+from infra.providers.anthropic import AnthropicClient  # noqa: E402
 
 register_provider(ProviderInfo(
     name="anthropic",
@@ -111,7 +111,7 @@ register_provider(ProviderInfo(
 ))
 
 try:
-    from agent.providers.openai_provider import OpenAIClient  # noqa: E402
+    from infra.providers.openai import OpenAIClient  # noqa: E402
     register_provider(ProviderInfo(
         name="openai",
         display_name="OpenAI",

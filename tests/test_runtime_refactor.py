@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from agent.providers.base import BaseLLMClient, MessageResponse, StopReason, TextEvent, ToolDefinition, ToolUseEvent, Usage
+from infra.providers.base import BaseLLMClient, MessageResponse, StopReason, TextEvent, ToolDefinition, ToolUseEvent, Usage
 from agent.runtime import ChatRuntime
-from agent.runtime_store import RuntimeStore
+from infra.persistence.runtime_store import RuntimeStore
 
 
 class StubClient(BaseLLMClient):
@@ -73,7 +73,7 @@ async def test_runtime_persists_turns_and_tool_runs(tmp_path: Path, monkeypatch)
             "hint": None,
             "duration_ms": 1,
         }
-    monkeypatch.setattr("agent.runtime.execute_tool_structured", fake_execute)
+    monkeypatch.setattr("agent.runtime.loop.execute_tool_structured", fake_execute)
     client = StubClient(
         [
             MessageResponse(
@@ -118,8 +118,8 @@ def test_runtime_store_compacts_old_turns(tmp_path: Path):
         store.create_turn(session.id, "user", text=f"user question {i} " * 20)
         store.create_turn(session.id, "assistant", text=f"assistant answer {i} " * 20)
 
-    runtime = ChatRuntime(store)
-    runtime._compact_if_needed(session)
+    from agent.runtime.compaction import compact_if_needed
+    compact_if_needed(store, session)
 
     transcript = store.get_transcript(session.id)
     compacted_turns = [turn for turn in transcript.turns if turn.compacted]
@@ -137,8 +137,8 @@ def test_runtime_uses_stored_token_usage_for_compaction(tmp_path: Path):
         assistant = store.create_turn(session.id, "assistant", text=f"assistant {i}")
         store.update_turn(assistant.id, input_tokens=120, output_tokens=60)
 
-    runtime = ChatRuntime(store)
-    runtime._compact_if_needed(session)
+    from agent.runtime.compaction import compact_if_needed
+    compact_if_needed(store, session)
     transcript = store.get_transcript(session.id)
     assert any(turn.compacted for turn in transcript.turns)
     assert any(turn.role == "summary" for turn in transcript.turns)
@@ -175,7 +175,7 @@ async def test_doom_loop_detection_stops_repeated_tool_calls(tmp_path: Path, mon
             "hint": None,
             "duration_ms": 1,
         }
-    monkeypatch.setattr("agent.runtime.execute_tool_structured", fake_execute)
+    monkeypatch.setattr("agent.runtime.loop.execute_tool_structured", fake_execute)
     repeated = MessageResponse(
         content=[ToolUseEvent(id="ignored", name="search_players", input={"name": "Josh Allen"})],
         stop_reason=StopReason.TOOL_USE,

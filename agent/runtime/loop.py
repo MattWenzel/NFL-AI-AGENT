@@ -1,55 +1,47 @@
-"""Persisted runtime loop for the NFL stats agent."""
+"""Persisted runtime loop for the NFL stats agent.
+
+Drives one user turn through the model → tool loop → persistence
+pipeline. Shared by the FastAPI router and the CLI.
+
+Concerns that used to live here are now in sibling modules:
+- RuntimeEvent, RuntimeLoopError       → events.py
+- Token estimation + compaction        → compaction.py
+- Doom-loop detection                  → loop_detector.py
+
+Tool schemas + the pre-built TOOLS list live in agent.tools.definitions.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
-from dataclasses import dataclass
 from typing import AsyncIterator
 
-from agent.provider_hints import get_system_prompt
-from agent.providers import BaseLLMClient, LLMError, TextEvent, ToolUseEvent, ToolDefinition, Usage
-from agent.runtime_store import RuntimeStore, SessionRecord, TurnRecord, safe_load_tool_input
-from agent.tools import TOOL_DEFINITIONS, execute_tool_structured
+from infra.persistence.runtime_store import (
+    RuntimeStore,
+    SessionRecord,
+    TurnRecord,
+)
+from infra.providers import (
+    BaseLLMClient,
+    TextEvent,
+    ToolDefinition,
+    ToolUseEvent,
+    Usage,
+    get_provider,
+)
+
+from agent.prompts.hints import get_system_prompt
+from agent.runtime.compaction import compact_if_needed
+from agent.runtime.events import RuntimeEvent, RuntimeLoopError
+from agent.runtime.loop_detector import raise_if_doom_loop
+from agent.tools import execute_tool_structured
 
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_ITERATIONS = 10
-RECENT_RAW_TURNS = 6
-CHARS_PER_TOKEN = 4
-RECENT_RAW_TOOL_RUNS = 12
 TITLE_PREVIEW_CHARS = 80
-# Rough allowance for the tool-call JSON envelope (tokens) on top of the
-# character-based estimate for the inner input payload.
-TOOL_CALL_OVERHEAD_TOKENS = 20
-COMPACTION_TEXT_PREVIEW_CHARS = 240
-COMPACTION_TOOL_INPUT_PREVIEW_CHARS = 160
-# Doom-loop detector: if the last N tool invocations (N = DOOM_LOOP_MATCH)
-# have identical (name, input), abort. The detector scans the recent tool
-# history up to DOOM_LOOP_WINDOW entries deep.
-DOOM_LOOP_WINDOW = 6
-DOOM_LOOP_MATCH = 3
-
-
-@dataclass
-class RuntimeEvent:
-    type: str
-    session_id: str
-    turn_id: str | None = None
-    text: str | None = None
-    tool_run_id: str | None = None
-    name: str | None = None
-    input: dict | None = None
-    result: str | None = None
-    error: str | None = None
-    iterations: int | None = None
-    status: str | None = None
-    meta: dict | None = None
-
-
-class RuntimeLoopError(Exception):
-    """Raised when the runtime detects an unrecoverable loop condition."""
 
 
 class ChatRuntime:
@@ -57,6 +49,27 @@ class ChatRuntime:
 
     def __init__(self, store: RuntimeStore):
         self.store = store
+
+    def prepare_session(
+        self,
+        client: BaseLLMClient,
+        provider_name: str,
+        conversation_id: str | None = None,
+    ) -> SessionRecord:
+        """Resolve (or create) the session backing a chat turn.
+
+        Called by both the API router and the CLI before `run_session` so
+        the two entry points agree on how sessions are keyed to providers
+        and how the context window is derived from the provider's
+        effective window.
+        """
+        info = get_provider(provider_name)
+        return self.store.get_or_create_session(
+            conversation_id=conversation_id,
+            provider=provider_name,
+            model=client.model,
+            context_window=info.effective_context_window,
+        )
 
     async def run_session(
         self,
@@ -90,7 +103,7 @@ class ChatRuntime:
             try:
                 for _ in range(MAX_TOOL_ITERATIONS):
                     iterations += 1
-                    compaction_info = self._compact_if_needed(session)
+                    compaction_info = compact_if_needed(self.store, session)
                     if compaction_info is not None:
                         yield RuntimeEvent(
                             type="compaction_started",
@@ -156,7 +169,7 @@ class ChatRuntime:
                             assistant_turn = None
                             return
 
-                        self._raise_if_doom_loop(session.id, tool_runs)
+                        raise_if_doom_loop(self.store, session.id, tool_runs)
 
                         results = await asyncio.gather(*(self._execute_tool(session.id, assistant_turn, tool_run) for tool_run in tool_runs))
                         for tool_run, result in zip(tool_runs, results):
@@ -267,91 +280,3 @@ class ChatRuntime:
             tool_run_id=tool_run.id,
         )
         return result
-
-    def _estimate_active_tokens(self, session_id: str) -> int:
-        transcript = self.store.get_transcript(session_id)
-        total = 0
-        for turn in transcript.turns:
-            if turn.compacted:
-                continue
-            total += self._estimate_turn_tokens(turn)
-            for tool_run in transcript.tool_runs_by_turn.get(turn.id, []):
-                if not tool_run.compacted and tool_run.result_text:
-                    total += max(1, len(tool_run.result_text) // CHARS_PER_TOKEN)
-            for part in transcript.parts_by_turn.get(turn.id, []):
-                if part.kind == "tool_call":
-                    total += max(1, len(part.content) // CHARS_PER_TOKEN) + TOOL_CALL_OVERHEAD_TOKENS
-        return total
-
-    @staticmethod
-    def _estimate_turn_tokens(turn: TurnRecord) -> int:
-        if turn.role == "assistant" and (turn.input_tokens or turn.output_tokens):
-            return max(1, turn.input_tokens + turn.output_tokens)
-        return max(1, len(turn.text or "") // CHARS_PER_TOKEN)
-
-    def _compact_if_needed(self, session: SessionRecord) -> dict | None:
-        if not session.context_window:
-            return None
-        active_tokens = self._estimate_active_tokens(session.id)
-        if active_tokens <= session.context_window:
-            return None
-        transcript = self.store.get_transcript(session.id)
-        active_turns = [t for t in transcript.turns if not t.compacted and t.role in {"user", "assistant"}]
-        if len(active_turns) <= RECENT_RAW_TURNS:
-            return None
-        source_turns = active_turns[:-RECENT_RAW_TURNS]
-        if not source_turns:
-            return None
-        summary_lines = ["Earlier conversation summary:"]
-        for turn in source_turns:
-            text = (turn.text or "").strip()
-            if text:
-                preview = text.replace("\n", " ")[:COMPACTION_TEXT_PREVIEW_CHARS]
-                summary_lines.append(f"- {turn.role}: {preview}")
-            for tool_run in transcript.tool_runs_by_turn.get(turn.id, []):
-                input_data = safe_load_tool_input(tool_run.input_json, tool_run_id=tool_run.id)
-                summary_lines.append(
-                    f"- tool {tool_run.tool_name} ({tool_run.status}): "
-                    f"input={json.dumps(input_data, sort_keys=True)[:COMPACTION_TOOL_INPUT_PREVIEW_CHARS]}"
-                )
-        summary = self.store.record_compaction(
-            session.id,
-            "\n".join(summary_lines),
-            [turn.id for turn in source_turns],
-        )
-        self._compact_old_tool_runs(session.id)
-        return {
-            "summary_turn_id": summary.summary_turn_id,
-            "source_turn_ids": summary.source_turn_ids,
-            "active_tokens_before": active_tokens,
-            "context_window": session.context_window,
-        }
-
-    def _compact_old_tool_runs(self, session_id: str) -> None:
-        transcript = self.store.get_transcript(session_id)
-        active_completed = [
-            run
-            for runs in transcript.tool_runs_by_turn.values()
-            for run in runs
-            if not run.compacted and run.status == "completed"
-        ]
-        if len(active_completed) <= RECENT_RAW_TOOL_RUNS:
-            return
-        stale = active_completed[:-RECENT_RAW_TOOL_RUNS]
-        for run in stale:
-            self.store.update_tool_run(run.id, compacted=1)
-
-    def _raise_if_doom_loop(self, session_id: str, tool_runs) -> None:
-        recent = self.store.get_recent_tool_runs(session_id, limit=DOOM_LOOP_WINDOW)
-        fingerprints = [(r.tool_name, r.input_json) for r in reversed(recent)]
-        fingerprints.extend((r.tool_name, r.input_json) for r in tool_runs)
-        if len(fingerprints) < DOOM_LOOP_MATCH:
-            return
-        tail = fingerprints[-DOOM_LOOP_MATCH:]
-        if all(fp == tail[0] for fp in tail):
-            raise RuntimeLoopError(
-                f"Detected repeated tool loop on {tail[0][0]} with identical input"
-            )
-
-
-TOOLS = [ToolDefinition.from_dict(d) for d in TOOL_DEFINITIONS]

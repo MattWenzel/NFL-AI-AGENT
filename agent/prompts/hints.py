@@ -44,7 +44,7 @@ Always call get_schema first for ngs_stats queries.""",
 
 def get_system_prompt(provider: str) -> str:
     """Return system prompt (with fresh date) plus any per-provider hints."""
-    from agent.system_prompt import get_base_prompt
+    from agent.prompts.system import get_base_prompt
 
     prompt = get_base_prompt()
     hints = PROVIDER_HINTS.get(provider, "")

@@ -6,12 +6,12 @@ import json
 import sys
 
 from config import RUNTIME_DB_PATH, load_dotenv
-from agent.providers import (
+from infra.providers import (
     create_client, get_provider, get_default_provider,
     provider_is_available, LLMError,
 )
 from agent.runtime import ChatRuntime, TOOLS
-from agent.runtime_store import RuntimeStore
+from infra.persistence.runtime_store import RuntimeStore
 
 
 def _parse_args() -> tuple[str | None, str | None]:

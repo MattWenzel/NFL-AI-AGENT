@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from agent.providers.base import Message, ToolUseEvent
+from infra.providers.base import Message, ToolUseEvent
 
 logger = logging.getLogger(__name__)
 

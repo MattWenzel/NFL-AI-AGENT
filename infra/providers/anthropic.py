@@ -8,7 +8,7 @@ from typing import AsyncIterator
 
 import anthropic
 
-from agent.providers.base import (
+from infra.providers.base import (
     BaseLLMClient, LLMError, Message, MessageResponse, TextEvent, ToolUseEvent,
     StopReason, Usage, ToolDefinition,
 )

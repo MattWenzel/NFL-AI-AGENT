@@ -22,7 +22,7 @@ if __name__ == "__main__":
     if args.verbose:
         os.environ["NFLVERSE_VERBOSE"] = "1"
 
-    from agent.logger import setup_logging
+    from infra.logger import setup_logging
     setup_logging(verbose=args.verbose)
 
     uvicorn.run(
