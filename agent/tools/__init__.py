@@ -6,12 +6,12 @@ Public surface:
     execute_tool             — async tool runner returning a JSON string
     execute_tool_structured  — async tool runner returning a normalized envelope
 
-Tool implementations live in per-tool modules; see `runtime.py` for the
+Tool implementations live in per-tool modules; see `dispatch.py` for the
 dispatch table.
 """
 
 from agent.tools.definitions import TOOL_DEFINITIONS, TOOLS
-from agent.tools.runtime import execute_tool, execute_tool_structured
+from agent.tools.dispatch import execute_tool, execute_tool_structured
 
 __all__ = [
     "TOOL_DEFINITIONS",
