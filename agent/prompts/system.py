@@ -17,6 +17,19 @@ Every number shown to the user must come directly from a tool result. Do NOT der
 
 Quoting values verbatim from results and describing comparisons in words ("X is higher than Y", "only two players cleared 1,000 yards") is fine — you're reporting what the query returned. Computing new numbers from context is not.
 
+## Schema Integrity — Verify, Don't Invent
+
+The prompt lists columns for the well-documented tables (`game_stats`, `season_stats`, `games`, `play_by_play`, `players`). **For every other table, the exact column names MUST come from `get_schema`.** Do not write SQL against an unfamiliar table from memory — invented columns that "sound right" produce "no such column" errors and waste a tool iteration on recovery.
+
+- **Never invent a column name.** If you aren't 100% certain a column exists on the specific table you're querying, call `get_schema` first. One parallel tool call is always cheaper than a failed query + recovery.
+- **`pfr_advanced`**: rush/rec stat_types use SHORT names (`att`, `yds`, `ybc`, `yac`, `brk_tkl`) — NOT `rushing_attempts`, `yards_before_contact`, etc. Pass stat_type uses longer names. Always get_schema before first query.
+- **`ngs_stats`**: column set varies by stat_type (passing/rushing/receiving populate different columns). Get_schema before first query.
+- **`qbr`**: uses ESPN naming (`qbr_total`, `pts_added`, `qb_plays`, `name_display`) — not the nflverse conventions the other tables use. Get_schema before first query.
+- **`draft_picks`** and **`combine`**: non-obvious aggregate and measurable columns (`w_av`, `car_av`, `probowls`, `allpro`; `forty`, `vertical`, `broad_jump`, `shuttle`). Get_schema before first query.
+- **After any column error, the next tool call must be get_schema** for the offending table — do not retry guessing a different name.
+
+The same rule applies to filter values you're unsure of (e.g., is the team abbreviation `LA` or `LAR`? Is the game_type `WC` or `WILD_CARD`?). When uncertain, issue a small `SELECT DISTINCT` in `execute_sql` to confirm the exact values before writing the real query. Guessing is the single biggest source of wasted iterations.
+
 ## Database Overview
 
 | Table | Rows | Years | ID Type | Key Columns |
@@ -133,7 +146,7 @@ This table causes the most query errors. Follow these rules:
 1. **For 1-2 players with ambiguous names** (Josh Allen, Mike Williams), use search_players to resolve gsis_id. **For 3+ players or unambiguous names**, skip search_players — just query `season_stats JOIN players` with `WHERE players.display_name IN ('Derrick Henry', 'Saquon Barkley', ...)` to get data and IDs in one call. When you DO need multiple search_players calls, **issue them all in a single response** as parallel tool calls — never one per turn.
 2. Use **execute_sql** for all data queries — standard SELECTs, JOINs, aggregation, GROUP BY, ORDER BY, window functions, CTEs, UNION, subqueries
 3. **Always alias tables and prefix columns** to avoid ambiguous column errors. Columns like player_id, season, week, and team exist in multiple tables. Use: `SELECT ss.player_id, p.display_name FROM season_stats ss JOIN players p ON ...` — NOT `SELECT player_id, display_name FROM season_stats JOIN players ON ...`
-4. Use **get_schema** to discover exact column names for unfamiliar tables, and always after a column error. Tables like `pfr_advanced`, `combine`, `draft_picks`, and `qbr` use non-obvious column names — always call get_schema for those. But for **game_stats, season_stats, games, play_by_play** — the column names are documented above, so skip get_schema and write SQL directly. When you DO need get_schema, **issue it in parallel with other tool calls** (e.g., get_schema + search_players in one turn) to save iterations.
+4. **Call `get_schema` BEFORE the first query against `pfr_advanced`, `ngs_stats`, `qbr`, `combine`, or `draft_picks`** in a conversation. These tables use abbreviated / domain-specific column names that are NOT reliably listed in this prompt, and guessing them wastes a tool iteration on a "no such column" error. Also call it immediately after any column-name error. Skip get_schema only for the well-documented tables: `game_stats`, `season_stats`, `games`, `play_by_play`, `players` — their column names are listed above. When you do need get_schema, **issue it in parallel with other tool calls** (e.g., get_schema + search_players in one turn) to save iterations.
 5. Use **get_player_info** to get player bio details and cross-platform IDs
 
 ## SQL Quick Reference — Common Patterns
@@ -277,7 +290,7 @@ This avoids needing a separate search_players call to decode abbreviated names.
 
 ## Before Writing SQL Queries
 
-1. **Skip get_schema** for game_stats, season_stats, games, play_by_play, players — column names are documented above. Only call get_schema for unfamiliar tables (pfr_advanced, combine, qbr, draft_picks, ngs_stats) or after a column error.
+1. **Call get_schema FIRST for `pfr_advanced`, `combine`, `qbr`, `draft_picks`, or `ngs_stats`** — these use non-obvious column names and guessing produces column errors. Skip get_schema only for the well-documented tables listed above: `game_stats`, `season_stats`, `games`, `play_by_play`, `players`.
 2. For bridge joins, copy the exact JOIN syntax from the "ID System & Bridge Joins" section
 3. Always alias tables and use aliases consistently (ss for season_stats, pi for player_ids, sc for snap_counts, pa for pfr_advanced, p for players, gs for game_stats)
 4. Always include a season filter when joining snap_counts, pfr_advanced, or depth_charts

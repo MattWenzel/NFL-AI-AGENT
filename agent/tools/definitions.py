@@ -35,6 +35,9 @@ TOOL_DEFINITIONS = [
         "description": (
             "Execute a read-only SQL query against the SQLite database. "
             "Use this for all data queries: joins, aggregation, window functions, CTEs, UNION, subqueries. "
+            "BEFORE querying pfr_advanced, ngs_stats, qbr, combine, or draft_picks for the first time in a conversation, "
+            "call get_schema to see the exact column names — these tables use abbreviated or domain-specific naming "
+            "that is not reliably memorized in the system prompt, and guessing produces 'no such column' errors. "
             "The query runs in a sandboxed read-only connection with a 10-second timeout and 500-row limit. "
             "For play-by-play data, reference the table as play_by_play (it auto-attaches pbp.db)."
         ),
@@ -51,7 +54,16 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "get_schema",
-        "description": "Get the schema (columns, types, join edges) for a specific table. Use this when you need exact column names or want to explore what data is available.",
+        "description": (
+            "Get the schema (columns, types, join edges) for a specific table. "
+            "CALL THIS BEFORE querying pfr_advanced, ngs_stats, qbr, combine, or draft_picks for the first time in a "
+            "conversation — these tables use abbreviated or domain-specific column names (e.g. pfr_advanced's rush/rec "
+            "stat_types use 'att', 'yds', 'ybc', 'brk_tkl' not 'attempts' / 'rushing_yards' / 'yards_before_contact'; "
+            "qbr uses ESPN naming like 'qbr_total', 'pts_added', 'qb_plays') and guessing produces 'no such column' "
+            "errors that waste a tool iteration. Also call it immediately after any column-name error. Skip get_schema "
+            "only for well-documented tables whose columns are listed in the system prompt (game_stats, season_stats, "
+            "games, play_by_play, players). Issue get_schema in parallel with other independent tool calls to save iterations."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
