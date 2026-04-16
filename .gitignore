@@ -18,10 +18,11 @@ api_keys.json
 data/runtime.sqlite3
 data/runtime.sqlite3-shm
 data/runtime.sqlite3-wal
-data/codex_auth.json
 
-# Codex CLI artifacts
+# Local artifacts (not used by this branch, but may exist from other branches)
+data/codex_auth.json
 .codex
+
 AGENT.md
 
 # CSV exports (generated at runtime)

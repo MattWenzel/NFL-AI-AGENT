@@ -21,9 +21,6 @@ PBP_DB_PATH = Path(__file__).parent / "NFLVERSE" / "data" / "pbp.db"
 # Conversation persistence
 RUNTIME_DB_PATH = Path(__file__).parent / "data" / "runtime.sqlite3"
 
-# OAuth token storage (Codex provider)
-CODEX_AUTH_PATH = Path(__file__).parent / "data" / "codex_auth.json"
-
 # CSV exports
 EXPORTS_DIR = Path(__file__).parent / "exports"
 

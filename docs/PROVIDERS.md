@@ -1,11 +1,10 @@
 # LLM Provider Abstraction Layer
 
-Multi-provider LLM integration for the NFL stats chat agent. Supports Anthropic Claude, OpenAI GPT, and ChatGPT Codex (OAuth) through a single typed abstraction.
+Multi-provider LLM integration for the NFL stats chat agent. Supports Anthropic Claude and OpenAI GPT through a single typed abstraction.
 
 - **Source:** `agent/providers/`
 - **Canonical types:** `agent/providers/base.py`
 - **Registry + factory:** `agent/providers/__init__.py`
-- **OAuth support:** `agent/oauth/` (PKCE, token store, loopback capture, orchestrator)
 
 ---
 
@@ -167,7 +166,7 @@ Key design decisions:
 
 - **`model` is required** — resolved by the factory from `ProviderInfo.default_model` before construction. No `_default_model()` method.
 - **`max_output_tokens` flows from registry** — set per-provider in `ProviderInfo`, passed through by the factory. Providers use `self.max_output_tokens` in their API calls instead of hardcoded constants.
-- **No `api_key` on the base** — each provider's `__init__` takes its own `api_key` (or `auth=` handle for OAuth) and passes it straight to the SDK client. The base class holds no auth state.
+- **No `api_key` on the base** — each provider's `__init__` takes its own `api_key` and passes it straight to the SDK client. The base class holds no auth state.
 - **Error handling** — `_translate_error()` is defined once per provider (5-10 lines) mapping SDK exceptions to `LLMError`. `_wrap_api_errors()` is an async context manager on the base class that catches exceptions and delegates to `_translate_error()`. For `stream_message` (async generator), `_wrap_api_errors()` wraps stream creation; the iteration loop uses a manual try/except delegating to `_translate_error()` (can't yield inside a context manager).
 - **Runtime is streaming-only** — `ChatRuntime.run_session` always consumes `stream_message`; `create_message` stays on the ABC as a convenience for direct callers but the runtime never invokes it. Non-streaming consumers (e.g. `/chat/message`) buffer the event stream at the API boundary.
 
@@ -178,13 +177,11 @@ Key design decisions:
 ### `ProviderInfo` — Provider metadata
 
 ```python
-AuthType = Literal["api_key", "oauth"]
-
 @dataclass
 class ProviderInfo:
-    name: str                                   # "anthropic", "openai", "codex"
-    display_name: str                           # "Anthropic", "OpenAI", "ChatGPT Codex"
-    env_key: str | None                         # "ANTHROPIC_API_KEY", etc. (None for OAuth)
+    name: str                                   # "anthropic", "openai"
+    display_name: str                           # "Anthropic", "OpenAI"
+    env_key: str                                # "ANTHROPIC_API_KEY", "OPENAI_API_KEY"
     default_model: str                          # "claude-sonnet-4-20250514", etc.
     models: list[str]                           # Available model options
     context_window: int = 128_000               # Max input tokens
@@ -192,7 +189,6 @@ class ProviderInfo:
     supports_streaming: bool = True
     supports_tools: bool = True
     client_class: type[BaseLLMClient] | None    # The concrete client class
-    auth_type: AuthType = "api_key"             # "oauth" providers skip env_key
 ```
 
 ### Current registry
@@ -201,9 +197,8 @@ class ProviderInfo:
 |----------|---------------|---------|------------|------|-----|
 | `anthropic` | `claude-sonnet-4-20250514` | 200K | 4096 | `ANTHROPIC_API_KEY` | `anthropic` (required) |
 | `openai` | `gpt-4o` | 128K | 4096 | `OPENAI_API_KEY` | `openai` (optional) |
-| `codex` | `gpt-5.1-codex` | 200K | 8192 | OAuth (PKCE) | `httpx` (always available) |
 
-Anthropic is always registered. OpenAI and Codex are registered only if their dependencies are importable.
+Anthropic is always registered. OpenAI is registered only if its SDK is importable.
 
 ### `create_client()` — Factory function
 
@@ -214,10 +209,8 @@ def create_client(provider=None, model=None, api_key=None) -> BaseLLMClient
 Resolution chain:
 1. **Provider** — `provider` arg, or `CHAT_PROVIDER` env var, or `"anthropic"`
 2. **Model** — `model` arg, or `ProviderInfo.default_model`
-3. **Auth** — branches on `info.auth_type`:
-   - `"api_key"` — `api_key` arg, or `os.environ[info.env_key]`; raises `LLMError` if missing.
-   - `"oauth"` — loads `TokenStore(CODEX_AUTH_PATH)`; raises `LLMError("... not authenticated")` if there is no stored record; constructs a `CodexAuth` and passes it as `auth=...` to the client.
-4. **Constructs** — `info.client_class(model=..., max_output_tokens=..., api_key=...|auth=...)`
+3. **Key** — `api_key` arg, or `os.environ[info.env_key]`; raises `LLMError` if missing.
+4. **Constructs** — `info.client_class(model=..., max_output_tokens=..., api_key=...)`
 
 ### `provider_is_available()` — Readiness check
 
@@ -225,7 +218,7 @@ Resolution chain:
 def provider_is_available(info: ProviderInfo) -> bool
 ```
 
-Returns `True` when the provider has everything it needs to build a client now. For api-key providers this is `os.environ[info.env_key]`; for OAuth providers it is `TokenStore(CODEX_AUTH_PATH).has_record()`. The `/chat/providers` endpoint and the CLI/UI use this to populate their `available` flag.
+Returns `True` when `os.environ[info.env_key]` is set. The `/chat/providers` endpoint and the CLI/UI use this to populate their `available` flag.
 
 ### Public API
 
@@ -288,53 +281,7 @@ class XxxClient(BaseLLMClient):
 - System prompt: Prepended as `{"role": "system"}` message (not a separate parameter)
 - Tool call streaming: Accumulated by index across chunks, emitted on `finish_reason`
 
-### Codex (`codex_provider.py`)
-
-- Transport: raw `httpx.AsyncClient` (no OpenAI SDK — the Responses wire shape differs from chat-completions)
-- Endpoint: `POST https://chatgpt.com/backend-api/codex/responses`
-- Auth: `CodexAuth` injected via `auth=` kwarg (not `api_key`). Token + `chatgpt-account-id` decoded from the access-token JWT on every request.
-- Required headers: `Authorization: Bearer <token>`, `chatgpt-account-id`, `OpenAI-Beta: responses=experimental`, `originator: pi`.
-- Message shape: canonical `Message` → `input` array where assistant text and tool calls are **separate items** (`{"type":"message"}` + `{"type":"function_call"}`); tool results are `{"type":"function_call_output"}` with a JSON-string `output`.
-- Tools: `_strictify_schema()` recursively rewrites JSON Schemas to satisfy Codex strict mode — `additionalProperties: false` on every object, every property in `required`, optionals made nullable (`["T", "null"]` for simple types, append `{"type":"null"}` for `anyOf`/`oneOf`, `anyOf` wrapper otherwise). Anthropic/OpenAI schemas are untouched.
-- Streaming: SSE with a state machine that handles `response.output_text.delta`, `response.output_item.added` (registers `item_id → call_id`), `response.function_call_arguments.delta|done`, `response.output_item.done`, and a `response.done`/`completed` fallback that sweeps `response.output` for any tool calls not emitted via deltas.
-- Errors: `_translate_error` maps `httpx.HTTPStatusError` (401 → re-auth, 429 → rate-limited), `httpx.RequestError`, and `CodexAuthError` to `LLMError`.
-
 ---
-
-## OAuth Subsystem (`agent/oauth/`)
-
-Supports providers with `auth_type="oauth"` by maintaining on-disk tokens and driving the OAuth+PKCE flow. Today this powers only Codex but is deliberately provider-agnostic.
-
-### Modules
-
-| File | Role |
-|------|------|
-| `pkce.py` | `generate_pkce() -> PKCEChallenge(verifier, challenge, state)`. Base64url-encoded, padding stripped, per RFC 7636. |
-| `jwt_decode.py` | Unverified payload decode. `email_from_id_token()`, `chatgpt_account_id_from_access_token()`. The auth server signs; we only read claims. |
-| `token_store.py` | `TokenStore(path)` → atomic JSON at `data/codex_auth.json`. Keyed by email with a `default_email` pointer; single-user today, multi-account later is a drop-in. |
-| `codex_auth.py` | `CodexAuth(store)` orchestrator. `build_authorize_request()` → `{url, state, verifier}`; `exchange_code(code, verifier)` POSTs to `auth.openai.com/oauth/token`; `refresh(record)` rotates tokens (preserves old `refresh_token` if response omits one); `get_valid_token()` is the single entry point callers use on every request — refreshes when `now > expires_at - 30s` and returns `(access_token, chatgpt_account_id)`. |
-| `login_server.py` | `run_loopback_capture(port=1455, path="/auth/callback", timeout=300)` — short-lived `http.server` on 127.0.0.1 that captures the first OAuth callback and shuts down. Required because the public Codex CLI OAuth client is registered against `http://localhost:1455/auth/callback`. |
-
-### Flow (both CLI and UI)
-
-```
-client → build_authorize_request() → {url, state, verifier}
-client → open browser to `url`
-client → run_loopback_capture()        # background task for the API
-user    → authorizes at auth.openai.com
-browser → GET http://localhost:1455/auth/callback?code=...&state=...
-server  → validates state matches, exchange_code(code, verifier)
-auth    → POST auth.openai.com/oauth/token (PKCE)
-store   → TokenStore.save(record)       # data/codex_auth.json
-```
-
-The CLI (`chat_cli.py login --provider codex`) runs this inline. The API exposes `POST /auth/codex/login` + `GET /auth/codex/status` + `POST /auth/codex/logout` (`api/routers/auth.py`) so the browser UI can drive the same flow — `start_login` schedules the loopback capture + exchange as a background task and the UI polls `/status` until `authenticated=true`.
-
-Only one process can bind port 1455 at a time: if the API server is running, use the UI; if not, use the CLI.
-
-### Tokens
-
-`data/codex_auth.json` holds `{accounts: {<email>: {access_token, refresh_token, expires_at_ms, id_token, email}}, default_email}`. The `chatgpt_account_id` is **not** persisted — it is decoded from the access-token JWT on every request so rotated accounts never stale. File is atomic-written via `tmp + os.replace`.
 
 ## Data Flow
 
@@ -404,8 +351,6 @@ Condensed database knowledge (~5K tokens) shared across all providers. Contains 
 
 ## Adding a New Provider
 
-### API-key provider (standard case)
-
 1. Create `agent/providers/newprovider_provider.py`:
    - Subclass `BaseLLMClient`
    - Implement `create_message`, `stream_message`, `provider_name`, `_translate_error`
@@ -434,19 +379,3 @@ Condensed database knowledge (~5K tokens) shared across all providers. Contains 
 3. Optionally add provider-specific hints in `agent/provider_hints.py`.
 
 No changes needed in consumers (`chat_cli.py`, `api/routers/chat.py`, `runtime.py`, `tools.py`).
-
-### OAuth provider
-
-Follow the api-key steps above, with these differences:
-
-1. The client's `__init__` takes an auth handle instead of `api_key` (e.g. `auth: CodexAuth`). Call `super().__init__(model, max_output_tokens=...)`.
-2. Register with `auth_type="oauth"` and leave `env_key` unset (defaults to `None`):
-   ```python
-   register_provider(ProviderInfo(
-       name="newoauth", auth_type="oauth", env_key=None,
-       client_class=NewOAuthClient, ...,
-   ))
-   ```
-3. Extend `create_client()` in `agent/providers/__init__.py` to load your provider's auth handle in the `auth_type == "oauth"` branch. Keep the token-store handling in `agent/oauth/` so it is reusable across OAuth providers.
-4. Add an API router under `api/routers/` exposing `POST /auth/<name>/login`, `GET /status`, `POST /logout`. Include it in `api/main.py`.
-5. Teach the UI (`chat.html`) the new provider name if it needs a branded button (today `renderAuthWidget` is provider-agnostic — it renders for any `auth_type=="oauth"` provider).

@@ -4,12 +4,8 @@
 import asyncio
 import json
 import sys
-import webbrowser
 
-from config import CODEX_AUTH_PATH, RUNTIME_DB_PATH, load_dotenv
-from agent.oauth.codex_auth import CodexAuth, CodexAuthError
-from agent.oauth.login_server import LoopbackCaptureError, run_loopback_capture
-from agent.oauth.token_store import TokenStore
+from config import RUNTIME_DB_PATH, load_dotenv
 from agent.providers import (
     create_client, get_provider, get_default_provider,
     provider_is_available, LLMError,
@@ -82,58 +78,8 @@ def _format_input(input_data: dict) -> str:
     return text
 
 
-async def login_flow(provider_name: str) -> int:
-    """Run the OAuth login for a provider. Returns an exit code."""
-    try:
-        info = get_provider(provider_name)
-    except KeyError as e:
-        print(f"Error: {e}")
-        return 1
-    if info.auth_type != "oauth":
-        print(f"Error: {info.display_name} uses an API key, not OAuth. Set {info.env_key} instead.")
-        return 1
-
-    auth = CodexAuth(TokenStore(CODEX_AUTH_PATH))
-    try:
-        request = auth.build_authorize_request()
-
-        print(f"Opening browser to sign in to {info.display_name}...")
-        print(f"If it doesn't open automatically, visit:\n  {request.url}\n")
-        try:
-            webbrowser.open(request.url)
-        except Exception as exc:  # webbrowser errors on headless systems
-            print(f"(Could not open a browser automatically: {exc})")
-
-        try:
-            result = await run_loopback_capture(timeout_seconds=300.0)
-        except LoopbackCaptureError as exc:
-            print(f"Login failed: {exc}")
-            return 1
-
-        if result.state != request.state:
-            print("Login failed: state mismatch (possible CSRF). Aborting.")
-            return 1
-
-        try:
-            record = await auth.exchange_code(result.code, request.verifier)
-        except CodexAuthError as exc:
-            print(f"Login failed during token exchange: {exc}")
-            return 1
-
-        print(f"Signed in as {record.email or '(email unknown)'}. Credentials saved to {CODEX_AUTH_PATH}.")
-        return 0
-    finally:
-        await auth.aclose()
-
-
 async def main():
     load_dotenv()
-
-    # `login` subcommand — runs the OAuth flow and exits without starting a chat session.
-    if len(sys.argv) > 1 and sys.argv[1] == "login":
-        sys.argv = [sys.argv[0]] + sys.argv[2:]  # strip subcommand before re-parsing
-        provider, _ = _parse_args()
-        sys.exit(await login_flow(provider or "codex"))
 
     provider, model = _parse_args()
     provider_name = provider or get_default_provider()
@@ -145,13 +91,7 @@ async def main():
         sys.exit(1)
 
     if not provider_is_available(info):
-        if info.auth_type == "oauth":
-            print(
-                f"Error: {info.display_name} not authenticated. "
-                f"Run `python3 chat_cli.py login --provider {info.name}` to sign in."
-            )
-        else:
-            print(f"Error: {info.env_key} environment variable is required for {info.display_name}.")
+        print(f"Error: {info.env_key} environment variable is required for {info.display_name}.")
         sys.exit(1)
 
     try:

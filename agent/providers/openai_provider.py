@@ -172,8 +172,8 @@ class OpenAIClient(BaseLLMClient):
     def _convert_messages(messages: list[Message]) -> list[dict]:
         """Convert provider-agnostic Messages to OpenAI wire format.
 
-        `system` is prepended by `_build_kwargs` (matching how Anthropic and
-        Codex route the system prompt) so this helper only handles the
+        `system` is prepended by `_build_kwargs` (matching how Anthropic
+        routes the system prompt) so this helper only handles the
         conversation body.
         """
         result = []

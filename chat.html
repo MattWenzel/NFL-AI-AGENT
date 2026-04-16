@@ -232,51 +232,6 @@ body {
   background: var(--panel-strong);
 }
 
-.auth-widget {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.82rem;
-  color: var(--muted-strong);
-}
-
-.auth-widget .auth-button {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 8px 14px;
-  font: inherit;
-  font-size: 0.85rem;
-  background: var(--panel-strong);
-  cursor: pointer;
-}
-
-.auth-widget .auth-button.primary {
-  background: #10a37f;
-  color: white;
-  border-color: #10a37f;
-}
-
-.auth-widget .auth-button.primary:disabled {
-  opacity: 0.6;
-  cursor: wait;
-}
-
-.auth-widget .auth-email {
-  font-weight: 500;
-  color: var(--text, #222);
-}
-
-.auth-widget .auth-link {
-  background: none;
-  border: none;
-  color: var(--muted-strong);
-  text-decoration: underline;
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.8rem;
-  padding: 0;
-}
-
 .thread {
   flex: 1;
   overflow-y: auto;
@@ -717,7 +672,6 @@ body {
       <div class="controls">
         <select id="providerSelect"></select>
         <select id="modelSelect"></select>
-        <div id="authWidget" class="auth-widget" hidden></div>
         <button class="button secondary" id="inspectToggle">Inspect</button>
       </div>
     </header>
@@ -757,9 +711,6 @@ const state = {
   providers: [],
   selectedProvider: localStorage.getItem("nfl_chat_provider") || "anthropic",
   selectedModel: localStorage.getItem("nfl_chat_model") || "",
-  authEmail: null,
-  loginInProgress: false,
-  loginError: null,
 };
 
 marked.setOptions({ breaks: true, gfm: true });
@@ -775,7 +726,6 @@ document.getElementById("input").addEventListener("keydown", handleInputKeydown)
 document.getElementById("input").addEventListener("input", autoResize);
 
 async function init() {
-  await primeAuthEmail();
   await loadProviders();
   await refreshConversations();
   if (state.activeSessionId && state.conversations.some(c => c.id === state.activeSessionId)) {
@@ -808,15 +758,6 @@ async function fetchJSON(path, init) {
   return resp.json();
 }
 
-async function primeAuthEmail() {
-  try {
-    const status = await fetchJSON("/auth/codex/status");
-    state.authEmail = status.authenticated ? status.email : null;
-  } catch {
-    state.authEmail = null;
-  }
-}
-
 async function loadProviders() {
   try {
     state.providers = await fetchJSON("/chat/providers");
@@ -842,18 +783,12 @@ function renderProviderControls() {
   for (const provider of providers) {
     const opt = document.createElement("option");
     opt.value = provider.name;
-    // OAuth providers stay selectable even when unauthenticated — the UI shows a sign-in button.
-    const hint = provider.available
-      ? ""
-      : provider.auth_type === "oauth" ? " (sign in)" : " (no key)";
-    opt.textContent = provider.display_name + hint;
-    opt.disabled = !provider.available && provider.auth_type !== "oauth";
+    opt.textContent = provider.display_name + (provider.available ? "" : " (no key)");
+    opt.disabled = !provider.available;
     providerSelect.appendChild(opt);
   }
-  const canUse = p => p.available || p.auth_type === "oauth";
-  const selected = providers.find(p => p.name === state.selectedProvider && canUse(p))
+  const selected = providers.find(p => p.name === state.selectedProvider && p.available)
     || providers.find(p => p.available)
-    || providers.find(canUse)
     || providers[0];
   if (selected) {
     state.selectedProvider = selected.name;
@@ -862,10 +797,7 @@ function renderProviderControls() {
   const provider = state.providers.find(p => p.name === state.selectedProvider);
   const modelSelect = document.getElementById("modelSelect");
   modelSelect.innerHTML = "";
-  if (!provider) {
-    renderAuthWidget(null);
-    return;
-  }
+  if (!provider) return;
   for (const model of provider.models) {
     const opt = document.createElement("option");
     opt.value = model;
@@ -874,103 +806,6 @@ function renderProviderControls() {
   }
   state.selectedModel = provider.models.includes(state.selectedModel) ? state.selectedModel : provider.default_model;
   modelSelect.value = state.selectedModel;
-  renderAuthWidget(provider);
-}
-
-function renderAuthWidget(provider) {
-  const widget = document.getElementById("authWidget");
-  if (!provider || provider.auth_type !== "oauth") {
-    widget.hidden = true;
-    widget.innerHTML = "";
-    return;
-  }
-  widget.hidden = false;
-  widget.innerHTML = "";
-  if (provider.available) {
-    // Show signed-in indicator + sign-out link.
-    const email = document.createElement("span");
-    email.className = "auth-email";
-    email.textContent = state.authEmail || "signed in";
-    const signOut = document.createElement("button");
-    signOut.type = "button";
-    signOut.className = "auth-link";
-    signOut.textContent = "Sign out";
-    signOut.addEventListener("click", signOutCodex);
-    widget.appendChild(email);
-    widget.appendChild(signOut);
-  } else {
-    // Show sign-in button.
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "auth-button primary";
-    btn.textContent = state.loginInProgress ? "Waiting for browser…" : "Sign in with ChatGPT";
-    btn.disabled = !!state.loginInProgress;
-    btn.addEventListener("click", startCodexLogin);
-    widget.appendChild(btn);
-    if (state.loginError) {
-      const err = document.createElement("span");
-      err.style.color = "#d04646";
-      err.textContent = state.loginError;
-      widget.appendChild(err);
-    }
-  }
-}
-
-async function startCodexLogin() {
-  state.loginInProgress = true;
-  state.loginError = null;
-  renderAuthWidget(state.providers.find(p => p.name === state.selectedProvider));
-  let body;
-  try {
-    body = await fetchJSON("/auth/codex/login", { method: "POST" });
-  } catch (exc) {
-    state.loginInProgress = false;
-    state.loginError = String(exc.message || exc);
-    renderAuthWidget(state.providers.find(p => p.name === state.selectedProvider));
-    return;
-  }
-  window.open(body.authorize_url, "_blank", "noopener");
-  pollAuthStatus();
-}
-
-async function pollAuthStatus(maxSeconds = 300) {
-  const start = Date.now();
-  while (Date.now() - start < maxSeconds * 1000) {
-    await new Promise(r => setTimeout(r, 2000));
-    let status;
-    try {
-      status = await fetchJSON("/auth/codex/status");
-    } catch {
-      continue;
-    }
-    if (status.authenticated) {
-      state.authEmail = status.email || null;
-      state.loginInProgress = false;
-      state.loginError = null;
-      await loadProviders();
-      return;
-    }
-    if (status.error) {
-      state.loginInProgress = false;
-      state.loginError = status.error;
-      renderAuthWidget(state.providers.find(p => p.name === state.selectedProvider));
-      return;
-    }
-  }
-  state.loginInProgress = false;
-  state.loginError = "Timed out waiting for sign-in.";
-  renderAuthWidget(state.providers.find(p => p.name === state.selectedProvider));
-}
-
-async function signOutCodex() {
-  try {
-    await fetchJSON("/auth/codex/logout", { method: "POST" });
-  } catch (exc) {
-    alert("Sign-out failed: " + (exc.message || exc));
-    return;
-  }
-  state.authEmail = null;
-  await loadProviders();
 }
 
 function onProviderChange(event) {

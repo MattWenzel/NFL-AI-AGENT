@@ -40,7 +40,7 @@ See [docs/API.md](docs/API.md) for full endpoint reference. Key access patterns:
 
 ## AI Chat Agent
 
-Natural language interface to the database. Supports multiple LLM providers (Anthropic Claude, OpenAI GPT, ChatGPT Codex via OAuth) with tool_use to translate questions into SQL queries.
+Natural language interface to the database. Supports Anthropic Claude and OpenAI GPT with tool_use to translate questions into SQL queries.
 
 ### LLM Providers
 
@@ -48,9 +48,8 @@ Natural language interface to the database. Supports multiple LLM providers (Ant
 |----------|------|---------------|---------|
 | Anthropic | `ANTHROPIC_API_KEY` | `claude-sonnet-4-20250514` | 200K |
 | OpenAI | `OPENAI_API_KEY` | `gpt-4o` | 128K |
-| Codex | OAuth (PKCE) → `data/codex_auth.json` | `gpt-5.1-codex` | 200K |
 
-Select via `CHAT_PROVIDER` env var (default: `anthropic`), CLI `--provider` flag, or UI dropdown. Codex requires a one-time sign-in via the UI's **Sign in with ChatGPT** button or `python3 chat_cli.py login --provider codex`.
+Select via `CHAT_PROVIDER` env var (default: `anthropic`), CLI `--provider` flag, or UI dropdown.
 
 **Provider abstraction**: [docs/PROVIDERS.md](docs/PROVIDERS.md) — canonical types (`StopReason`, `Usage`, `ToolDefinition`), `BaseLLMClient` ABC, registry/factory, per-provider implementation details, and how to add new providers.
 
@@ -61,31 +60,23 @@ The chat runtime is transcript-backed: sessions, turns, assistant parts, tool ru
 ```
 agent/
 ├── providers/
-│   ├── __init__.py        # Registry, factory (create_client), ProviderInfo (+auth_type, provider_is_available)
+│   ├── __init__.py        # Registry, factory (create_client), ProviderInfo, provider_is_available
 │   ├── base.py            # Canonical types + ABC + _wrap_api_errors/_translate_error
 │   ├── anthropic_provider.py  # Anthropic Claude
-│   ├── openai_provider.py     # OpenAI GPT (optional SDK)
-│   └── codex_provider.py      # ChatGPT Codex via OAuth + raw httpx + custom SSE
-├── oauth/                 # PKCE, JWT decode, token store, loopback capture, orchestrator
-│   ├── pkce.py
-│   ├── jwt_decode.py
-│   ├── token_store.py
-│   ├── codex_auth.py
-│   └── login_server.py
+│   └── openai_provider.py     # OpenAI GPT (optional SDK)
 ├── runtime.py         # Shared persisted runtime loop + normalized runtime events
 ├── runtime_store.py   # SQLite transcript store (sessions, turns, parts, tool runs, compaction)
 ├── tools.py           # 5 tools + TOOLS (typed) / TOOL_DEFINITIONS (raw dicts)
 ├── system_prompt.py   # Condensed DB knowledge (~5K tokens)
 ├── provider_hints.py  # Per-provider supplemental hints + get_system_prompt(provider)
 ├── sql_sandbox.py     # Read-only SQL with timeout, row limit, PBP auto-attach
-config.py              # DB paths, runtime db path, CODEX_AUTH_PATH, load_dotenv()
-chat_cli.py            # CLI entry point (--provider, --model flags; `login` subcommand)
-chat.html              # Browser UI (SSE streaming, provider selection, Sign in with ChatGPT)
+config.py              # DB paths, runtime db path, load_dotenv()
+chat_cli.py            # CLI entry point (--provider, --model flags)
+chat.html              # Browser UI (SSE streaming, provider selection)
 api/routers/chat.py    # FastAPI chat endpoints + transcript retrieval
-api/routers/auth.py    # /auth/codex/{login,status,logout} for the UI sign-in flow
 api/routers/exports.py # CSV export file serving + auto-cleanup
 tests/                 # pytest test suite
-data/                  # Runtime data (runtime.sqlite3, codex_auth.json — ignored)
+data/                  # Runtime data (runtime.sqlite3 — ignored)
 backups/               # Old database files (pre-v2)
 ```
 
@@ -95,8 +86,6 @@ backups/               # Old database files (pre-v2)
 python3 run.py              # API server (port 8001)
 python3 chat_cli.py         # AI chat agent (default: Anthropic)
 python3 chat_cli.py -p openai   # Use OpenAI
-python3 chat_cli.py login --provider codex   # OAuth sign-in for Codex
-python3 chat_cli.py -p codex    # Use Codex (after sign-in)
 open chat.html              # Chat UI
 python3 -m pytest tests/    # Run tests
 

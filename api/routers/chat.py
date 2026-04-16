@@ -59,13 +59,7 @@ def _create_client_for_request(provider: str | None = None, model: str | None = 
         raise HTTPException(status_code=400, detail=str(e))
 
     if not provider_is_available(info):
-        if info.auth_type == "oauth":
-            detail = (
-                f"{info.display_name} not authenticated — sign in via the UI "
-                f"or run `python3 chat_cli.py login --provider {info.name}`."
-            )
-        else:
-            detail = f"{info.env_key} not configured — {info.display_name} provider unavailable"
+        detail = f"{info.env_key} not configured — {info.display_name} provider unavailable"
         raise HTTPException(status_code=503, detail=detail)
 
     try:
@@ -143,7 +137,6 @@ class ProviderResponse(BaseModel):
     context_window: int
     supports_streaming: bool
     supports_tools: bool
-    auth_type: str = "api_key"
 
 
 # ---------- Endpoints ----------
@@ -162,7 +155,6 @@ async def get_providers():
             context_window=info.context_window,
             supports_streaming=info.supports_streaming,
             supports_tools=info.supports_tools,
-            auth_type=info.auth_type,
         ))
     return result
 

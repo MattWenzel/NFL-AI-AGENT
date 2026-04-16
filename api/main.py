@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import chat, exports, auth
+from api.routers import chat, exports
 from agent.runtime import ChatRuntime
 from agent.runtime_store import RuntimeStore
 from config import DB_PATH, PBP_DB_PATH, RUNTIME_DB_PATH, format_file_size
@@ -39,17 +39,9 @@ async def lifespan(app: FastAPI):
         logger.warning("pbp.db not found at %s — PBP queries will fail", PBP_DB_PATH)
 
     # LLM provider checks
-    from agent.providers import list_providers, provider_is_available
+    from agent.providers import list_providers
     configured = []
     for info in list_providers():
-        available = provider_is_available(info)
-        if info.auth_type == "oauth":
-            if available:
-                logger.info("%s: authenticated (OAuth)", info.display_name)
-                configured.append(info.name)
-            else:
-                logger.info("%s: not authenticated — sign in via the UI or CLI", info.display_name)
-            continue
         api_key = os.environ.get(info.env_key, "")
         if api_key:
             masked = api_key[:8] + "..." + api_key[-4:] if len(api_key) > 12 else "***"
@@ -69,10 +61,7 @@ async def lifespan(app: FastAPI):
     if removed:
         logger.info("Cleaned up %d old export file(s)", removed)
 
-    try:
-        yield
-    finally:
-        await auth.cancel_active_login()
+    yield
 
 
 def create_app() -> FastAPI:
@@ -102,7 +91,6 @@ def create_app() -> FastAPI:
     # Include routers
     app.include_router(chat.router)
     app.include_router(exports.router)
-    app.include_router(auth.router)
 
     @app.get("/health")
     def health_check():
