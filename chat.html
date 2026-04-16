@@ -410,6 +410,8 @@ body {
 .tool-chip.completed { background: var(--green-soft); color: #0e5a54; }
 .tool-chip.error,
 .tool-chip.failed { background: var(--red-soft); color: var(--red); }
+.tool-chip[data-turn-id] { cursor: pointer; }
+.tool-chip[data-turn-id]:hover { filter: brightness(0.97); }
 
 .spinner {
   width: 12px;
@@ -1055,18 +1057,39 @@ function renderThread() {
   const toolRunsByTurn = groupBy(transcript?.tool_runs || [], run => run.turn_id);
   const partsByTurn = groupBy(transcript?.parts || [], part => part.turn_id);
 
+  // Collapse consecutive assistant turns (tool-loop iterations for one user
+  // question) into a single card. Each iteration persists as its own turn in
+  // the backend transcript, but the user experience reads better as one
+  // assistant response with all tools listed beneath.
   const items = [];
+  let pendingAssistant = null;
+  const flushAssistant = () => {
+    if (pendingAssistant) {
+      items.push(renderAssistantGroupCard(pendingAssistant, toolRunsByTurn, partsByTurn));
+      pendingAssistant = null;
+    }
+  };
   for (const turn of turns) {
-    items.push(renderTurnCard(turn, toolRunsByTurn.get(turn.id) || [], partsByTurn.get(turn.id) || []));
+    if (turn.role === "assistant") {
+      if (pendingAssistant === null) pendingAssistant = [];
+      pendingAssistant.push(turn);
+    } else {
+      flushAssistant();
+      items.push(renderTurnCard(turn, toolRunsByTurn.get(turn.id) || [], partsByTurn.get(turn.id) || []));
+    }
   }
+  flushAssistant();
 
   if (state.liveTurn) {
     items.push(renderLiveTurnCard());
   }
 
   thread.innerHTML = `<div class="thread-inner">${items.join("")}</div>`;
+  // stopPropagation on each node so a chip click selects the chip's
+  // iteration, not the wrapping assistant card.
   for (const node of thread.querySelectorAll("[data-turn-id]")) {
-    node.addEventListener("click", () => {
+    node.addEventListener("click", (e) => {
+      e.stopPropagation();
       state.selectedTurnId = node.getAttribute("data-turn-id");
       renderInspector();
       renderThread();
@@ -1115,6 +1138,67 @@ function renderTurnCard(turn, toolRuns, parts) {
       ${toolHtml}
       ${turn.error ? `<div class="inline-status" style="background:var(--red-soft);color:var(--red)">${escapeHtml(turn.error)}</div>` : ""}
       ${toolRuns.some(run => run.status === "running") ? `<div class="inline-status"><span class="spinner"></span>Tool execution persisted in transcript</div>` : ""}
+    </article>`;
+}
+
+function renderAssistantGroupCard(iterations, toolRunsByTurn, partsByTurn) {
+  // Fast path: a single iteration renders as a regular turn card.
+  if (iterations.length === 1) {
+    const t = iterations[0];
+    return renderTurnCard(t, toolRunsByTurn.get(t.id) || [], partsByTurn.get(t.id) || []);
+  }
+
+  const last = iterations[iterations.length - 1];
+  const selected = iterations.some(t => t.id === state.selectedTurnId) ? " selected" : "";
+
+  // Concatenate non-empty iteration texts. Markdown paragraph breaks keep the
+  // reading flow intact when the model emits commentary between tool calls.
+  const combinedText = iterations
+    .map(t => (t.text || "").trim())
+    .filter(Boolean)
+    .join("\n\n");
+
+  // Collect tool runs across every iteration in chronological order. Each
+  // chip carries its iteration's turn_id so clicking it selects that
+  // iteration in the inspector.
+  const allToolRuns = [];
+  for (const it of iterations) {
+    for (const run of toolRunsByTurn.get(it.id) || []) {
+      allToolRuns.push(run);
+    }
+  }
+
+  const totalInput = iterations.reduce((sum, t) => sum + (t.input_tokens || 0), 0);
+  const totalOutput = iterations.reduce((sum, t) => sum + (t.output_tokens || 0), 0);
+  const firstError = iterations.map(t => t.error).find(Boolean);
+
+  const metaBits = [
+    last.status,
+    `${iterations.length} iterations`,
+    totalOutput ? `${totalOutput} output tok` : "",
+    totalInput ? `${totalInput} input tok` : "",
+    formatTime(last.updated_at),
+  ].filter(Boolean).join(" · ");
+
+  const body = combinedText
+    ? `<div class="turn-text">${renderMarkdown(combinedText)}</div>`
+    : `<div class="inline-status"><span class="spinner"></span>Waiting on tool activity</div>`;
+
+  const toolHtml = allToolRuns.length ? `
+    <div class="tool-list">
+      ${allToolRuns.map(run => renderToolChip(run)).join("")}
+    </div>` : "";
+
+  return `
+    <article class="turn-card assistant${selected}" data-turn-id="${escapeHtml(last.id)}">
+      <div class="turn-meta">
+        <div class="turn-role assistant"><span class="dot"></span>assistant</div>
+        <div>${escapeHtml(metaBits)}</div>
+      </div>
+      ${body}
+      ${toolHtml}
+      ${firstError ? `<div class="inline-status" style="background:var(--red-soft);color:var(--red)">${escapeHtml(firstError)}</div>` : ""}
+      ${allToolRuns.some(run => run.status === "running") ? `<div class="inline-status"><span class="spinner"></span>Tool execution persisted in transcript</div>` : ""}
     </article>`;
 }
 
@@ -1233,7 +1317,10 @@ function renderToolChip(run) {
     : run.status === "completed"
       ? "●"
       : "!";
-  return `<span class="tool-chip ${escapeHtml(run.status)}">${icon} ${escapeHtml(run.tool_name)}</span>`;
+  // data-turn-id lets a click target the specific iteration that emitted
+  // the tool call when the assistant card collapses multiple iterations.
+  const turnAttr = run.turn_id ? ` data-turn-id="${escapeHtml(run.turn_id)}"` : "";
+  return `<span class="tool-chip ${escapeHtml(run.status)}"${turnAttr}>${icon} ${escapeHtml(run.tool_name)}</span>`;
 }
 
 function renderWelcome() {

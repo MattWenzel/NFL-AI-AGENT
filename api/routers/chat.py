@@ -124,6 +124,9 @@ async def chat_message(
     )
 
 
+_PRODUCER_DONE = object()  # sentinel put on the queue when the producer finishes
+
+
 @router.post("/stream")
 async def chat_stream(
     request: Request,
@@ -135,29 +138,52 @@ async def chat_stream(
 
     async def event_generator():
         logger.debug("chat/stream  session=%s  msg=%s", session.id, body.message[:100])
-        source = None
+
+        # Producer/consumer split. The runtime drains into a queue on its
+        # own task; the SSE loop reads from the queue with a heartbeat
+        # timeout. This keeps `wait_for` from cancelling the producer (and
+        # any in-flight tool call it is awaiting) every heartbeat tick.
+        queue: asyncio.Queue = asyncio.Queue()
+        source = runtime.run_session(
+            session,
+            body.message,
+            client,
+            tools=TOOLS,
+            provider_name=provider_name,
+        )
+
+        async def producer():
+            try:
+                async for event in source:
+                    await queue.put(event)
+            except BaseException as exc:  # incl. CancelledError for disconnects
+                await queue.put(exc)
+            finally:
+                await queue.put(_PRODUCER_DONE)
+
+        producer_task = asyncio.create_task(producer())
+
         try:
             yield f"data: {json.dumps({'type': 'conversation_id', 'id': session.id})}\n\n"
-            source = runtime.run_session(
-                session,
-                body.message,
-                client,
-                tools=TOOLS,
-                provider_name=provider_name,
-            ).__aiter__()
             while True:
                 if await request.is_disconnected():
                     logger.info("Client disconnected, stopping stream  session=%s", session.id)
                     break
                 try:
-                    event = await asyncio.wait_for(source.__anext__(), timeout=SSE_HEARTBEAT_SECONDS)
+                    item = await asyncio.wait_for(queue.get(), timeout=SSE_HEARTBEAT_SECONDS)
                 except asyncio.TimeoutError:
                     # Keepalive comment — proxies reset their idle timer.
+                    # The producer keeps running; only the queue-read was cancelled.
                     yield ": ping\n\n"
                     continue
-                except StopAsyncIteration:
+                if item is _PRODUCER_DONE:
                     break
-                payload = event_to_sse_payload(event)
+                if isinstance(item, LLMError):
+                    raise item
+                if isinstance(item, BaseException):
+                    # Re-raise non-LLM errors so the outer handler can log them.
+                    raise item
+                payload = event_to_sse_payload(item)
                 if payload is not None:
                     yield f"data: {json.dumps(payload)}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
@@ -170,15 +196,19 @@ async def chat_stream(
             yield f"data: {json.dumps({'type': 'error', 'message': 'Internal error — check server logs'})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
         finally:
-            # Explicitly close the runtime generator so its `finally` block runs
-            # now (releases the session lock, reconciles pending tool runs)
-            # rather than waiting on garbage collection. A second request on
-            # the same session otherwise blocks until GC cleans up.
-            if source is not None:
-                try:
-                    await source.aclose()
-                except Exception:
-                    logger.exception("Failed to close runtime source  session=%s", session.id)
+            # Stop the producer and close the runtime generator so its
+            # `finally` block runs now (releases the session lock,
+            # reconciles pending tool runs) rather than waiting on GC.
+            if not producer_task.done():
+                producer_task.cancel()
+            try:
+                await producer_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            try:
+                await source.aclose()
+            except Exception:
+                logger.exception("Failed to close runtime source  session=%s", session.id)
             await close_client(client)
 
     return StreamingResponse(

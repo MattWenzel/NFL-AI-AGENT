@@ -65,7 +65,7 @@ class ChatRuntime:
         """
         info = get_provider(provider_name)
         return self.store.get_or_create_session(
-            conversation_id=conversation_id,
+            conversation_id,
             provider=provider_name,
             model=client.model,
             context_window=info.effective_context_window,
