@@ -33,3 +33,7 @@ NFLVERSE/
 
 # Tests (local-only; not shipped with the public repo)
 tests/
+.pytest_cache/
+
+# Claude Code local config
+.claude/
