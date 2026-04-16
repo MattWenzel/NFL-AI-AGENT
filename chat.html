@@ -1,0 +1,1504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NFL Runtime Chat</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+:root {
+  --bg: linear-gradient(180deg, #f7f2e8 0%, #efe6d6 100%);
+  --panel: rgba(255, 252, 247, 0.88);
+  --panel-strong: #fffdf8;
+  --panel-muted: #f3ead9;
+  --border: rgba(110, 86, 56, 0.16);
+  --text: #23170d;
+  --muted: #74614d;
+  --muted-strong: #594433;
+  --accent: #9f3a22;
+  --accent-strong: #7f2d1a;
+  --accent-soft: #f4d8c5;
+  --green: #0f766e;
+  --green-soft: #d8f3ee;
+  --amber: #a16207;
+  --amber-soft: #fef0c7;
+  --red: #b42318;
+  --red-soft: #fee4e2;
+  --shadow: 0 10px 30px rgba(74, 51, 27, 0.08);
+  --shadow-lg: 0 24px 50px rgba(74, 51, 27, 0.14);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body {
+  font-family: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr) 360px;
+  min-height: 100vh;
+}
+
+.sidebar,
+.inspector {
+  backdrop-filter: blur(18px);
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+}
+
+.inspector {
+  border-right: none;
+  border-left: 1px solid var(--border);
+}
+
+.sidebar,
+.main,
+.inspector {
+  min-height: 100vh;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-header,
+.inspector-header,
+.main-header {
+  padding: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.brand {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+
+.brand h1 {
+  margin: 0;
+  font-size: 1.1rem;
+  letter-spacing: 0.01em;
+}
+
+.brand p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.button {
+  width: 100%;
+  border: 0;
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.button:hover { background: var(--accent-strong); transform: translateY(-1px); }
+.button.secondary {
+  background: var(--panel-strong);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.conversation-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.conversation-item {
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.conversation-item:hover {
+  background: rgba(255, 255, 255, 0.55);
+  border-color: var(--border);
+  transform: translateY(-1px);
+}
+
+.conversation-item.active {
+  background: var(--panel-strong);
+  border-color: rgba(159, 58, 34, 0.22);
+  box-shadow: var(--shadow);
+}
+
+.conversation-top {
+  display: flex;
+  align-items: start;
+  gap: 10px;
+}
+
+.conversation-title {
+  flex: 1;
+  font-size: 0.92rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.conversation-meta {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.delete-btn {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.main-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  background: rgba(255, 252, 247, 0.72);
+  backdrop-filter: blur(12px);
+}
+
+.session-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.session-heading h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.session-subtitle {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--panel-muted);
+  color: var(--muted-strong);
+  border: 1px solid var(--border);
+  font-size: 0.78rem;
+}
+
+.controls {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.controls select {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 9px 12px;
+  font: inherit;
+  background: var(--panel-strong);
+}
+
+.auth-widget {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--muted-strong);
+}
+
+.auth-widget .auth-button {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 0.85rem;
+  background: var(--panel-strong);
+  cursor: pointer;
+}
+
+.auth-widget .auth-button.primary {
+  background: #10a37f;
+  color: white;
+  border-color: #10a37f;
+}
+
+.auth-widget .auth-button.primary:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.auth-widget .auth-email {
+  font-weight: 500;
+  color: var(--text, #222);
+}
+
+.auth-widget .auth-link {
+  background: none;
+  border: none;
+  color: var(--muted-strong);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0;
+}
+
+.thread {
+  flex: 1;
+  overflow-y: auto;
+  padding: 28px 24px 12px;
+}
+
+.thread-inner {
+  max-width: 860px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.welcome {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 32px 0;
+}
+
+.welcome-card {
+  max-width: 760px;
+  width: 100%;
+  background: var(--panel-strong);
+  border: 1px solid var(--border);
+  border-radius: 30px;
+  box-shadow: var(--shadow-lg);
+  padding: 32px;
+}
+
+.welcome-card h2 {
+  margin: 0 0 10px;
+  font-size: 2rem;
+  line-height: 1.05;
+}
+
+.welcome-card p {
+  margin: 0 0 24px;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.suggestions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.suggestion {
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: linear-gradient(180deg, #fffaf3 0%, #f8f0e5 100%);
+  padding: 14px;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.suggestion:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
+
+.suggestion strong {
+  display: block;
+  font-size: 0.96rem;
+  margin-bottom: 5px;
+}
+
+.suggestion span {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.turn-card {
+  border: 1px solid var(--border);
+  background: var(--panel-strong);
+  border-radius: 24px;
+  box-shadow: var(--shadow);
+  padding: 18px 18px 16px;
+  cursor: pointer;
+}
+
+.turn-card.selected {
+  border-color: rgba(159, 58, 34, 0.32);
+  box-shadow: 0 18px 40px rgba(159, 58, 34, 0.14);
+}
+
+.turn-card.user {
+  background: linear-gradient(180deg, #fff7ef 0%, #fcebdd 100%);
+}
+
+.turn-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  font-size: 0.77rem;
+  color: var(--muted);
+}
+
+.turn-role {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.turn-role.user .dot { background: var(--accent); }
+.turn-role.assistant .dot { background: var(--green); }
+.turn-role.summary .dot { background: var(--amber); }
+
+.turn-text {
+  font-size: 0.96rem;
+  line-height: 1.7;
+}
+
+.turn-text table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 0.83rem;
+}
+
+.turn-text th,
+.turn-text td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.turn-text pre {
+  background: #1d2730;
+  color: #e5edf5;
+  padding: 14px;
+  border-radius: 16px;
+  overflow-x: auto;
+}
+
+.turn-text code {
+  background: rgba(116, 97, 77, 0.09);
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+.tool-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.tool-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  padding: 7px 10px;
+  font-size: 0.77rem;
+  background: var(--panel-muted);
+}
+
+.tool-chip.running { background: var(--amber-soft); color: #8a5a00; }
+.tool-chip.completed { background: var(--green-soft); color: #0e5a54; }
+.tool-chip.error,
+.tool-chip.failed { background: var(--red-soft); color: var(--red); }
+
+.spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.inline-status {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: var(--panel-muted);
+  color: var(--muted-strong);
+  font-size: 0.82rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.summary-card {
+  background: linear-gradient(180deg, #fff6db 0%, #fff0c2 100%);
+}
+
+.input-shell {
+  padding: 16px 24px 22px;
+  border-top: 1px solid var(--border);
+  background: rgba(255, 252, 247, 0.72);
+  backdrop-filter: blur(12px);
+}
+
+.composer {
+  max-width: 860px;
+  margin: 0 auto;
+  position: relative;
+}
+
+.composer textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  padding: 18px 62px 18px 18px;
+  font: inherit;
+  font-size: 0.96rem;
+  line-height: 1.5;
+  resize: none;
+  min-height: 64px;
+  max-height: 220px;
+  background: var(--panel-strong);
+  box-shadow: var(--shadow);
+}
+
+.composer button {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  border: 0;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+.composer button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.composer-footer {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  text-align: center;
+}
+
+.inspector {
+  display: flex;
+  flex-direction: column;
+}
+
+.inspector-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.inspector-header p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.inspector-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.panel-card {
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--panel-strong);
+  padding: 16px;
+  box-shadow: var(--shadow);
+}
+
+.panel-card h4 {
+  margin: 0 0 10px;
+  font-size: 0.88rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.stat {
+  padding: 10px;
+  border-radius: 16px;
+  background: var(--panel-muted);
+}
+
+.stat-label {
+  color: var(--muted);
+  font-size: 0.74rem;
+  margin-bottom: 4px;
+}
+
+.stat-value {
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+
+.detail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.detail-item {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  background: #fffdf9;
+}
+
+.detail-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.detail-name {
+  font-weight: 700;
+  font-size: 0.86rem;
+}
+
+.detail-json,
+.detail-text {
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 14px;
+  background: var(--panel-muted);
+  font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+  font-size: 0.74rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.summary-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.summary-entry {
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: #fff7dd;
+  border: 1px solid rgba(161, 98, 7, 0.15);
+  font-size: 0.8rem;
+}
+
+.download-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: var(--green);
+  color: #fff;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+@media (max-width: 1220px) {
+  .shell {
+    grid-template-columns: 260px minmax(0, 1fr);
+  }
+
+  .inspector {
+    position: fixed;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: min(100vw, 390px);
+    transform: translateX(100%);
+    transition: transform 0.2s ease;
+    z-index: 30;
+  }
+
+  .inspector.open { transform: translateX(0); }
+}
+
+@media (max-width: 900px) {
+  .shell { grid-template-columns: 1fr; }
+  .sidebar {
+    display: none;
+  }
+  .main-header,
+  .input-shell,
+  .thread { padding-left: 16px; padding-right: 16px; }
+  .suggestions { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="brand">
+        <h1>NFL Runtime Chat</h1>
+        <p>Transcript-backed NFL stats agent with inspectable tool runs.</p>
+      </div>
+      <button class="button" id="newChatBtn">New session</button>
+    </div>
+    <div class="conversation-list" id="conversationList"></div>
+  </aside>
+
+  <main class="main">
+    <header class="main-header">
+      <div class="session-heading">
+        <h2 id="sessionTitle">NFL Runtime Chat</h2>
+        <div class="session-subtitle" id="sessionSubtitle"></div>
+      </div>
+      <div class="controls">
+        <select id="providerSelect"></select>
+        <select id="modelSelect"></select>
+        <div id="authWidget" class="auth-widget" hidden></div>
+        <button class="button secondary" id="inspectToggle">Inspect</button>
+      </div>
+    </header>
+
+    <section class="thread" id="thread"></section>
+
+    <footer class="input-shell">
+      <div class="composer">
+        <textarea id="input" placeholder="Ask about NFL stats, exports, or a player comparison..." rows="1"></textarea>
+        <button id="sendBtn" title="Send">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M2 21 23 12 2 3v7l15 2-15 2v7Z"/></svg>
+        </button>
+      </div>
+      <div class="composer-footer">Enter to send · Shift+Enter for a new line · transcript data is loaded from the backend</div>
+    </footer>
+  </main>
+
+  <aside class="inspector" id="inspector">
+    <div class="inspector-header">
+      <h3>Runtime Inspector</h3>
+      <p>Inspect session metadata, selected turn details, tool lifecycle, and compaction history.</p>
+    </div>
+    <div class="inspector-body" id="inspectorBody"></div>
+  </aside>
+</div>
+
+<script>
+const API_BASE = "http://localhost:8001";
+
+const state = {
+  conversations: [],
+  transcripts: new Map(),
+  activeSessionId: localStorage.getItem("nfl_runtime_active_session") || null,
+  selectedTurnId: null,
+  liveTurn: null,
+  isStreaming: false,
+  providers: [],
+  selectedProvider: localStorage.getItem("nfl_chat_provider") || "anthropic",
+  selectedModel: localStorage.getItem("nfl_chat_model") || "",
+  authEmail: null,
+  loginInProgress: false,
+  loginError: null,
+};
+
+marked.setOptions({ breaks: true, gfm: true });
+
+document.getElementById("newChatBtn").addEventListener("click", startNewSession);
+document.getElementById("inspectToggle").addEventListener("click", () => {
+  document.getElementById("inspector").classList.toggle("open");
+});
+document.getElementById("providerSelect").addEventListener("change", onProviderChange);
+document.getElementById("modelSelect").addEventListener("change", onModelChange);
+document.getElementById("sendBtn").addEventListener("click", sendMessage);
+document.getElementById("input").addEventListener("keydown", handleInputKeydown);
+document.getElementById("input").addEventListener("input", autoResize);
+
+async function init() {
+  await primeAuthEmail();
+  await loadProviders();
+  await refreshConversations();
+  if (state.activeSessionId && state.conversations.some(c => c.id === state.activeSessionId)) {
+    await loadTranscript(state.activeSessionId);
+  } else {
+    state.activeSessionId = null;
+  }
+  render();
+}
+
+function handleInputKeydown(event) {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    sendMessage();
+  }
+}
+
+function autoResize() {
+  const input = document.getElementById("input");
+  input.style.height = "auto";
+  input.style.height = Math.min(input.scrollHeight, 220) + "px";
+}
+
+async function fetchJSON(path, init) {
+  const resp = await fetch(`${API_BASE}${path}`, init);
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(text || `Request failed (${resp.status})`);
+  }
+  return resp.json();
+}
+
+async function primeAuthEmail() {
+  try {
+    const status = await fetchJSON("/auth/codex/status");
+    state.authEmail = status.authenticated ? status.email : null;
+  } catch {
+    state.authEmail = null;
+  }
+}
+
+async function loadProviders() {
+  try {
+    state.providers = await fetchJSON("/chat/providers");
+  } catch {
+    state.providers = [{
+      name: "anthropic",
+      display_name: "Anthropic",
+      models: ["claude-sonnet-4-20250514"],
+      default_model: "claude-sonnet-4-20250514",
+      available: false,
+      context_window: 200000,
+      supports_streaming: true,
+      supports_tools: true,
+    }];
+  }
+  renderProviderControls();
+}
+
+function renderProviderControls() {
+  const providerSelect = document.getElementById("providerSelect");
+  providerSelect.innerHTML = "";
+  const providers = [...state.providers].sort((a, b) => Number(b.available) - Number(a.available));
+  for (const provider of providers) {
+    const opt = document.createElement("option");
+    opt.value = provider.name;
+    // OAuth providers stay selectable even when unauthenticated — the UI shows a sign-in button.
+    const hint = provider.available
+      ? ""
+      : provider.auth_type === "oauth" ? " (sign in)" : " (no key)";
+    opt.textContent = provider.display_name + hint;
+    opt.disabled = !provider.available && provider.auth_type !== "oauth";
+    providerSelect.appendChild(opt);
+  }
+  const canUse = p => p.available || p.auth_type === "oauth";
+  const selected = providers.find(p => p.name === state.selectedProvider && canUse(p))
+    || providers.find(p => p.available)
+    || providers.find(canUse)
+    || providers[0];
+  if (selected) {
+    state.selectedProvider = selected.name;
+    providerSelect.value = selected.name;
+  }
+  const provider = state.providers.find(p => p.name === state.selectedProvider);
+  const modelSelect = document.getElementById("modelSelect");
+  modelSelect.innerHTML = "";
+  if (!provider) {
+    renderAuthWidget(null);
+    return;
+  }
+  for (const model of provider.models) {
+    const opt = document.createElement("option");
+    opt.value = model;
+    opt.textContent = model;
+    modelSelect.appendChild(opt);
+  }
+  state.selectedModel = provider.models.includes(state.selectedModel) ? state.selectedModel : provider.default_model;
+  modelSelect.value = state.selectedModel;
+  renderAuthWidget(provider);
+}
+
+function renderAuthWidget(provider) {
+  const widget = document.getElementById("authWidget");
+  if (!provider || provider.auth_type !== "oauth") {
+    widget.hidden = true;
+    widget.innerHTML = "";
+    return;
+  }
+  widget.hidden = false;
+  widget.innerHTML = "";
+  if (provider.available) {
+    // Show signed-in indicator + sign-out link.
+    const email = document.createElement("span");
+    email.className = "auth-email";
+    email.textContent = state.authEmail || "signed in";
+    const signOut = document.createElement("button");
+    signOut.type = "button";
+    signOut.className = "auth-link";
+    signOut.textContent = "Sign out";
+    signOut.addEventListener("click", signOutCodex);
+    widget.appendChild(email);
+    widget.appendChild(signOut);
+  } else {
+    // Show sign-in button.
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "auth-button primary";
+    btn.textContent = state.loginInProgress ? "Waiting for browser…" : "Sign in with ChatGPT";
+    btn.disabled = !!state.loginInProgress;
+    btn.addEventListener("click", startCodexLogin);
+    widget.appendChild(btn);
+    if (state.loginError) {
+      const err = document.createElement("span");
+      err.style.color = "#d04646";
+      err.textContent = state.loginError;
+      widget.appendChild(err);
+    }
+  }
+}
+
+async function startCodexLogin() {
+  state.loginInProgress = true;
+  state.loginError = null;
+  renderAuthWidget(state.providers.find(p => p.name === state.selectedProvider));
+  let body;
+  try {
+    body = await fetchJSON("/auth/codex/login", { method: "POST" });
+  } catch (exc) {
+    state.loginInProgress = false;
+    state.loginError = String(exc.message || exc);
+    renderAuthWidget(state.providers.find(p => p.name === state.selectedProvider));
+    return;
+  }
+  window.open(body.authorize_url, "_blank", "noopener");
+  pollAuthStatus();
+}
+
+async function pollAuthStatus(maxSeconds = 300) {
+  const start = Date.now();
+  while (Date.now() - start < maxSeconds * 1000) {
+    await new Promise(r => setTimeout(r, 2000));
+    let status;
+    try {
+      status = await fetchJSON("/auth/codex/status");
+    } catch {
+      continue;
+    }
+    if (status.authenticated) {
+      state.authEmail = status.email || null;
+      state.loginInProgress = false;
+      state.loginError = null;
+      await loadProviders();
+      return;
+    }
+    if (status.error) {
+      state.loginInProgress = false;
+      state.loginError = status.error;
+      renderAuthWidget(state.providers.find(p => p.name === state.selectedProvider));
+      return;
+    }
+  }
+  state.loginInProgress = false;
+  state.loginError = "Timed out waiting for sign-in.";
+  renderAuthWidget(state.providers.find(p => p.name === state.selectedProvider));
+}
+
+async function signOutCodex() {
+  try {
+    await fetchJSON("/auth/codex/logout", { method: "POST" });
+  } catch (exc) {
+    alert("Sign-out failed: " + (exc.message || exc));
+    return;
+  }
+  state.authEmail = null;
+  await loadProviders();
+}
+
+function onProviderChange(event) {
+  state.selectedProvider = event.target.value;
+  state.selectedModel = "";
+  localStorage.setItem("nfl_chat_provider", state.selectedProvider);
+  localStorage.removeItem("nfl_chat_model");
+  renderProviderControls();
+  renderSessionHeader();
+}
+
+function onModelChange(event) {
+  state.selectedModel = event.target.value;
+  localStorage.setItem("nfl_chat_model", state.selectedModel);
+  renderSessionHeader();
+}
+
+async function refreshConversations() {
+  state.conversations = await fetchJSON("/chat/conversations");
+  if (state.activeSessionId && !state.conversations.some(c => c.id === state.activeSessionId)) {
+    state.activeSessionId = null;
+    state.selectedTurnId = null;
+  }
+}
+
+async function loadTranscript(sessionId) {
+  const transcript = await fetchJSON(`/chat/conversations/${sessionId}/transcript`);
+  state.transcripts.set(sessionId, transcript);
+  state.activeSessionId = sessionId;
+  state.selectedTurnId = pickDefaultTurn(transcript);
+  localStorage.setItem("nfl_runtime_active_session", sessionId);
+  render();
+}
+
+function pickDefaultTurn(transcript) {
+  const visibleTurns = transcript.turns.filter(turn => !turn.compacted || turn.role === "summary");
+  const preferred = [...visibleTurns].reverse().find(turn => turn.role !== "user");
+  return preferred ? preferred.id : (visibleTurns[0] ? visibleTurns[0].id : null);
+}
+
+function startNewSession() {
+  state.activeSessionId = null;
+  state.selectedTurnId = null;
+  state.liveTurn = null;
+  localStorage.removeItem("nfl_runtime_active_session");
+  render();
+}
+
+async function deleteConversation(sessionId) {
+  await fetchJSON(`/chat/conversations/${sessionId}`, { method: "DELETE" });
+  state.transcripts.delete(sessionId);
+  await refreshConversations();
+  if (state.activeSessionId === sessionId) {
+    startNewSession();
+  }
+  render();
+}
+
+async function sendMessage() {
+  const input = document.getElementById("input");
+  const text = input.value.trim();
+  if (!text || state.isStreaming) return;
+
+  const previousTranscript = state.activeSessionId ? state.transcripts.get(state.activeSessionId) : null;
+  state.isStreaming = true;
+  state.liveTurn = {
+    sessionId: state.activeSessionId,
+    userText: text,
+    assistantText: "",
+    status: "starting",
+    toolRuns: [],
+    errors: [],
+    compaction: null,
+  };
+  input.value = "";
+  autoResize();
+  render();
+
+  try {
+    const resp = await fetch(`${API_BASE}/chat/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: text,
+        conversation_id: state.activeSessionId || undefined,
+        provider: state.selectedProvider || undefined,
+        model: state.selectedModel || undefined,
+      }),
+    });
+    if (!resp.ok) {
+      throw new Error(await resp.text());
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const raw = line.slice(6).trim();
+        if (!raw) continue;
+        const event = JSON.parse(raw);
+        handleStreamEvent(event, previousTranscript);
+      }
+    }
+  } catch (error) {
+    state.liveTurn.status = "error";
+    state.liveTurn.errors.push(error.message);
+    render();
+  } finally {
+    state.isStreaming = false;
+    document.getElementById("sendBtn").disabled = false;
+    document.getElementById("input").focus();
+  }
+}
+
+function handleStreamEvent(event) {
+  if (!state.liveTurn) return;
+  if (event.type === "conversation_id") {
+    state.liveTurn.sessionId = event.id;
+    state.activeSessionId = event.id;
+    localStorage.setItem("nfl_runtime_active_session", event.id);
+  } else if (event.type === "assistant_started") {
+    state.liveTurn.status = "responding";
+  } else if (event.type === "text") {
+    state.liveTurn.status = "responding";
+    state.liveTurn.assistantText += event.text;
+  } else if (event.type === "tool_call") {
+    state.liveTurn.status = "tooling";
+    state.liveTurn.toolRuns.push({
+      id: event.tool_run_id,
+      tool_name: event.name,
+      input: event.input,
+      status: "running",
+      result: null,
+      error: null,
+    });
+  } else if (event.type === "tool_result") {
+    const tool = state.liveTurn.toolRuns.find(run => run.id === event.tool_run_id);
+    if (tool) tool.status = "completed";
+    state.liveTurn.status = "thinking";
+  } else if (event.type === "tool_failed") {
+    const tool = state.liveTurn.toolRuns.find(run => run.id === event.tool_run_id);
+    if (tool) {
+      tool.status = "error";
+      tool.error = event.message;
+    }
+    state.liveTurn.errors.push(event.message);
+  } else if (event.type === "compaction") {
+    state.liveTurn.compaction = event.meta;
+  } else if (event.type === "error") {
+    state.liveTurn.status = "error";
+    state.liveTurn.errors.push(event.message);
+  } else if (event.type === "done") {
+    finishLiveTurn();
+    return;
+  }
+  render();
+}
+
+async function finishLiveTurn() {
+  const sessionId = state.liveTurn ? state.liveTurn.sessionId : state.activeSessionId;
+  state.isStreaming = false;
+  if (sessionId) {
+    await refreshConversations();
+    await loadTranscript(sessionId);
+  }
+  state.liveTurn = null;
+  render();
+}
+
+function render() {
+  renderConversationList();
+  renderSessionHeader();
+  renderThread();
+  renderInspector();
+  document.getElementById("sendBtn").disabled = state.isStreaming;
+}
+
+function renderConversationList() {
+  const list = document.getElementById("conversationList");
+  list.innerHTML = "";
+  for (const session of state.conversations) {
+    const item = document.createElement("div");
+    item.className = "conversation-item" + (session.id === state.activeSessionId ? " active" : "");
+    item.innerHTML = `
+      <div class="conversation-top">
+        <div style="flex:1">
+          <div class="conversation-title">${escapeHtml(session.title || "New session")}</div>
+          <div class="conversation-meta">
+            <span>${session.message_count} turns</span>
+            ${session.provider ? `<span>${escapeHtml(session.provider)}</span>` : ""}
+            ${session.updated_at ? `<span>${escapeHtml(formatTime(session.updated_at))}</span>` : ""}
+          </div>
+        </div>
+        <button class="delete-btn" title="Delete session">&times;</button>
+      </div>`;
+    item.addEventListener("click", () => loadTranscript(session.id));
+    item.querySelector(".delete-btn").addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await deleteConversation(session.id);
+    });
+    list.appendChild(item);
+  }
+}
+
+function renderSessionHeader() {
+  const title = document.getElementById("sessionTitle");
+  const subtitle = document.getElementById("sessionSubtitle");
+  const transcript = state.activeSessionId ? state.transcripts.get(state.activeSessionId) : null;
+  if (!transcript && !state.liveTurn) {
+    title.textContent = "NFL Runtime Chat";
+    subtitle.innerHTML = `<span class="pill">Transcript-backed</span><span class="pill">Inspect tool runs</span>`;
+    return;
+  }
+
+  title.textContent = transcript?.title || state.liveTurn?.userText || "New session";
+  const provider = transcript?.provider || state.selectedProvider;
+  const model = transcript?.model || state.selectedModel;
+  const compactedCount = transcript ? transcript.turns.filter(turn => turn.compacted).length : 0;
+  subtitle.innerHTML = `
+    <span class="pill">${escapeHtml(provider || "provider")}</span>
+    <span class="pill">${escapeHtml(model || "model")}</span>
+    <span class="pill">${transcript ? transcript.turns.length : 0} turns</span>
+    <span class="pill">${compactedCount} compacted</span>`;
+}
+
+function renderThread() {
+  const thread = document.getElementById("thread");
+  const transcript = state.activeSessionId ? state.transcripts.get(state.activeSessionId) : null;
+  if (!transcript && !state.liveTurn) {
+    thread.innerHTML = renderWelcome();
+    for (const button of thread.querySelectorAll("[data-suggestion]")) {
+      button.addEventListener("click", () => sendSuggestion(button.dataset.suggestion));
+    }
+    return;
+  }
+
+  const turns = transcript ? transcript.turns.filter(turn => !turn.compacted || turn.role === "summary") : [];
+  const toolRunsByTurn = groupBy(transcript?.tool_runs || [], run => run.turn_id);
+  const partsByTurn = groupBy(transcript?.parts || [], part => part.turn_id);
+
+  const items = [];
+  for (const turn of turns) {
+    items.push(renderTurnCard(turn, toolRunsByTurn.get(turn.id) || [], partsByTurn.get(turn.id) || []));
+  }
+
+  if (state.liveTurn) {
+    items.push(renderLiveTurnCard());
+  }
+
+  thread.innerHTML = `<div class="thread-inner">${items.join("")}</div>`;
+  for (const node of thread.querySelectorAll("[data-turn-id]")) {
+    node.addEventListener("click", () => {
+      state.selectedTurnId = node.getAttribute("data-turn-id");
+      renderInspector();
+      renderThread();
+    });
+  }
+  for (const button of thread.querySelectorAll("[data-suggestion]")) {
+    button.addEventListener("click", () => sendSuggestion(button.dataset.suggestion));
+  }
+  for (const button of thread.querySelectorAll("[data-export-url]")) {
+    button.addEventListener("click", async (e) => {
+      e.preventDefault();
+      await downloadCSV(button.dataset.exportUrl, button.dataset.exportFname);
+    });
+  }
+  thread.scrollTop = thread.scrollHeight;
+}
+
+function renderTurnCard(turn, toolRuns, parts) {
+  const roleClass = turn.role === "summary" ? "summary" : turn.role;
+  const selected = turn.id === state.selectedTurnId ? " selected" : "";
+  const body = turn.role === "summary"
+    ? `<div class="turn-text">${renderMarkdown(turn.text || "Compaction summary")}</div>`
+    : turn.text
+      ? `<div class="turn-text">${renderMarkdown(turn.text)}</div>`
+      : `<div class="inline-status"><span class="spinner"></span>Waiting on tool activity</div>`;
+
+  const toolHtml = toolRuns.length ? `
+    <div class="tool-list">
+      ${toolRuns.map(run => renderToolChip(run)).join("")}
+    </div>` : "";
+
+  const metaBits = [
+    turn.status,
+    turn.output_tokens ? `${turn.output_tokens} output tok` : "",
+    turn.input_tokens ? `${turn.input_tokens} input tok` : "",
+    formatTime(turn.updated_at),
+  ].filter(Boolean).join(" · ");
+
+  return `
+    <article class="turn-card ${roleClass}${selected}" data-turn-id="${escapeHtml(turn.id)}">
+      <div class="turn-meta">
+        <div class="turn-role ${roleClass}"><span class="dot"></span>${escapeHtml(turn.role)}</div>
+        <div>${escapeHtml(metaBits)}</div>
+      </div>
+      ${body}
+      ${toolHtml}
+      ${turn.error ? `<div class="inline-status" style="background:var(--red-soft);color:var(--red)">${escapeHtml(turn.error)}</div>` : ""}
+      ${toolRuns.some(run => run.status === "running") ? `<div class="inline-status"><span class="spinner"></span>Tool execution persisted in transcript</div>` : ""}
+    </article>`;
+}
+
+function renderLiveTurnCard() {
+  const live = state.liveTurn;
+  const selected = !state.selectedTurnId ? " selected" : "";
+  return `
+    <article class="turn-card assistant${selected}">
+      <div class="turn-meta">
+        <div class="turn-role assistant"><span class="dot"></span>live turn</div>
+        <div>${escapeHtml(live.status)}</div>
+      </div>
+      <div class="turn-text">${live.assistantText ? renderMarkdown(live.assistantText) : ""}</div>
+      ${!live.assistantText ? `<div class="inline-status"><span class="spinner"></span>${escapeHtml(statusLabel(live.status))}</div>` : ""}
+      ${live.toolRuns.length ? `<div class="tool-list">${live.toolRuns.map(run => renderToolChip(run)).join("")}</div>` : ""}
+      ${live.compaction ? `<div class="inline-status">Compaction triggered before this turn (${live.compaction.active_tokens_before} active tokens / ${live.compaction.context_window} budget)</div>` : ""}
+      ${live.errors.map(error => `<div class="inline-status" style="background:var(--red-soft);color:var(--red)">${escapeHtml(error)}</div>`).join("")}
+    </article>`;
+}
+
+function renderInspector() {
+  const root = document.getElementById("inspectorBody");
+  const transcript = state.activeSessionId ? state.transcripts.get(state.activeSessionId) : null;
+  const live = state.liveTurn;
+  const selectedTurn = transcript?.turns.find(turn => turn.id === state.selectedTurnId) || null;
+  const selectedToolRuns = selectedTurn ? transcript.tool_runs.filter(run => run.turn_id === selectedTurn.id) : [];
+
+  const cards = [];
+  if (transcript) {
+    const compactedTurns = transcript.turns.filter(turn => turn.compacted).length;
+    cards.push(`
+      <section class="panel-card">
+        <h4>Session</h4>
+        <div class="stats-grid">
+          <div class="stat"><div class="stat-label">Title</div><div class="stat-value">${escapeHtml(transcript.title || "Untitled")}</div></div>
+          <div class="stat"><div class="stat-label">Turns</div><div class="stat-value">${transcript.turns.length}</div></div>
+          <div class="stat"><div class="stat-label">Provider</div><div class="stat-value">${escapeHtml(transcript.provider || "n/a")}</div></div>
+          <div class="stat"><div class="stat-label">Compacted</div><div class="stat-value">${compactedTurns}</div></div>
+        </div>
+      </section>`);
+  }
+
+  if (selectedTurn) {
+    cards.push(`
+      <section class="panel-card">
+        <h4>Selected Turn</h4>
+        <div class="detail-list">
+          <div class="detail-item">
+            <div class="detail-top">
+              <div class="detail-name">${escapeHtml(selectedTurn.role)} · ${escapeHtml(selectedTurn.status)}</div>
+              <div class="pill">${escapeHtml(formatTime(selectedTurn.updated_at))}</div>
+            </div>
+            <div class="detail-text">${escapeHtml(selectedTurn.text || "(no direct text)")}</div>
+          </div>
+        </div>
+      </section>`);
+  }
+
+  if (selectedToolRuns.length || (live && live.toolRuns.length)) {
+    const runs = selectedToolRuns.length ? selectedToolRuns : live.toolRuns;
+    cards.push(`
+      <section class="panel-card">
+        <h4>Tool Runs</h4>
+        <div class="detail-list">
+          ${runs.map(run => `
+            <div class="detail-item">
+              <div class="detail-top">
+                <div class="detail-name">${escapeHtml(run.tool_name)}</div>
+                <div class="pill">${escapeHtml(run.status)}</div>
+              </div>
+              <div class="detail-json">${escapeHtml(JSON.stringify(run.input || run.input_json || {}, null, 2))}</div>
+              ${run.result ? `<div class="detail-text">${escapeHtml(preview(run.result, 500))}</div>` : ""}
+              ${run.error ? `<div class="detail-text" style="background:var(--red-soft);color:var(--red)">${escapeHtml(run.error)}</div>` : ""}
+            </div>
+          `).join("")}
+        </div>
+      </section>`);
+  }
+
+  if (transcript?.summaries?.length) {
+    cards.push(`
+      <section class="panel-card">
+        <h4>Compaction</h4>
+        <div class="summary-list">
+          ${transcript.summaries.map(summary => `
+            <div class="summary-entry">
+              <strong>${escapeHtml(summary.summary_turn_id)}</strong><br>
+              ${summary.source_turn_ids.length} source turns compacted · ${escapeHtml(formatTime(summary.created_at))}
+            </div>
+          `).join("")}
+        </div>
+      </section>`);
+  }
+
+  if (live?.compaction) {
+    cards.push(`
+      <section class="panel-card">
+        <h4>Live Compaction</h4>
+        <div class="detail-text">${escapeHtml(JSON.stringify(live.compaction, null, 2))}</div>
+      </section>`);
+  }
+
+  if (!cards.length) {
+    cards.push(`
+      <section class="panel-card">
+        <h4>Inspector</h4>
+        <div class="detail-text">Select a session or a turn to inspect its transcript, tool runs, and compaction details.</div>
+      </section>`);
+  }
+  root.innerHTML = cards.join("");
+}
+
+function renderToolChip(run) {
+  const icon = run.status === "running"
+    ? `<span class="spinner"></span>`
+    : run.status === "completed"
+      ? "●"
+      : "!";
+  return `<span class="tool-chip ${escapeHtml(run.status)}">${icon} ${escapeHtml(run.tool_name)}</span>`;
+}
+
+function renderWelcome() {
+  return `
+    <div class="welcome">
+      <div class="welcome-card">
+        <h2>Ask deeper NFL questions without losing the thread.</h2>
+        <p>The backend now stores a real transcript with tool runs and compaction summaries. This UI is built around that runtime: conversations load from the server, long sessions stay inspectable, and you can see how the agent got its answer when you need to.</p>
+        <div class="suggestions">
+          ${[
+            ["Who led the NFL in passing yards in 2024?", "Season leaderboard"],
+            ["Compare Derrick Henry and Saquon Barkley rushing stats in 2024", "Side-by-side player view"],
+            ["Create a CSV of top 25 PPR scorers from 2024", "Export and download flow"],
+            ["What were the biggest playoff upsets in 2024?", "Games, spreads, and results"],
+          ].map(([label, desc]) => `
+            <button class="suggestion" data-suggestion="${escapeHtml(label)}">
+              <strong>${escapeHtml(label)}</strong>
+              <span>${escapeHtml(desc)}</span>
+            </button>`).join("")}
+        </div>
+      </div>
+    </div>`;
+}
+
+function fillSuggestion(text) {
+  const input = document.getElementById("input");
+  input.value = text;
+  autoResize();
+  input.focus();
+}
+
+function sendSuggestion(text) {
+  fillSuggestion(text);
+  sendMessage();
+}
+
+function preview(text, maxChars) {
+  return text.length > maxChars ? text.slice(0, maxChars) + "..." : text;
+}
+
+function statusLabel(status) {
+  if (status === "tooling") return "Running tools...";
+  if (status === "thinking") return "Synthesizing answer...";
+  if (status === "error") return "Turn ended with an error.";
+  return "Starting response...";
+}
+
+function escapeHtml(value) {
+  const div = document.createElement("div");
+  div.textContent = value == null ? "" : String(value);
+  return div.innerHTML;
+}
+
+function renderMarkdown(text) {
+  let html = marked.parse(text || "");
+  html = html.replace(/<table>/g, '<div style="overflow-x:auto"><table>').replace(/<\/table>/g, '</table></div>');
+  html = html.replace(
+    /<a href="(\/exports\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/g,
+    (match, path, label) => `<a class="download-btn" href="#" data-export-url="${API_BASE + path}" data-export-fname="${path.split("/").pop()}">${label}</a>`
+  );
+  return html;
+}
+
+function groupBy(items, keyFn) {
+  const map = new Map();
+  for (const item of items) {
+    const key = keyFn(item);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(item);
+  }
+  return map;
+}
+
+function formatTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+async function downloadCSV(url, filename) {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`Download failed (${resp.status})`);
+  const blob = await resp.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
+window.fillSuggestion = fillSuggestion;
+window.sendSuggestion = sendSuggestion;
+
+init().catch((error) => {
+  document.getElementById("thread").innerHTML = `<div class="thread-inner"><div class="turn-card"><div class="turn-text">Failed to initialize UI: ${escapeHtml(error.message)}</div></div></div>`;
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+__pycache__/
+*.pyc
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+*.db.zip
+
+# Backups
+backups/
+
+# API keys
+api_keys.json
+.env
+
+# Runtime data
+data/runtime.sqlite3
+data/runtime.sqlite3-shm
+data/runtime.sqlite3-wal
+data/codex_auth.json
+
+# Codex CLI artifacts
+.codex
+AGENT.md
+
+# CSV exports (generated at runtime)
+exports/
+
+# NFLVERSE subproject (separate repo)
+NFLVERSE/
