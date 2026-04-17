@@ -58,6 +58,7 @@ class SessionRecord:
     model: str | None = None
     title: str | None = None
     context_window: int = 0
+    pinned_at: str | None = None
 
 
 @dataclass
@@ -225,6 +226,7 @@ class RuntimeStore:
             )
             self._ensure_column(conn, "turns", "input_tokens", "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(conn, "turns", "output_tokens", "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(conn, "sessions", "pinned_at", "TEXT")
 
     @staticmethod
     def _ensure_column(conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
@@ -318,7 +320,7 @@ class RuntimeStore:
             conn.execute(
                 """
                 UPDATE sessions
-                SET updated_at = ?, provider = ?, model = ?, title = ?, context_window = ?
+                SET updated_at = ?, provider = ?, model = ?, title = ?, context_window = ?, pinned_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -327,9 +329,25 @@ class RuntimeStore:
                     session.model,
                     session.title,
                     session.context_window,
+                    session.pinned_at,
                     session.id,
                 ),
             )
+
+    def set_session_pinned(self, session_id: str, pinned: bool) -> SessionRecord | None:
+        """Pin or unpin a session. Pinning stamps pinned_at so callers can
+        order most-recently-pinned first; unpinning clears it. Does not touch
+        updated_at so pinning a stale conversation doesn't fake recency."""
+        session = self.get_session(session_id)
+        if session is None:
+            return None
+        session.pinned_at = _utcnow() if pinned else None
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE sessions SET pinned_at = ? WHERE id = ?",
+                (session.pinned_at, session_id),
+            )
+        return session
 
     def get_session(self, session_id: str | None) -> SessionRecord | None:
         if not session_id:
@@ -638,6 +656,7 @@ class RuntimeStore:
                 """
                 SELECT s.id,
                        s.updated_at,
+                       s.pinned_at,
                        COALESCE(s.title, (
                            SELECT SUBSTR(text, 1, 60)
                            FROM turns t
@@ -649,7 +668,7 @@ class RuntimeStore:
                        s.model,
                        (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id) AS turn_count
                 FROM sessions s
-                ORDER BY s.updated_at DESC
+                ORDER BY s.pinned_at DESC, s.updated_at DESC
                 """
             ).fetchall()
         return [dict(row) for row in rows]
@@ -677,6 +696,7 @@ class RuntimeStore:
             model=row["model"],
             title=row["title"],
             context_window=row["context_window"],
+            pinned_at=row["pinned_at"] if "pinned_at" in row.keys() else None,
         )
 
     @staticmethod

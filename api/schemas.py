@@ -41,10 +41,12 @@ class ConversationInfo(BaseModel):
     provider: str | None = None
     model: str | None = None
     updated_at: str | None = None
+    pinned_at: str | None = None
 
 
 class ConversationUpdate(BaseModel):
-    title: str = Field(..., min_length=1, max_length=200, description="New conversation title")
+    title: str | None = Field(None, min_length=1, max_length=200, description="New conversation title")
+    pinned: bool | None = Field(None, description="Pin or unpin this conversation")
 
 
 class TurnModel(BaseModel):

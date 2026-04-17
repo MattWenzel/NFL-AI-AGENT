@@ -25,6 +25,7 @@ async def list_conversations(store: RuntimeStore = Depends(get_store)):
             provider=item.get("provider"),
             model=item.get("model"),
             updated_at=item.get("updated_at"),
+            pinned_at=item.get("pinned_at"),
         )
         for item in store.list_sessions()
     ]
@@ -107,25 +108,31 @@ async def get_conversation_transcript(
 
 
 @router.patch("/conversations/{conversation_id}", response_model=ConversationInfo)
-async def rename_conversation(
+async def update_conversation(
     conversation_id: str,
     body: ConversationUpdate,
     store: RuntimeStore = Depends(get_store),
 ):
-    """Rename a conversation."""
+    """Rename and/or pin a conversation."""
+    if body.title is None and body.pinned is None:
+        raise HTTPException(status_code=400, detail="Provide title and/or pinned")
     session = store.get_session(conversation_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    session.title = body.title.strip()
-    store.update_session(session)
+    if body.title is not None:
+        session.title = body.title.strip()
+        store.update_session(session)
+    if body.pinned is not None:
+        session = store.set_session_pinned(conversation_id, body.pinned) or session
     entry = next((s for s in store.list_sessions() if s["id"] == conversation_id), None)
     return ConversationInfo(
         id=session.id,
         message_count=entry["turn_count"] if entry else 0,
-        title=session.title,
+        title=entry["title"] if entry else (session.title or "New conversation"),
         provider=session.provider,
         model=session.model,
         updated_at=session.updated_at,
+        pinned_at=session.pinned_at,
     )
 
 

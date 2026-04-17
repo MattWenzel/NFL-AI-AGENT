@@ -257,7 +257,8 @@ body {
 }
 
 .delete-btn,
-.rename-btn {
+.rename-btn,
+.pin-btn {
   border: 0;
   background: transparent;
   color: var(--muted);
@@ -269,9 +270,14 @@ body {
 }
 
 .delete-btn:hover,
-.rename-btn:hover {
+.rename-btn:hover,
+.pin-btn:hover {
   background: var(--panel-muted);
   color: var(--text);
+}
+
+.pin-btn.active {
+  color: var(--accent);
 }
 
 .rename-input {
@@ -1369,6 +1375,25 @@ async function renameConversation(sessionId, newTitle) {
   render();
 }
 
+async function togglePinned(sessionId, shouldPin) {
+  const updated = await fetchJSON(`/chat/conversations/${sessionId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pinned: shouldPin }),
+  });
+  const idx = state.conversations.findIndex((s) => s.id === sessionId);
+  if (idx !== -1) state.conversations[idx] = updated;
+  // Re-sort so pinned bubble up to the top of state.conversations to match
+  // the server order (pinned_at DESC, then updated_at DESC).
+  state.conversations.sort((a, b) => {
+    if (a.pinned_at && !b.pinned_at) return -1;
+    if (!a.pinned_at && b.pinned_at) return 1;
+    if (a.pinned_at && b.pinned_at) return b.pinned_at.localeCompare(a.pinned_at);
+    return (b.updated_at || "").localeCompare(a.updated_at || "");
+  });
+  render();
+}
+
 async function sendMessage() {
   const input = document.getElementById("input");
   const text = input.value.trim();
@@ -1513,7 +1538,20 @@ function renderConversationList() {
       : (state.conversations.length ? `${state.conversations.length} total` : "");
   }
 
-  const groups = groupSessionsByTime(filtered);
+  const pinned = filtered.filter(s => s.pinned_at);
+  const unpinned = filtered.filter(s => !s.pinned_at);
+
+  if (pinned.length) {
+    const header = document.createElement("div");
+    header.className = "conversation-group-label";
+    header.textContent = "Pinned";
+    list.appendChild(header);
+    for (const session of pinned) {
+      list.appendChild(buildConversationItem(session));
+    }
+  }
+
+  const groups = groupSessionsByTime(unpinned);
   const labels = { today: "Today", yesterday: "Yesterday", thisWeek: "This Week", thisMonth: "This Month", older: "Older" };
 
   for (const key of ["today", "yesterday", "thisWeek", "thisMonth", "older"]) {
@@ -1532,6 +1570,9 @@ function renderConversationList() {
 function buildConversationItem(session) {
   const item = document.createElement("div");
   item.className = "conversation-item" + (session.id === state.activeSessionId ? " active" : "");
+  const isPinned = Boolean(session.pinned_at);
+  const pinIcon = isPinned ? "&#9733;" : "&#9734;";
+  const pinTitle = isPinned ? "Unpin session" : "Pin session";
   item.innerHTML = `
     <div class="conversation-top">
       <div style="flex:1">
@@ -1543,6 +1584,7 @@ function buildConversationItem(session) {
         </div>
       </div>
       <div class="conversation-actions">
+        <button class="pin-btn${isPinned ? " active" : ""}" title="${pinTitle}">${pinIcon}</button>
         <button class="rename-btn" title="Rename session">&#9998;</button>
         <button class="delete-btn" title="Delete session">&times;</button>
       </div>
@@ -1556,6 +1598,14 @@ function buildConversationItem(session) {
   item.querySelector(".rename-btn").addEventListener("click", (e) => {
     e.stopPropagation();
     beginRename(item, session);
+  });
+  item.querySelector(".pin-btn").addEventListener("click", async (e) => {
+    e.stopPropagation();
+    try {
+      await togglePinned(session.id, !isPinned);
+    } catch (err) {
+      console.error("Pin toggle failed:", err);
+    }
   });
   return item;
 }
