@@ -1,0 +1,152 @@
+async function sendMessage() {
+  const input = document.getElementById("input");
+  const text = input.value.trim();
+  if (!text || state.isStreaming) return;
+
+  const previousTranscript = state.activeSessionId ? state.transcripts.get(state.activeSessionId) : null;
+  state.isStreaming = true;
+  state.liveTurn = {
+    sessionId: state.activeSessionId,
+    userText: text,
+    assistantText: "",
+    status: "starting",
+    toolRuns: [],
+    errors: [],
+    compaction: null,
+  };
+  input.value = "";
+  autoResize();
+  render();
+
+  try {
+    const resp = await fetch(`${API_BASE}/chat/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: text,
+        conversation_id: state.activeSessionId || undefined,
+        provider: state.selectedProvider || undefined,
+        model: state.selectedModel || undefined,
+      }),
+    });
+    if (!resp.ok) {
+      throw new Error(await resp.text());
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const raw = line.slice(6).trim();
+        if (!raw) continue;
+        const event = JSON.parse(raw);
+        handleStreamEvent(event, previousTranscript);
+      }
+    }
+  } catch (error) {
+    state.liveTurn.status = "error";
+    state.liveTurn.errors.push(error.message);
+    render();
+  } finally {
+    state.isStreaming = false;
+    document.getElementById("sendBtn").disabled = false;
+    document.getElementById("input").focus();
+  }
+}
+
+function patchLiveText() {
+  // Direct-DOM update of the streaming assistant turn's text — bypasses
+  // render() so text deltas don't re-parse markdown across the whole
+  // transcript. Returns true if the patch succeeded; callers can fall
+  // back to render() when the live card isn't mounted yet.
+  const el = document.querySelector('[data-live-turn="true"] [data-live-text="true"]');
+  if (!el || !state.liveTurn) return false;
+  el.innerHTML = renderMarkdown(state.liveTurn.assistantText || "");
+  // Stick to the bottom while streaming so the reader follows new text.
+  const thread = document.getElementById("thread");
+  if (thread) {
+    const nearBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 120;
+    if (nearBottom) thread.scrollTop = thread.scrollHeight;
+  }
+  return true;
+}
+
+function handleStreamEvent(event) {
+  if (!state.liveTurn) return;
+  if (event.type === "conversation_id") {
+    state.liveTurn.sessionId = event.id;
+    state.activeSessionId = event.id;
+    localStorage.setItem("nfl_runtime_active_session", event.id);
+  } else if (event.type === "assistant_started") {
+    state.liveTurn.status = "responding";
+  } else if (event.type === "text") {
+    state.liveTurn.status = "responding";
+    state.liveTurn.assistantText += event.text;
+    // Critical: skip the full re-render on text deltas. Streaming emits
+    // dozens of text events per second, and with many prior turns in the
+    // transcript each render re-parses markdown + rebuilds Chart.js
+    // instances across the whole thread — main thread chokes. Instead
+    // patch only the live turn's text node in place.
+    if (patchLiveText()) return;
+    // Fall through to render() only if the live card isn't in the DOM yet
+    // (first text delta of the turn).
+  } else if (event.type === "tool_call") {
+    state.liveTurn.status = "tooling";
+    state.liveTurn.toolRuns.push({
+      id: event.tool_run_id,
+      tool_name: event.name,
+      input: event.input,
+      status: "running",
+      result: null,
+      error: null,
+    });
+  } else if (event.type === "tool_result") {
+    const tool = state.liveTurn.toolRuns.find(run => run.id === event.tool_run_id);
+    if (tool) tool.status = "completed";
+    state.liveTurn.status = "thinking";
+  } else if (event.type === "tool_failed") {
+    const tool = state.liveTurn.toolRuns.find(run => run.id === event.tool_run_id);
+    if (tool) {
+      tool.status = "error";
+      tool.error = event.message;
+    }
+    state.liveTurn.errors.push(event.message);
+  } else if (event.type === "compaction") {
+    state.liveTurn.compaction = event.meta;
+  } else if (event.type === "error") {
+    state.liveTurn.status = "error";
+    state.liveTurn.errors.push(event.message);
+  } else if (event.type === "done") {
+    finishLiveTurn();
+    return;
+  }
+  render();
+}
+
+async function finishLiveTurn() {
+  const sessionId = state.liveTurn ? state.liveTurn.sessionId : state.activeSessionId;
+  state.isStreaming = false;
+  // Clear the live turn BEFORE reloading the transcript. loadTranscript
+  // triggers render(); if the live turn is still present, the thread
+  // renders the just-persisted turn AND a stale live-turn card for the
+  // same content — Chart.js can bind to the wrong canvas (or to one
+  // whose parent gets replaced by the final render), and the chart
+  // ends up empty until the user refreshes.
+  state.liveTurn = null;
+  if (sessionId) {
+    await Promise.all([refreshConversations(), refreshCsvs()]);
+    await loadTranscript(sessionId);
+  } else {
+    render();
+  }
+}
+

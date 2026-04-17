@@ -1,0 +1,50 @@
+
+.shell {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  height: 100vh;
+  position: relative;
+}
+
+.sidebar,
+.inspector {
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+}
+
+.inspector {
+  border-right: none;
+  border-left: 1px solid var(--border);
+}
+
+.sidebar,
+.main,
+.inspector {
+  min-height: 0;
+  overflow: hidden;
+}
+
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+
+@media (max-width: 1220px) {
+  .shell {
+    grid-template-columns: 260px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .shell { grid-template-columns: 1fr; }
+  .sidebar {
+    display: none;
+  }
+  .input-shell,
+  .thread { padding-left: 16px; padding-right: 16px; }
+  .suggestions { grid-template-columns: 1fr; }
+  .inspector { width: 100vw; }
+}

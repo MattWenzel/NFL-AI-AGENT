@@ -1,0 +1,252 @@
+.inspector {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 380px;
+  max-width: 90vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  transform: translateX(100%);
+  transition: transform 0.2s ease;
+  z-index: 40;
+}
+
+.inspector.open {
+  transform: translateX(0);
+}
+
+.inspector-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.25);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  z-index: 30;
+}
+
+.inspector-backdrop.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.inspector-collapse {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 8px;
+}
+
+.inspector-collapse:hover {
+  background: var(--panel-muted);
+  color: var(--text);
+}
+
+.inspector-toggle {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  border: 1px solid var(--border);
+  background: var(--panel-strong);
+  color: var(--muted-strong);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 8px 14px;
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.inspector-toggle:hover {
+  background: var(--panel-muted);
+  color: var(--text);
+}
+
+.inspector-toggle.hidden { display: none; }
+
+.inspector-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.inspector-header p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.inspector-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.panel-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel-strong);
+  padding: 16px;
+}
+
+.panel-card h4 {
+  margin: 0 0 10px;
+  font-size: 0.88rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.panel-card.panel-bare {
+  border: 0;
+  background: none;
+  padding: 0;
+  box-shadow: none;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.stat {
+  padding: 10px;
+  border-radius: 16px;
+  background: var(--panel-muted);
+}
+
+.stat-label {
+  color: var(--muted);
+  font-size: 0.74rem;
+  margin-bottom: 4px;
+}
+
+.stat-value {
+  font-weight: 700;
+  font-size: 0.92rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.detail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.detail-item {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--panel-strong);
+}
+
+.detail-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.detail-name {
+  font-weight: 700;
+  font-size: 0.86rem;
+}
+
+.detail-json,
+.detail-text {
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 14px;
+  background: var(--panel-muted);
+  font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+  font-size: 0.74rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.detail-prose {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--panel-muted);
+  font-size: 0.84rem;
+  line-height: 1.5;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.detail-prose p:first-child { margin-top: 0; }
+.detail-prose p:last-child { margin-bottom: 0; }
+.detail-prose pre {
+  background: var(--panel-muted);
+  padding: 8px;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 0.76rem;
+}
+
+.summary-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.summary-entry {
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--amber-soft);
+  border: 1px solid var(--amber-soft);
+  font-size: 0.8rem;
+}
+
+.download-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: #238636;
+  color: #fff;
+  text-decoration: none;
+  font-weight: 600;
+  border: 1px solid rgba(240, 246, 252, 0.1);
+  transition: background 0.12s ease;
+}
+
+.download-btn:hover {
+  background: #2EA043;
+}
+
+.download-btn:active {
+  background: #1F7A30;
+}
+
+.download-btn.unavailable {
+  background: var(--panel-muted);
+  color: var(--muted);
+  border: 1px dashed var(--border);
+  cursor: default;
+  font-weight: 500;
+}

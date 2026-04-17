@@ -1,0 +1,84 @@
+:root {
+  --bg: #E6EAF0;
+  --panel: #F2F4F8;
+  --panel-strong: #F6F8FB;
+  --panel-muted: #DDE3EB;
+  --border: #B8C2CE;
+  --border-subtle: #CAD3DD;
+  --text: #0F172A;
+  --muted: #64748B;
+  --muted-strong: #334155;
+  --accent: #4F46E5;
+  --accent-strong: #4338CA;
+  --accent-soft: #E3E7F8;
+  --green: #059669;
+  --green-soft: #CDEDDF;
+  --amber: #B45309;
+  --amber-soft: #F5E7C6;
+  --red: #DC2626;
+  --red-soft: #F5D5D5;
+  --shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 1px 1px rgba(15, 23, 42, 0.07);
+  --shadow-lg: 0 4px 12px rgba(15, 23, 42, 0.1);
+  --code-bg: #0F172A;
+  --code-text: #E2E8F0;
+}
+
+:root[data-theme="dark"] {
+  --bg: #0D1117;
+  --panel: #161B22;
+  --panel-strong: #1C2128;
+  --panel-muted: #21262D;
+  --border: #30363D;
+  --border-subtle: #21262D;
+  --text: #E6EDF3;
+  --muted: #7D8590;
+  --muted-strong: #9198A1;
+  --accent: #2F81F7;
+  --accent-strong: #58A6FF;
+  --accent-soft: #0C2D6B;
+  --green: #3FB950;
+  --green-soft: #0F2F1A;
+  --amber: #D29922;
+  --amber-soft: #2D1F02;
+  --red: #F85149;
+  --red-soft: #2D0E0C;
+  --shadow: 0 1px 2px rgba(1, 4, 9, 0.4), 0 1px 1px rgba(1, 4, 9, 0.5);
+  --shadow-lg: 0 4px 12px rgba(1, 4, 9, 0.6);
+  --code-bg: #161B22;
+  --code-text: #E6EDF3;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body {
+  font-family: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted-strong);
+  cursor: pointer;
+  padding: 0;
+  margin-left: auto;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.theme-toggle:hover {
+  background: var(--panel-muted);
+  color: var(--text);
+}
+
+.theme-icon-sun { display: none; }
+.theme-icon-moon { display: inline-block; }
+
+:root[data-theme="dark"] .theme-icon-sun { display: inline-block; }
+:root[data-theme="dark"] .theme-icon-moon { display: none; }

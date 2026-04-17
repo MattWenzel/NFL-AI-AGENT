@@ -775,7 +775,23 @@ class RuntimeStore:
                         )
                     )
                 if turn.role == "summary":
-                    summary_text = "[Compacted summary]\n" + text
+                    # Wrap the summary in an XML tag and end with a self-note
+                    # so the model treats it as a reference, not as its own
+                    # past content to mimic. Without this framing the model
+                    # sees a bullet-list "assistant" message and starts
+                    # echoing that exact format ("- user: …", "- tool
+                    # execute_sql (completed): input=…") in its next reply.
+                    summary_text = (
+                        "<prior_conversation_summary>\n"
+                        + text
+                        + "\n</prior_conversation_summary>\n\n"
+                        "The block above is a compressed memo of earlier "
+                        "turns, provided for context only. I will answer the "
+                        "user's next message naturally in plain prose and "
+                        "will NOT reproduce the summary, its bullet-list "
+                        "formatting, or any 'tool X (completed): input=…' "
+                        "lines in my reply."
+                    )
                     messages.append(Message(role="assistant", text=summary_text))
                 elif text or tool_calls:
                     messages.append(
