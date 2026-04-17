@@ -33,28 +33,28 @@
 }
 
 :root[data-theme="dark"] {
-  --bg: #0B1220;
-  --panel: #0F172A;
-  --panel-strong: #111827;
-  --panel-muted: #1E293B;
-  --border: #334155;
-  --border-subtle: #1E293B;
-  --text: #F1F5F9;
-  --muted: #94A3B8;
-  --muted-strong: #CBD5E1;
-  --accent: #818CF8;
-  --accent-strong: #A5B4FC;
-  --accent-soft: #1E1B4B;
-  --green: #34D399;
-  --green-soft: #064E3B;
-  --amber: #FBBF24;
-  --amber-soft: #451A03;
-  --red: #F87171;
-  --red-soft: #450A0A;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 1px 1px rgba(0, 0, 0, 0.25);
-  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.35);
-  --code-bg: #1E293B;
-  --code-text: #F1F5F9;
+  --bg: #0D1117;
+  --panel: #161B22;
+  --panel-strong: #1C2128;
+  --panel-muted: #21262D;
+  --border: #30363D;
+  --border-subtle: #21262D;
+  --text: #E6EDF3;
+  --muted: #7D8590;
+  --muted-strong: #9198A1;
+  --accent: #2F81F7;
+  --accent-strong: #58A6FF;
+  --accent-soft: #0C2D6B;
+  --green: #3FB950;
+  --green-soft: #0F2F1A;
+  --amber: #D29922;
+  --amber-soft: #2D1F02;
+  --red: #F85149;
+  --red-soft: #2D0E0C;
+  --shadow: 0 1px 2px rgba(1, 4, 9, 0.4), 0 1px 1px rgba(1, 4, 9, 0.5);
+  --shadow-lg: 0 4px 12px rgba(1, 4, 9, 0.6);
+  --code-bg: #161B22;
+  --code-text: #E6EDF3;
 }
 
 * { box-sizing: border-box; }
@@ -1372,10 +1372,20 @@ body {
   gap: 8px;
   padding: 10px 14px;
   border-radius: 14px;
-  background: var(--green);
+  background: #238636;
   color: #fff;
   text-decoration: none;
   font-weight: 600;
+  border: 1px solid rgba(240, 246, 252, 0.1);
+  transition: background 0.12s ease;
+}
+
+.download-btn:hover {
+  background: #2EA043;
+}
+
+.download-btn:active {
+  background: #1F7A30;
 }
 
 .download-btn.unavailable {
