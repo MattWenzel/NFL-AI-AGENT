@@ -22,7 +22,60 @@ document.getElementById("sidebarSearch").addEventListener("input", (e) => {
 document.getElementById("tabChats").addEventListener("click", () => setSidebarView("chats"));
 document.getElementById("tabCsvs").addEventListener("click", () => setSidebarView("csvs"));
 
+// --- Sidebar footer / user menu ---
+const userWidget = document.getElementById("userWidget");
+const userMenu = document.getElementById("userMenu");
+
+function toggleUserMenu(force) {
+  const show = typeof force === "boolean" ? force : userMenu.hasAttribute("hidden");
+  if (show) {
+    userMenu.removeAttribute("hidden");
+    userWidget.setAttribute("aria-expanded", "true");
+  } else {
+    userMenu.setAttribute("hidden", "");
+    userWidget.setAttribute("aria-expanded", "false");
+  }
+}
+
+userWidget.addEventListener("click", (event) => {
+  event.stopPropagation();
+  toggleUserMenu();
+});
+
+document.addEventListener("click", (event) => {
+  if (!userMenu.hasAttribute("hidden") && !userMenu.contains(event.target) && event.target !== userWidget) {
+    toggleUserMenu(false);
+  }
+});
+
+document.getElementById("openSettingsBtn").addEventListener("click", () => {
+  toggleUserMenu(false);
+  openSettingsModal();
+});
+
+document.getElementById("signOutBtn").addEventListener("click", () => {
+  toggleUserMenu(false);
+  signOut();
+});
+
+document.getElementById("settingsCloseBtn").addEventListener("click", closeSettingsModal);
+document.getElementById("settingsBackdrop").addEventListener("click", closeSettingsModal);
+
+function renderUserWidget(user) {
+  const avatar = document.getElementById("userAvatar");
+  const name = document.getElementById("userName");
+  if (!user) {
+    avatar.textContent = "?";
+    name.textContent = "Not signed in";
+    return;
+  }
+  const initial = (user.email || "?").trim().charAt(0).toUpperCase();
+  avatar.textContent = initial || "?";
+  name.textContent = user.email;
+}
+
 async function init() {
+  renderUserWidget(getCurrentUser());
   await loadProviders();
   await Promise.all([refreshConversations(), refreshCsvs()]);
   if (state.activeSessionId && state.conversations.some(c => c.id === state.activeSessionId)) {
@@ -75,6 +128,14 @@ function autoResize() {
 window.fillSuggestion = fillSuggestion;
 window.sendSuggestion = sendSuggestion;
 
-init().catch((error) => {
-  document.getElementById("thread").innerHTML = `<div class="thread-inner"><div class="turn-card"><div class="turn-text">Failed to initialize UI: ${escapeHtml(error.message)}</div></div></div>`;
-});
+(async function boot() {
+  try {
+    const authed = await bootAuth();
+    if (authed) {
+      await init();
+    }
+    // If not authed, bootAuth already rendered the sign-in/create-account screen.
+  } catch (error) {
+    document.getElementById("thread").innerHTML = `<div class="thread-inner"><div class="turn-card"><div class="turn-text">Failed to initialize UI: ${escapeHtml(error.message)}</div></div></div>`;
+  }
+})();

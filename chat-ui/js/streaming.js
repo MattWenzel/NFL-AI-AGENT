@@ -21,7 +21,7 @@ async function sendMessage() {
   try {
     const resp = await fetch(`${API_BASE}/chat/stream`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         message: text,
         conversation_id: state.activeSessionId || undefined,
@@ -29,6 +29,10 @@ async function sendMessage() {
         model: state.selectedModel || undefined,
       }),
     });
+    if (resp.status === 401) {
+      if (typeof handleUnauthorized === "function") await handleUnauthorized();
+      throw new Error("Session expired — please sign in again.");
+    }
     if (!resp.ok) {
       throw new Error(await resp.text());
     }

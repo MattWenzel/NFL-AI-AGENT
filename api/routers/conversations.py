@@ -3,10 +3,14 @@
 Thin facade over `RuntimeStore`. The transcript endpoint does the
 dict-shaping for nested records (turns, parts, tool_runs, summaries)
 since pydantic doesn't model those directly.
+
+All endpoints require auth and scope queries to the caller's user_id so
+one user can't read/mutate another user's conversations.
 """
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from api.auth import AuthenticatedUser, get_current_user
 from api.dependencies import get_store
 from api.schemas import ConversationInfo, ConversationTranscriptResponse, ConversationUpdate
 from infra.persistence.runtime_store import RuntimeStore, safe_load_tool_input
@@ -15,8 +19,11 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 
 @router.get("/conversations", response_model=list[ConversationInfo])
-async def list_conversations(store: RuntimeStore = Depends(get_store)):
-    """List all active conversations."""
+async def list_conversations(
+    store: RuntimeStore = Depends(get_store),
+    user: AuthenticatedUser = Depends(get_current_user),
+):
+    """List all active conversations for the current user."""
     return [
         ConversationInfo(
             id=item["id"],
@@ -28,7 +35,7 @@ async def list_conversations(store: RuntimeStore = Depends(get_store)):
             pinned_at=item.get("pinned_at"),
             source_csv_id=item.get("source_csv_id"),
         )
-        for item in store.list_sessions()
+        for item in store.list_sessions(user_id=user.id)
     ]
 
 
@@ -36,8 +43,12 @@ async def list_conversations(store: RuntimeStore = Depends(get_store)):
 async def get_conversation_transcript(
     conversation_id: str,
     store: RuntimeStore = Depends(get_store),
+    user: AuthenticatedUser = Depends(get_current_user),
 ):
     """Return the persisted transcript with turns, tool runs, and compaction summaries."""
+    # Ownership check up-front — same 404 whether it doesn't exist or belongs to someone else.
+    if store.get_session(conversation_id, user_id=user.id) is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
     try:
         transcript = store.get_transcript(conversation_id)
     except KeyError:
@@ -113,11 +124,12 @@ async def update_conversation(
     conversation_id: str,
     body: ConversationUpdate,
     store: RuntimeStore = Depends(get_store),
+    user: AuthenticatedUser = Depends(get_current_user),
 ):
     """Rename and/or pin a conversation."""
     if body.title is None and body.pinned is None:
         raise HTTPException(status_code=400, detail="Provide title and/or pinned")
-    session = store.get_session(conversation_id)
+    session = store.get_session(conversation_id, user_id=user.id)
     if session is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
     if body.title is not None:
@@ -125,7 +137,10 @@ async def update_conversation(
         store.update_session(session)
     if body.pinned is not None:
         session = store.set_session_pinned(conversation_id, body.pinned) or session
-    entry = next((s for s in store.list_sessions() if s["id"] == conversation_id), None)
+    entry = next(
+        (s for s in store.list_sessions(user_id=user.id) if s["id"] == conversation_id),
+        None,
+    )
     return ConversationInfo(
         id=session.id,
         message_count=entry["turn_count"] if entry else 0,
@@ -142,8 +157,9 @@ async def update_conversation(
 async def delete_conversation(
     conversation_id: str,
     store: RuntimeStore = Depends(get_store),
+    user: AuthenticatedUser = Depends(get_current_user),
 ):
-    """Delete a conversation."""
-    if store.delete_session(conversation_id):
+    """Delete a conversation owned by the current user."""
+    if store.delete_session(conversation_id, user_id=user.id):
         return {"status": "deleted"}
     raise HTTPException(status_code=404, detail="Conversation not found")

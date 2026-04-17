@@ -37,7 +37,7 @@ class AnthropicClient(BaseLLMClient):
 
     def _translate_error(self, exc: Exception) -> LLMError:
         if isinstance(exc, anthropic.AuthenticationError):
-            return LLMError("Invalid API key — check ANTHROPIC_API_KEY")
+            return LLMError("Invalid Anthropic API key — update it in Settings")
         if isinstance(exc, anthropic.RateLimitError):
             return LLMError("Rate limited by Anthropic — retry shortly")
         if isinstance(exc, anthropic.APIError):

@@ -7,8 +7,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import chat, conversations, csvs, exports, providers
+from api.routers import auth, chat, conversations, csvs, exports, providers, settings
 from agent.runtime import ChatRuntime
+from infra import encryption
 from infra.persistence.runtime_store import RuntimeStore
 from config import DB_PATH, PBP_DB_PATH, RUNTIME_DB_PATH, format_file_size
 
@@ -22,8 +23,30 @@ async def lifespan(app: FastAPI):
     from infra.logger import setup_logging
     setup_logging(verbose=os.environ.get("NFLVERSE_VERBOSE") == "1")
 
+    # Encryption key must be present before we accept auth/settings traffic.
+    # Fail fast at startup with a concrete hint rather than at the first PUT /settings/api-keys.
+    try:
+        encryption.require_configured()
+    except encryption.EncryptionKeyMissing as exc:
+        logger.error("%s", exc)
+        raise
+    except encryption.EncryptionKeyInvalid as exc:
+        logger.error("%s", exc)
+        raise
+
     app.state.runtime_store = RuntimeStore(RUNTIME_DB_PATH)
     app.state.chat_runtime = ChatRuntime(app.state.runtime_store)
+
+    # Housekeeping: drop any long-expired auth sessions so the table doesn't grow forever.
+    purged = app.state.runtime_store.purge_expired_auth_sessions()
+    if purged:
+        logger.info("Purged %d expired auth session(s)", purged)
+
+    user_count = app.state.runtime_store.count_users()
+    if user_count == 0:
+        logger.info("No users registered yet — first visitor to the UI will be prompted to create an account.")
+    else:
+        logger.info("%d user account(s) registered", user_count)
 
     # DB checks
     if DB_PATH.exists():
@@ -79,11 +102,13 @@ def create_app() -> FastAPI:
             "null",
         ],
         allow_credentials=False,
-        allow_methods=["GET", "POST", "PATCH", "DELETE"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
         allow_headers=["*"],
     )
 
     # Include routers
+    app.include_router(auth.router)
+    app.include_router(settings.router)
     app.include_router(chat.router)
     app.include_router(conversations.router)
     app.include_router(providers.router)

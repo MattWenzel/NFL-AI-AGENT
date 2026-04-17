@@ -1,5 +1,12 @@
 async function fetchJSON(path, init) {
-  const resp = await fetch(`${API_BASE}${path}`, init);
+  const options = { ...(init || {}) };
+  options.headers = authHeaders(options.headers || {});
+  const resp = await fetch(`${API_BASE}${path}`, options);
+  if (resp.status === 401) {
+    // Token expired or was revoked — bounce to the sign-in screen.
+    if (typeof handleUnauthorized === "function") await handleUnauthorized();
+    throw new Error("Session expired — please sign in again.");
+  }
   if (!resp.ok) {
     const text = await resp.text();
     throw new Error(text || `Request failed (${resp.status})`);
@@ -77,7 +84,11 @@ function formatTime(value) {
 }
 
 async function downloadCSV(url, filename) {
-  const resp = await fetch(url);
+  const resp = await fetch(url, { headers: authHeaders() });
+  if (resp.status === 401 && typeof handleUnauthorized === "function") {
+    await handleUnauthorized();
+    throw new Error("Session expired — please sign in again.");
+  }
   if (!resp.ok) throw new Error(`Download failed (${resp.status})`);
   const blob = await resp.blob();
   const objectUrl = URL.createObjectURL(blob);

@@ -5,7 +5,7 @@ function renderProviderControls() {
   for (const provider of providers) {
     const opt = document.createElement("option");
     opt.value = provider.name;
-    opt.textContent = provider.display_name + (provider.available ? "" : " (no key)");
+    opt.textContent = provider.display_name + (provider.available ? "" : " — set key in Settings");
     opt.disabled = !provider.available;
     providerSelect.appendChild(opt);
   }
@@ -276,9 +276,12 @@ function renderTurnCard(turn, toolRuns, parts) {
       </article>`;
   }
 
+  const turnResolved = turn.status !== "running" && turn.status !== "pending";
   const body = turn.text
     ? `<div class="turn-text">${renderMarkdown(turn.text)}</div>`
-    : `<div class="inline-status"><span class="spinner"></span>Waiting on tool activity</div>`;
+    : (turnResolved
+        ? ""  // errored/completed turn with no text — let the error row below speak for itself
+        : `<div class="inline-status"><span class="spinner"></span>Waiting on tool activity</div>`);
 
   const thinkingHtml = renderThinkingBlock(toolRuns, { groupKey: turn.id });
   const chartsHtml = renderInlineCharts(toolRuns);
@@ -332,9 +335,12 @@ function renderAssistantGroupCard(iterations, toolRunsByTurn, partsByTurn) {
     formatTime(last.updated_at),
   ].filter(Boolean).join(" · ");
 
+  const lastResolved = last.status !== "running" && last.status !== "pending";
   const body = combinedText
     ? `<div class="turn-text">${renderMarkdown(combinedText)}</div>`
-    : `<div class="inline-status"><span class="spinner"></span>Waiting on tool activity</div>`;
+    : (lastResolved
+        ? ""
+        : `<div class="inline-status"><span class="spinner"></span>Waiting on tool activity</div>`);
 
   const thinkingHtml = renderThinkingBlock(allToolRuns, { groupKey: last.id });
   const chartsHtml = renderInlineCharts(allToolRuns);

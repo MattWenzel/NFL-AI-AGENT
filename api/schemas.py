@@ -149,3 +149,42 @@ class ProviderResponse(BaseModel):
     context_window: int
     supports_streaming: bool
     supports_tools: bool
+
+
+# ---------------- auth + settings ----------------
+
+class AuthUser(BaseModel):
+    id: int
+    email: str
+
+
+class AuthStatusResponse(BaseModel):
+    has_users: bool
+    authenticated: bool
+    user: AuthUser | None = None
+
+
+class RegisterRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=200)
+    password: str = Field(..., min_length=8, max_length=200)
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=200)
+    password: str = Field(..., min_length=1, max_length=200)
+
+
+class AuthTokenResponse(BaseModel):
+    token: str
+    user: AuthUser
+
+
+class ApiKeyStatus(BaseModel):
+    provider: str
+    display_name: str
+    has_key: bool
+    updated_at: str | None = None
+
+
+class ApiKeyUpdate(BaseModel):
+    api_key: str | None = Field(None, description="Plaintext key to store (null to delete)")

@@ -55,13 +55,17 @@ class ChatRuntime:
         client: BaseLLMClient,
         provider_name: str,
         conversation_id: str | None = None,
+        *,
+        user_id: int | None = None,
     ) -> SessionRecord:
         """Resolve (or create) the session backing a chat turn.
 
         Called by both the API router and the CLI before `run_session` so
         the two entry points agree on how sessions are keyed to providers
         and how the context window is derived from the provider's
-        effective window.
+        effective window. `user_id` is threaded through from the HTTP layer
+        so new sessions are owned by the authenticated user; the CLI omits
+        it since it bypasses auth.
         """
         info = get_provider(provider_name)
         return self.store.get_or_create_session(
@@ -69,6 +73,7 @@ class ChatRuntime:
             provider=provider_name,
             model=client.model,
             context_window=info.effective_context_window,
+            user_id=user_id,
         )
 
     async def run_session(

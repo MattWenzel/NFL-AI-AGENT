@@ -19,13 +19,17 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from agent.runtime import ChatRuntime, TOOLS
+from api.auth import AuthenticatedUser, get_current_user
 from api.dependencies import (
     close_client,
     create_client_for_request,
     get_runtime,
+    get_store,
 )
 from api.schemas import ChatRequest, ChatResponse
 from api.sse import event_to_sse_payload
+from infra import encryption
+from infra.persistence.runtime_store import RuntimeStore
 from infra.providers import BaseLLMClient, LLMError, get_default_provider
 
 logger = logging.getLogger(__name__)
@@ -38,8 +42,27 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 SSE_HEARTBEAT_SECONDS = 15
 
 
+def _resolve_user_api_key(
+    store: RuntimeStore, user_id: int, provider_name: str
+) -> str | None:
+    """Look up and decrypt the user's stored key for the given provider, or None."""
+    rec = store.get_api_key(user_id=user_id, provider=provider_name)
+    if rec is None:
+        return None
+    try:
+        return encryption.decrypt(rec.encrypted_key)
+    except ValueError:
+        # Tampered/wrong-key-era ciphertext. Treat as missing so the caller can fall back
+        # to env var or surface the configure-a-key error.
+        logger.error("Failed to decrypt stored API key for user=%d provider=%s", user_id, provider_name)
+        return None
+
+
 def _prepare_chat(
-    body: ChatRequest, runtime: ChatRuntime
+    body: ChatRequest,
+    runtime: ChatRuntime,
+    store: RuntimeStore,
+    user: AuthenticatedUser,
 ) -> tuple[BaseLLMClient, str, "SessionRecord"]:
     """Resolve provider/client/session for a chat request.
 
@@ -47,9 +70,12 @@ def _prepare_chat(
     /stream so both endpoints agree on how body params map to a live
     session.
     """
-    client = create_client_for_request(body.provider, body.model)
     provider_name = body.provider or get_default_provider()
-    session = runtime.prepare_session(client, provider_name, body.conversation_id)
+    user_key = _resolve_user_api_key(store, user.id, provider_name)
+    client = create_client_for_request(body.provider, body.model, api_key=user_key)
+    session = runtime.prepare_session(
+        client, provider_name, body.conversation_id, user_id=user.id
+    )
     return client, provider_name, session
 
 
@@ -57,9 +83,11 @@ def _prepare_chat(
 async def chat_message(
     body: ChatRequest,
     runtime: ChatRuntime = Depends(get_runtime),
+    store: RuntimeStore = Depends(get_store),
+    user: AuthenticatedUser = Depends(get_current_user),
 ):
     """Send a message and get a complete response."""
-    client, provider_name, session = _prepare_chat(body, runtime)
+    client, provider_name, session = _prepare_chat(body, runtime, store, user)
 
     logger.debug("chat/message  session=%s  msg=%s", session.id, body.message[:100])
 
@@ -132,9 +160,11 @@ async def chat_stream(
     request: Request,
     body: ChatRequest,
     runtime: ChatRuntime = Depends(get_runtime),
+    store: RuntimeStore = Depends(get_store),
+    user: AuthenticatedUser = Depends(get_current_user),
 ):
     """Send a message and stream the response via SSE."""
-    client, provider_name, session = _prepare_chat(body, runtime)
+    client, provider_name, session = _prepare_chat(body, runtime, store, user)
 
     async def event_generator():
         logger.debug("chat/stream  session=%s  msg=%s", session.id, body.message[:100])

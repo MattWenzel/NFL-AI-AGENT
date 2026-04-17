@@ -13,9 +13,11 @@
 <link rel="stylesheet" href="chat-ui/css/composer.css">
 <link rel="stylesheet" href="chat-ui/css/thread.css">
 <link rel="stylesheet" href="chat-ui/css/inspector.css">
+<link rel="stylesheet" href="chat-ui/css/settings.css">
 </head>
 <body>
-<div class="shell">
+<div id="authScreen" hidden></div>
+<div class="shell" hidden>
   <aside class="sidebar">
     <div class="sidebar-header">
       <div class="sidebar-brand">
@@ -44,6 +46,20 @@
     </div>
     <div class="sidebar-pane" id="pane-csvs" hidden>
       <div class="csv-list" id="csvList"></div>
+    </div>
+    <div class="sidebar-footer">
+      <div class="user-menu" id="userMenu" hidden>
+        <button type="button" id="openSettingsBtn">Settings</button>
+        <button type="button" id="signOutBtn">Sign out</button>
+      </div>
+      <button type="button" class="user-widget" id="userWidget" aria-haspopup="true" aria-expanded="false">
+        <span class="user-avatar" id="userAvatar">?</span>
+        <span class="user-label">
+          <span class="user-name" id="userName">Not signed in</span>
+          <span class="user-role">Account</span>
+        </span>
+        <svg class="user-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+      </button>
     </div>
   </aside>
 
@@ -74,6 +90,14 @@
     Inspector
   </button>
   <div class="inspector-backdrop" id="inspectorBackdrop"></div>
+  <div class="settings-backdrop" id="settingsBackdrop"></div>
+  <div class="settings-modal" id="settingsModal" role="dialog" aria-labelledby="settingsTitle" aria-modal="true">
+    <div class="settings-header">
+      <h2 id="settingsTitle">Settings</h2>
+      <button type="button" class="settings-close" id="settingsCloseBtn" aria-label="Close">&times;</button>
+    </div>
+    <div class="settings-body" id="settingsBody"></div>
+  </div>
   <aside class="inspector" id="inspector">
     <div class="inspector-header">
       <button class="inspector-collapse" id="inspectorCollapse" title="Close inspector" aria-label="Close inspector">&times;</button>
@@ -91,6 +115,7 @@
 <!-- Load order matters: state first, pure helpers next, I/O, features, main last. -->
 <script src="chat-ui/js/state.js"></script>
 <script src="chat-ui/js/utils.js"></script>
+<script src="chat-ui/js/auth.js"></script>
 <script src="chat-ui/js/api.js"></script>
 <script src="chat-ui/js/charts.js"></script>
 <script src="chat-ui/js/streaming.js"></script>
@@ -98,6 +123,7 @@
 <script src="chat-ui/js/sidebar.js"></script>
 <script src="chat-ui/js/csv.js"></script>
 <script src="chat-ui/js/inspector.js"></script>
+<script src="chat-ui/js/settings.js"></script>
 <script src="chat-ui/js/main.js"></script>
 </body>
 </html>

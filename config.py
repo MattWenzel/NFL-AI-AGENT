@@ -24,6 +24,9 @@ RUNTIME_DB_PATH = Path(__file__).parent / "data" / "runtime.sqlite3"
 # CSV exports
 EXPORTS_DIR = Path(__file__).parent / "exports"
 
+# Auth / settings
+AUTH_TOKEN_TTL_DAYS = int(os.environ.get("AUTH_TOKEN_TTL_DAYS", "30"))
+
 
 def format_file_size(size_bytes: int) -> str:
     """Human-readable file size (B, KB, MB)."""

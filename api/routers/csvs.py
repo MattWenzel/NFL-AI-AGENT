@@ -13,6 +13,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from api.auth import AuthenticatedUser, get_current_user
 from api.dependencies import get_store
 from api.schemas import (
     ExportDetail,
@@ -58,13 +59,20 @@ def _to_info(record: ExportRecord) -> ExportInfo:
 
 
 @router.get("", response_model=list[ExportInfo])
-async def list_csvs(store: RuntimeStore = Depends(get_store)):
-    return [_to_info(r) for r in store.list_exports()]
+async def list_csvs(
+    store: RuntimeStore = Depends(get_store),
+    user: AuthenticatedUser = Depends(get_current_user),
+):
+    return [_to_info(r) for r in store.list_exports(user_id=user.id)]
 
 
 @router.get("/{export_id}", response_model=ExportDetail)
-async def get_csv_detail(export_id: str, store: RuntimeStore = Depends(get_store)):
-    record = store.get_export(export_id)
+async def get_csv_detail(
+    export_id: str,
+    store: RuntimeStore = Depends(get_store),
+    user: AuthenticatedUser = Depends(get_current_user),
+):
+    record = store.get_export(export_id, user_id=user.id)
     if record is None:
         raise HTTPException(status_code=404, detail="CSV not found")
 
@@ -100,7 +108,11 @@ async def rename_csv(
     export_id: str,
     body: ExportUpdate,
     store: RuntimeStore = Depends(get_store),
+    user: AuthenticatedUser = Depends(get_current_user),
 ):
+    # Ownership check first so renames for other users' CSVs return 404 consistently.
+    if store.get_export(export_id, user_id=user.id) is None:
+        raise HTTPException(status_code=404, detail="CSV not found")
     updated = store.update_export_title(export_id, body.title.strip())
     if updated is None:
         raise HTTPException(status_code=404, detail="CSV not found")
@@ -108,7 +120,11 @@ async def rename_csv(
 
 
 @router.delete("/{export_id}")
-async def delete_csv(export_id: str, store: RuntimeStore = Depends(get_store)):
+async def delete_csv(
+    export_id: str,
+    store: RuntimeStore = Depends(get_store),
+    user: AuthenticatedUser = Depends(get_current_user),
+):
     """Remove the registry row and unlink the on-disk file.
 
     Does not cascade to conversations seeded from this CSV — their
@@ -116,6 +132,8 @@ async def delete_csv(export_id: str, store: RuntimeStore = Depends(get_store)):
     back-reference will no longer resolve (UI renders a 'CSV deleted'
     chip).
     """
+    if store.get_export(export_id, user_id=user.id) is None:
+        raise HTTPException(status_code=404, detail="CSV not found")
     record = store.delete_export(export_id)
     if record is None:
         raise HTTPException(status_code=404, detail="CSV not found")
@@ -132,6 +150,7 @@ async def new_session_from_csv(
     export_id: str,
     body: NewSessionFromExportRequest,
     store: RuntimeStore = Depends(get_store),
+    user: AuthenticatedUser = Depends(get_current_user),
 ):
     """Create a new conversation seeded with this CSV's context.
 
@@ -139,7 +158,7 @@ async def new_session_from_csv(
     and sends the first user message; the seeded summary turn is already
     in place so the LLM sees the CSV context from turn one.
     """
-    record = store.get_export(export_id)
+    record = store.get_export(export_id, user_id=user.id)
     if record is None:
         raise HTTPException(status_code=404, detail="CSV not found")
 
@@ -154,6 +173,7 @@ async def new_session_from_csv(
         provider=provider_name,
         model=model,
         context_window=info.effective_context_window,
+        user_id=user.id,
     )
     session.title = record.title
     store.update_session(session)

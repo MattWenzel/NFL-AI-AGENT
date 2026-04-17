@@ -206,7 +206,7 @@ function renderCsvViewer() {
         </div>
         <div class="csv-viewer-actions">
           <button type="button" class="button-primary" id="startChatWithCsv">Start chat about this CSV</button>
-          <a class="button-secondary" href="${API_BASE}${detail.download_url}" download>Download</a>
+          <button type="button" class="button-secondary" id="downloadCsvBtn">Download</button>
         </div>
       </div>
       <details class="csv-viewer-sql"${state.thinkingOpen.has(`sql-${detail.id}`) ? " open" : ""}>
@@ -224,6 +224,19 @@ function renderCsvViewer() {
       } catch (err) {
         console.error("Start chat from CSV failed:", err);
         btn.disabled = false;
+      }
+    });
+  }
+  const dlBtn = document.getElementById("downloadCsvBtn");
+  if (dlBtn) {
+    dlBtn.addEventListener("click", async () => {
+      dlBtn.disabled = true;
+      try {
+        await downloadCSV(`${API_BASE}${detail.download_url}`, detail.filename);
+      } catch (err) {
+        console.error("CSV download failed:", err);
+      } finally {
+        dlBtn.disabled = false;
       }
     });
   }

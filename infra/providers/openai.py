@@ -38,7 +38,7 @@ class OpenAIClient(BaseLLMClient):
 
     def _translate_error(self, exc: Exception) -> LLMError:
         if isinstance(exc, openai.AuthenticationError):
-            return LLMError("Invalid API key — check OPENAI_API_KEY")
+            return LLMError("Invalid OpenAI API key — update it in Settings")
         if isinstance(exc, openai.RateLimitError):
             return LLMError("Rate limited by OpenAI — retry shortly")
         if isinstance(exc, openai.APIError):

@@ -1,0 +1,403 @@
+/* Auth screen, sidebar footer (user widget), and settings modal. */
+
+/* `[hidden]` needs to beat more specific rules that set `display` on these
+   elements (e.g. `.shell { display: grid }`). Use !important so the HTML
+   `hidden` attribute actually hides the overlay and the shell. */
+#authScreen[hidden],
+.shell[hidden] {
+  display: none !important;
+}
+
+/* ---- Auth screen (full viewport, shown when not logged in) ---- */
+#authScreen {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  z-index: 100;
+  padding: 24px;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 32px;
+  box-shadow: var(--shadow-lg);
+}
+
+.auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  color: var(--muted-strong);
+  margin-bottom: 16px;
+}
+
+.auth-card h1 {
+  font-size: 22px;
+  font-weight: 600;
+  margin: 0 0 6px;
+  color: var(--text);
+}
+
+.auth-sub {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 0 0 20px;
+}
+
+.auth-form label {
+  display: block;
+  font-size: 13px;
+  color: var(--muted-strong);
+  margin-bottom: 14px;
+}
+
+.auth-form input {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-strong);
+  color: var(--text);
+  font: inherit;
+}
+
+.auth-form input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.auth-submit {
+  width: 100%;
+  padding: 11px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.auth-submit:hover {
+  background: var(--accent-strong);
+}
+
+.auth-form.submitting .auth-submit {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.auth-error {
+  background: var(--red-soft);
+  color: var(--red);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+/* ---- Sidebar footer (user widget) ---- */
+.sidebar-footer {
+  border-top: 1px solid var(--border-subtle);
+  padding: 10px;
+  position: relative;
+}
+
+.user-widget {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.user-widget:hover {
+  background: var(--panel-muted);
+}
+
+.user-avatar {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.user-label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.user-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-role {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.user-chevron {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.user-menu {
+  position: absolute;
+  bottom: calc(100% - 4px);
+  left: 10px;
+  right: 10px;
+  background: var(--panel-strong);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-lg);
+  padding: 4px;
+  z-index: 10;
+}
+
+.user-menu[hidden] { display: none; }
+
+.user-menu button {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.user-menu button:hover {
+  background: var(--panel-muted);
+}
+
+/* ---- Settings modal ---- */
+.settings-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 40;
+}
+
+.settings-backdrop.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.settings-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -45%) scale(0.98);
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  z-index: 41;
+}
+
+.settings-modal.open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.settings-close {
+  border: 0;
+  background: transparent;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.settings-close:hover {
+  background: var(--panel-muted);
+  color: var(--text);
+}
+
+.settings-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+.settings-loading, .settings-error {
+  color: var(--muted);
+  padding: 20px;
+  text-align: center;
+}
+
+.settings-error {
+  color: var(--red);
+}
+
+.settings-section {
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--panel-strong);
+}
+
+.settings-section header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.settings-section h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.settings-status {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.settings-status.on {
+  color: var(--green);
+}
+
+.settings-status.off {
+  color: var(--muted);
+}
+
+.settings-section label {
+  display: block;
+  font-size: 12px;
+  color: var(--muted-strong);
+  margin-bottom: 10px;
+}
+
+.settings-section input[type="password"] {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+}
+
+.settings-section input[type="password"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.settings-row-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.settings-save, .settings-clear {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.settings-save {
+  background: var(--accent);
+  color: #fff;
+}
+
+.settings-save:hover {
+  background: var(--accent-strong);
+}
+
+.settings-clear {
+  background: transparent;
+  color: var(--red);
+  border-color: var(--border);
+}
+
+.settings-clear:hover {
+  background: var(--red-soft);
+}
+
+.settings-feedback {
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.settings-feedback.error {
+  color: var(--red);
+}
+
+.settings-section form.saving {
+  opacity: 0.7;
+  pointer-events: none;
+}

@@ -60,6 +60,34 @@ class SessionRecord:
     context_window: int = 0
     pinned_at: str | None = None
     source_csv_id: str | None = None
+    user_id: int | None = None
+
+
+@dataclass
+class UserRecord:
+    id: int
+    email: str
+    password_hash: str
+    created_at: str
+    updated_at: str
+
+
+@dataclass
+class UserApiKeyRecord:
+    user_id: int
+    provider: str
+    encrypted_key: str
+    created_at: str
+    updated_at: str
+
+
+@dataclass
+class AuthSessionRecord:
+    token: str
+    user_id: int
+    created_at: str
+    expires_at: str
+    last_used_at: str
 
 
 @dataclass
@@ -246,6 +274,33 @@ class RuntimeStore:
                     updated_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS user_api_keys (
+                    user_id INTEGER NOT NULL,
+                    provider TEXT NOT NULL,
+                    encrypted_key TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (user_id, provider),
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS auth_sessions (
+                    token TEXT PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    last_used_at TEXT NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_turns_session_created
                     ON turns(session_id, created_at);
                 CREATE INDEX IF NOT EXISTS idx_parts_turn_order
@@ -254,12 +309,21 @@ class RuntimeStore:
                     ON tool_runs(turn_id, created_at);
                 CREATE INDEX IF NOT EXISTS idx_exports_created
                     ON exports(created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_auth_sessions_user
+                    ON auth_sessions(user_id);
                 """
             )
             self._ensure_column(conn, "turns", "input_tokens", "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(conn, "turns", "output_tokens", "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(conn, "sessions", "pinned_at", "TEXT")
             self._ensure_column(conn, "sessions", "source_csv_id", "TEXT")
+            self._ensure_column(conn, "sessions", "user_id", "INTEGER REFERENCES users(id)")
+            self._ensure_column(conn, "exports", "user_id", "INTEGER REFERENCES users(id)")
+            # Indexes that depend on migrated columns go after _ensure_column so they
+            # succeed on pre-existing DBs where the column is only just being added.
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_sessions_user_updated ON sessions(user_id, updated_at DESC)"
+            )
 
     @staticmethod
     def _ensure_column(conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
@@ -303,8 +367,9 @@ class RuntimeStore:
         provider: str | None = None,
         model: str | None = None,
         context_window: int = 0,
+        user_id: int | None = None,
     ) -> SessionRecord:
-        existing = self.get_session(session_id) if session_id else None
+        existing = self.get_session(session_id, user_id=user_id) if session_id else None
         if existing:
             changed = False
             if provider and existing.provider != provider:
@@ -328,12 +393,13 @@ class RuntimeStore:
             provider=provider,
             model=model,
             context_window=context_window,
+            user_id=user_id,
         )
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO sessions (id, created_at, updated_at, provider, model, title, context_window)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO sessions (id, created_at, updated_at, provider, model, title, context_window, user_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session.id,
@@ -343,6 +409,7 @@ class RuntimeStore:
                     session.model,
                     session.title,
                     session.context_window,
+                    session.user_id,
                 ),
             )
         return session
@@ -435,13 +502,18 @@ class RuntimeStore:
             created_at=now,
             updated_at=now,
         )
+        owning_user_id: int | None = None
+        if source_session_id:
+            sess = self.get_session(source_session_id)
+            if sess is not None:
+                owning_user_id = sess.user_id
         with self._connect() as conn:
             conn.execute(
                 """
                 INSERT INTO exports (
                     id, filename, title, sql, row_count, columns_json, file_size,
-                    source_session_id, source_tool_run_id, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    source_session_id, source_tool_run_id, created_at, updated_at, user_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.id,
@@ -455,25 +527,46 @@ class RuntimeStore:
                     record.source_tool_run_id,
                     record.created_at,
                     record.updated_at,
+                    owning_user_id,
                 ),
             )
         return record
 
-    def list_exports(self) -> list[ExportRecord]:
+    def list_exports(self, *, user_id: int | None = None) -> list[ExportRecord]:
         with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM exports ORDER BY created_at DESC"
-            ).fetchall()
+            if user_id is not None:
+                rows = conn.execute(
+                    "SELECT * FROM exports WHERE user_id = ? OR user_id IS NULL ORDER BY created_at DESC",
+                    (user_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM exports ORDER BY created_at DESC"
+                ).fetchall()
         return [self._row_to_export(r) for r in rows]
 
-    def get_export(self, export_id: str) -> ExportRecord | None:
+    def get_export(self, export_id: str, *, user_id: int | None = None) -> ExportRecord | None:
         with self._connect() as conn:
-            row = conn.execute("SELECT * FROM exports WHERE id = ?", (export_id,)).fetchone()
+            if user_id is not None:
+                row = conn.execute(
+                    "SELECT * FROM exports WHERE id = ? AND (user_id = ? OR user_id IS NULL)",
+                    (export_id, user_id),
+                ).fetchone()
+            else:
+                row = conn.execute("SELECT * FROM exports WHERE id = ?", (export_id,)).fetchone()
         return self._row_to_export(row) if row else None
 
-    def get_export_by_filename(self, filename: str) -> ExportRecord | None:
+    def get_export_by_filename(self, filename: str, *, user_id: int | None = None) -> ExportRecord | None:
         with self._connect() as conn:
-            row = conn.execute("SELECT * FROM exports WHERE filename = ?", (filename,)).fetchone()
+            if user_id is not None:
+                row = conn.execute(
+                    "SELECT * FROM exports WHERE filename = ? AND (user_id = ? OR user_id IS NULL)",
+                    (filename, user_id),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT * FROM exports WHERE filename = ?", (filename,)
+                ).fetchone()
         return self._row_to_export(row) if row else None
 
     def update_export_title(self, export_id: str, title: str) -> ExportRecord | None:
@@ -497,11 +590,17 @@ class RuntimeStore:
             conn.execute("DELETE FROM exports WHERE id = ?", (export_id,))
         return record
 
-    def get_session(self, session_id: str | None) -> SessionRecord | None:
+    def get_session(self, session_id: str | None, *, user_id: int | None = None) -> SessionRecord | None:
         if not session_id:
             return None
         with self._connect() as conn:
-            row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
+            if user_id is not None:
+                row = conn.execute(
+                    "SELECT * FROM sessions WHERE id = ? AND (user_id = ? OR user_id IS NULL)",
+                    (session_id, user_id),
+                ).fetchone()
+            else:
+                row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
         return self._row_to_session(row) if row else None
 
     def create_turn(self, session_id: str, role: str, text: str = "", status: str = "completed") -> TurnRecord:
@@ -821,33 +920,63 @@ class RuntimeStore:
                     )
         return messages
 
-    def list_sessions(self) -> list[dict]:
+    def list_sessions(self, *, user_id: int | None = None) -> list[dict]:
         with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT s.id,
-                       s.updated_at,
-                       s.pinned_at,
-                       s.source_csv_id,
-                       COALESCE(s.title, (
-                           SELECT SUBSTR(text, 1, 60)
-                           FROM turns t
-                           WHERE t.session_id = s.id AND t.role = 'user'
-                           ORDER BY t.created_at
-                           LIMIT 1
-                       ), 'New conversation') AS title,
-                       s.provider,
-                       s.model,
-                       (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id) AS turn_count
-                FROM sessions s
-                ORDER BY s.pinned_at DESC, s.updated_at DESC
-                """
-            ).fetchall()
+            if user_id is not None:
+                rows = conn.execute(
+                    """
+                    SELECT s.id,
+                           s.updated_at,
+                           s.pinned_at,
+                           s.source_csv_id,
+                           COALESCE(s.title, (
+                               SELECT SUBSTR(text, 1, 60)
+                               FROM turns t
+                               WHERE t.session_id = s.id AND t.role = 'user'
+                               ORDER BY t.created_at
+                               LIMIT 1
+                           ), 'New conversation') AS title,
+                           s.provider,
+                           s.model,
+                           (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id) AS turn_count
+                    FROM sessions s
+                    WHERE s.user_id = ? OR s.user_id IS NULL
+                    ORDER BY s.pinned_at DESC, s.updated_at DESC
+                    """,
+                    (user_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT s.id,
+                           s.updated_at,
+                           s.pinned_at,
+                           s.source_csv_id,
+                           COALESCE(s.title, (
+                               SELECT SUBSTR(text, 1, 60)
+                               FROM turns t
+                               WHERE t.session_id = s.id AND t.role = 'user'
+                               ORDER BY t.created_at
+                               LIMIT 1
+                           ), 'New conversation') AS title,
+                           s.provider,
+                           s.model,
+                           (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id) AS turn_count
+                    FROM sessions s
+                    ORDER BY s.pinned_at DESC, s.updated_at DESC
+                    """
+                ).fetchall()
         return [dict(row) for row in rows]
 
-    def delete_session(self, session_id: str) -> bool:
+    def delete_session(self, session_id: str, *, user_id: int | None = None) -> bool:
         with self._connect() as conn:
-            row = conn.execute("SELECT id FROM sessions WHERE id = ?", (session_id,)).fetchone()
+            if user_id is not None:
+                row = conn.execute(
+                    "SELECT id FROM sessions WHERE id = ? AND (user_id = ? OR user_id IS NULL)",
+                    (session_id, user_id),
+                ).fetchone()
+            else:
+                row = conn.execute("SELECT id FROM sessions WHERE id = ?", (session_id,)).fetchone()
             if row is None:
                 return False
             conn.execute("DELETE FROM assistant_parts WHERE session_id = ?", (session_id,))
@@ -858,8 +987,203 @@ class RuntimeStore:
         self._locks.pop(session_id, None)
         return True
 
+    # ---------------- users ----------------
+
+    def count_users(self) -> int:
+        with self._connect() as conn:
+            row = conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()
+        return int(row["n"])
+
+    def create_user(self, *, email: str, password_hash: str) -> UserRecord:
+        now = _utcnow()
+        normalized = email.strip().lower()
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO users (email, password_hash, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (normalized, password_hash, now, now),
+            )
+            user_id = int(cur.lastrowid)
+        return UserRecord(
+            id=user_id,
+            email=normalized,
+            password_hash=password_hash,
+            created_at=now,
+            updated_at=now,
+        )
+
+    def get_user_by_email(self, email: str) -> UserRecord | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM users WHERE email = ?", (email.strip().lower(),)
+            ).fetchone()
+        return self._row_to_user(row) if row else None
+
+    def get_user_by_id(self, user_id: int) -> UserRecord | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        return self._row_to_user(row) if row else None
+
+    def backfill_orphan_ownership(self, user_id: int) -> tuple[int, int]:
+        """Assign the given user_id to any sessions/exports that have none.
+
+        Called once after first registration in single-user mode so pre-existing
+        conversations/exports become owned by that user.
+        """
+        with self._connect() as conn:
+            s = conn.execute(
+                "UPDATE sessions SET user_id = ? WHERE user_id IS NULL", (user_id,)
+            )
+            e = conn.execute(
+                "UPDATE exports SET user_id = ? WHERE user_id IS NULL", (user_id,)
+            )
+            return (s.rowcount, e.rowcount)
+
+    # ---------------- user_api_keys ----------------
+
+    def upsert_api_key(self, *, user_id: int, provider: str, encrypted_key: str) -> UserApiKeyRecord:
+        now = _utcnow()
+        with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT created_at FROM user_api_keys WHERE user_id = ? AND provider = ?",
+                (user_id, provider),
+            ).fetchone()
+            created_at = existing["created_at"] if existing else now
+            conn.execute(
+                """
+                INSERT INTO user_api_keys (user_id, provider, encrypted_key, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(user_id, provider) DO UPDATE SET
+                    encrypted_key = excluded.encrypted_key,
+                    updated_at = excluded.updated_at
+                """,
+                (user_id, provider, encrypted_key, created_at, now),
+            )
+        return UserApiKeyRecord(
+            user_id=user_id,
+            provider=provider,
+            encrypted_key=encrypted_key,
+            created_at=created_at,
+            updated_at=now,
+        )
+
+    def delete_api_key(self, *, user_id: int, provider: str) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "DELETE FROM user_api_keys WHERE user_id = ? AND provider = ?",
+                (user_id, provider),
+            )
+            return cur.rowcount > 0
+
+    def get_api_key(self, *, user_id: int, provider: str) -> UserApiKeyRecord | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM user_api_keys WHERE user_id = ? AND provider = ?",
+                (user_id, provider),
+            ).fetchone()
+        return self._row_to_api_key(row) if row else None
+
+    def list_api_keys(self, user_id: int) -> list[UserApiKeyRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM user_api_keys WHERE user_id = ? ORDER BY provider", (user_id,)
+            ).fetchall()
+        return [self._row_to_api_key(r) for r in rows]
+
+    def user_has_api_key(self, *, user_id: int, provider: str) -> bool:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM user_api_keys WHERE user_id = ? AND provider = ?",
+                (user_id, provider),
+            ).fetchone()
+        return row is not None
+
+    # ---------------- auth_sessions ----------------
+
+    def create_auth_session(
+        self, *, token: str, user_id: int, expires_at: str
+    ) -> AuthSessionRecord:
+        now = _utcnow()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO auth_sessions (token, user_id, created_at, expires_at, last_used_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (token, user_id, now, expires_at, now),
+            )
+        return AuthSessionRecord(
+            token=token,
+            user_id=user_id,
+            created_at=now,
+            expires_at=expires_at,
+            last_used_at=now,
+        )
+
+    def get_auth_session(self, token: str) -> AuthSessionRecord | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM auth_sessions WHERE token = ?", (token,)
+            ).fetchone()
+        return self._row_to_auth_session(row) if row else None
+
+    def touch_auth_session(self, token: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE auth_sessions SET last_used_at = ? WHERE token = ?",
+                (_utcnow(), token),
+            )
+
+    def delete_auth_session(self, token: str) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute("DELETE FROM auth_sessions WHERE token = ?", (token,))
+            return cur.rowcount > 0
+
+    def purge_expired_auth_sessions(self) -> int:
+        now = _utcnow()
+        with self._connect() as conn:
+            cur = conn.execute(
+                "DELETE FROM auth_sessions WHERE expires_at < ?", (now,)
+            )
+            return cur.rowcount
+
+    # ---------------- row mappers ----------------
+
+    @staticmethod
+    def _row_to_user(row: sqlite3.Row) -> UserRecord:
+        return UserRecord(
+            id=int(row["id"]),
+            email=row["email"],
+            password_hash=row["password_hash"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    @staticmethod
+    def _row_to_api_key(row: sqlite3.Row) -> UserApiKeyRecord:
+        return UserApiKeyRecord(
+            user_id=int(row["user_id"]),
+            provider=row["provider"],
+            encrypted_key=row["encrypted_key"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    @staticmethod
+    def _row_to_auth_session(row: sqlite3.Row) -> AuthSessionRecord:
+        return AuthSessionRecord(
+            token=row["token"],
+            user_id=int(row["user_id"]),
+            created_at=row["created_at"],
+            expires_at=row["expires_at"],
+            last_used_at=row["last_used_at"],
+        )
+
     @staticmethod
     def _row_to_session(row: sqlite3.Row) -> SessionRecord:
+        keys = row.keys()
         return SessionRecord(
             id=row["id"],
             created_at=row["created_at"],
@@ -868,8 +1192,9 @@ class RuntimeStore:
             model=row["model"],
             title=row["title"],
             context_window=row["context_window"],
-            pinned_at=row["pinned_at"] if "pinned_at" in row.keys() else None,
-            source_csv_id=row["source_csv_id"] if "source_csv_id" in row.keys() else None,
+            pinned_at=row["pinned_at"] if "pinned_at" in keys else None,
+            source_csv_id=row["source_csv_id"] if "source_csv_id" in keys else None,
+            user_id=row["user_id"] if "user_id" in keys else None,
         )
 
     @staticmethod

@@ -46,20 +46,30 @@ def get_runtime(request: Request) -> ChatRuntime:
     return runtime
 
 
-def create_client_for_request(provider: str | None = None, model: str | None = None) -> BaseLLMClient:
-    """Create an LLM client for a request, raising HTTPException on provider errors."""
+def create_client_for_request(
+    provider: str | None = None,
+    model: str | None = None,
+    *,
+    api_key: str | None = None,
+) -> BaseLLMClient:
+    """Create an LLM client for a request, raising HTTPException on provider errors.
+
+    A per-request `api_key` (from the authenticated user's stored settings) takes
+    precedence over the server-level env var. When neither is available the
+    provider is reported as unconfigured.
+    """
     provider_name = provider or get_default_provider()
     try:
         info = get_provider(provider_name)
     except KeyError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    if not provider_is_available(info):
-        detail = f"{info.env_key} not configured — {info.display_name} provider unavailable"
+    if not api_key and not provider_is_available(info):
+        detail = f"No API key for {info.display_name} — add one in Settings."
         raise HTTPException(status_code=503, detail=detail)
 
     try:
-        return create_client(provider=provider_name, model=model)
+        return create_client(provider=provider_name, model=model, api_key=api_key)
     except LLMError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
