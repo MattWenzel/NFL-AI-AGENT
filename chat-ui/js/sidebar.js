@@ -164,7 +164,13 @@ function buildConversationItem(session) {
   item.addEventListener("click", () => loadTranscript(session.id));
   item.querySelector(".delete-btn").addEventListener("click", async (e) => {
     e.stopPropagation();
-    if (!window.confirm("Delete this conversation? This can't be undone.")) return;
+    const ok = await confirmDialog({
+      title: "Delete this conversation?",
+      message: `"${session.title || "New session"}" and its transcript will be permanently removed. This can't be undone.`,
+      confirmText: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
     await deleteConversation(session.id);
   });
   item.querySelector(".rename-btn").addEventListener("click", (e) => {

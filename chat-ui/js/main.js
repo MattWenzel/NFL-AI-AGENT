@@ -34,7 +34,16 @@ function toggleUserMenu(force) {
   } else {
     userMenu.setAttribute("hidden", "");
     userWidget.setAttribute("aria-expanded", "false");
+    // Reset any in-progress sign-out confirm when the menu closes so the
+    // next open starts from the default state.
+    resetSignOutConfirm();
   }
+}
+
+function resetSignOutConfirm() {
+  document.getElementById("signOutConfirm").setAttribute("hidden", "");
+  document.getElementById("openSettingsBtn").removeAttribute("hidden");
+  document.getElementById("signOutBtn").removeAttribute("hidden");
 }
 
 userWidget.addEventListener("click", (event) => {
@@ -54,6 +63,18 @@ document.getElementById("openSettingsBtn").addEventListener("click", () => {
 });
 
 document.getElementById("signOutBtn").addEventListener("click", () => {
+  // Two-step guard: first click reveals the confirm row, second click (on the
+  // red button) actually signs out. Prevents an accidental mis-click from
+  // ending the session.
+  document.getElementById("openSettingsBtn").setAttribute("hidden", "");
+  document.getElementById("signOutBtn").setAttribute("hidden", "");
+  document.getElementById("signOutConfirm").removeAttribute("hidden");
+  document.getElementById("confirmSignOutBtn").focus();
+});
+
+document.getElementById("cancelSignOutBtn").addEventListener("click", resetSignOutConfirm);
+
+document.getElementById("confirmSignOutBtn").addEventListener("click", () => {
   toggleUserMenu(false);
   signOut();
 });

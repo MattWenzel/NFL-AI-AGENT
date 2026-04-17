@@ -48,7 +48,13 @@ function buildCsvItem(csv) {
   item.addEventListener("click", () => openCsv(csv.id));
   item.querySelector(".delete-btn").addEventListener("click", async (e) => {
     e.stopPropagation();
-    if (!window.confirm("Delete this CSV? The file will be removed from disk.")) return;
+    const ok = await confirmDialog({
+      title: "Delete this CSV?",
+      message: `"${csv.title || csv.filename}" will be removed from the library and the file deleted from disk.`,
+      confirmText: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await deleteCsv(csv.id);
     } catch (err) {

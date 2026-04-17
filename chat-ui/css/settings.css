@@ -225,6 +225,37 @@
   background: var(--panel-muted);
 }
 
+.user-menu-confirm[hidden] { display: none; }
+
+.user-menu-confirm p {
+  margin: 0;
+  padding: 10px 10px 6px;
+  font-size: 13px;
+  color: var(--muted-strong);
+}
+
+.user-menu-confirm-actions {
+  display: flex;
+  gap: 4px;
+  padding: 2px;
+}
+
+.user-menu-confirm-actions button {
+  flex: 1;
+  text-align: center;
+}
+
+.user-menu button.destructive {
+  background: var(--red-soft);
+  color: var(--red);
+  font-weight: 600;
+}
+
+.user-menu button.destructive:hover {
+  background: var(--red);
+  color: #fff;
+}
+
 /* ---- Settings modal ---- */
 .settings-backdrop {
   position: fixed;
@@ -419,4 +450,96 @@
 .settings-section form.saving {
   opacity: 0.7;
   pointer-events: none;
+}
+
+/* ---- Generic confirm dialog ---- */
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 60;
+}
+
+.confirm-backdrop.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.confirm-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -45%) scale(0.98);
+  width: min(400px, calc(100vw - 32px));
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 22px;
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  z-index: 61;
+}
+
+.confirm-modal.open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.confirm-modal h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.confirm-modal p {
+  margin: 0 0 20px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted-strong);
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.confirm-actions button {
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-strong);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  min-width: 80px;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.confirm-actions button:hover {
+  background: var(--panel-muted);
+}
+
+.confirm-actions button.destructive {
+  background: var(--red);
+  border-color: var(--red);
+  color: #fff;
+  font-weight: 600;
+}
+
+.confirm-actions button.destructive:hover {
+  background: var(--red);
+  opacity: 0.88;
+}
+
+.confirm-actions button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }

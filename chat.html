@@ -51,6 +51,13 @@
       <div class="user-menu" id="userMenu" hidden>
         <button type="button" id="openSettingsBtn">Settings</button>
         <button type="button" id="signOutBtn">Sign out</button>
+        <div class="user-menu-confirm" id="signOutConfirm" hidden>
+          <p>Sign out of this account?</p>
+          <div class="user-menu-confirm-actions">
+            <button type="button" id="cancelSignOutBtn">Cancel</button>
+            <button type="button" id="confirmSignOutBtn" class="destructive">Sign out</button>
+          </div>
+        </div>
       </div>
       <button type="button" class="user-widget" id="userWidget" aria-haspopup="true" aria-expanded="false">
         <span class="user-avatar" id="userAvatar">?</span>
@@ -98,6 +105,15 @@
     </div>
     <div class="settings-body" id="settingsBody"></div>
   </div>
+  <div class="confirm-backdrop" id="confirmBackdrop"></div>
+  <div class="confirm-modal" id="confirmModal" role="dialog" aria-labelledby="confirmTitle" aria-modal="true">
+    <h2 id="confirmTitle">Confirm</h2>
+    <p id="confirmMessage"></p>
+    <div class="confirm-actions">
+      <button type="button" id="confirmCancelBtn">Cancel</button>
+      <button type="button" id="confirmOkBtn">Confirm</button>
+    </div>
+  </div>
   <aside class="inspector" id="inspector">
     <div class="inspector-header">
       <button class="inspector-collapse" id="inspectorCollapse" title="Close inspector" aria-label="Close inspector">&times;</button>
@@ -115,6 +131,7 @@
 <!-- Load order matters: state first, pure helpers next, I/O, features, main last. -->
 <script src="chat-ui/js/state.js"></script>
 <script src="chat-ui/js/utils.js"></script>
+<script src="chat-ui/js/confirm.js"></script>
 <script src="chat-ui/js/auth.js"></script>
 <script src="chat-ui/js/api.js"></script>
 <script src="chat-ui/js/charts.js"></script>
