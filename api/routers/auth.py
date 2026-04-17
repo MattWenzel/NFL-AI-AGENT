@@ -49,6 +49,11 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 # bump (or swap for slowapi/redis) if real traffic ever hits this.
 _register_limiter = RateLimiter(max_attempts=5, window_seconds=15 * 60)
 _login_limiter = RateLimiter(max_attempts=10, window_seconds=15 * 60)
+# Authenticated self-management actions (password change, delete account).
+# The caller already holds a valid bearer token, so this is defense-in-depth,
+# not a primary gate — ceiling is higher so a real user who mistypes their
+# password a few times doesn't get locked out.
+_account_limiter = RateLimiter(max_attempts=20, window_seconds=15 * 60)
 
 
 def _to_auth_user(user: AuthenticatedUser | UserRecord) -> AuthUser:
@@ -201,7 +206,7 @@ def change_password(
     is invalidated — the calling session stays alive so the UI doesn't
     bounce to the login screen mid-flow.
     """
-    _login_limiter.check(request)
+    _account_limiter.check(request)
     record = store.get_user_by_id(user.id)
     if record is None or not verify_password(payload.current_password, record.password_hash):
         raise HTTPException(
@@ -233,7 +238,7 @@ def delete_account(
     current bearer token dies along with the rest, so subsequent requests
     from this client will 401 and bounce to the auth screen.
     """
-    _login_limiter.check(request)
+    _account_limiter.check(request)
     record = store.get_user_by_id(user.id)
     if record is None or not verify_password(payload.password, record.password_hash):
         raise HTTPException(
