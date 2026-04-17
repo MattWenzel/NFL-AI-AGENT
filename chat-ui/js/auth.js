@@ -39,6 +39,23 @@ async function handleUnauthorized() {
   await showAuthScreen();
 }
 
+// Cross-tab session sync. If the user signs out (or signs in) in another tab,
+// react here instead of waiting for the next network call to 401.
+window.addEventListener("storage", (event) => {
+  if (event.key !== AUTH_TOKEN_KEY) return;
+  if (!event.newValue) {
+    // Token cleared elsewhere — another tab signed out. Drop local state and
+    // show the auth screen. Full reload avoids chasing in-flight requests that
+    // are still using the old token in memory.
+    _currentUser = null;
+    location.reload();
+  } else if (event.newValue !== event.oldValue) {
+    // Token changed (different user logged in, or same user after session refresh).
+    // Reload so the app re-boots with the new identity.
+    location.reload();
+  }
+});
+
 async function bootAuth() {
   let status;
   try {
@@ -84,9 +101,7 @@ function renderAuthScreen(mode) {
     <div class="auth-card">
       <div class="auth-brand"><span class="brand-mark">N</span><span>NFL Stats</span></div>
       <h1>${isRegister ? "Create your account" : "Sign in"}</h1>
-      <p class="auth-sub">${isRegister
-        ? "Nobody's registered yet. The first account becomes the owner of this instance."
-        : "Welcome back."}</p>
+      <p class="auth-sub">${isRegister ? "Get started in a few seconds." : "Welcome back."}</p>
       <form id="authForm" class="auth-form" action="javascript:void(0)" autocomplete="on">
         <label>
           Email
@@ -94,13 +109,41 @@ function renderAuthScreen(mode) {
         </label>
         <label>
           Password
-          <input name="password" type="password" autocomplete="${isRegister ? "new-password" : "current-password"}" required ${isRegister ? 'minlength="8"' : ""}>
+          <input class="auth-pw" name="password" type="password" autocomplete="${isRegister ? "new-password" : "current-password"}" required ${isRegister ? 'minlength="8"' : ""}>
+        </label>
+        ${isRegister ? `
+        <label>
+          Confirm password
+          <input class="auth-pw" name="passwordConfirm" type="password" autocomplete="new-password" required minlength="8">
+        </label>
+        ` : ""}
+        <label class="auth-show-pw">
+          <input type="checkbox" id="authShowPw">
+          <span>Show password${isRegister ? "s" : ""}</span>
         </label>
         <div class="auth-error" id="authFormError" hidden></div>
         <button type="submit" class="auth-submit">${isRegister ? "Create account" : "Sign in"}</button>
+        <div class="auth-alt" hidden><!-- Reserved for "Continue with Google" when OAuth ships. --></div>
+        <p class="auth-switch">${isRegister
+          ? 'Already have an account? <a href="#" data-auth-mode="login">Sign in</a>'
+          : 'New here? <a href="#" data-auth-mode="register">Create an account</a>'}</p>
       </form>
     </div>
   `;
+  const showPwToggle = el.querySelector("#authShowPw");
+  if (showPwToggle) {
+    showPwToggle.addEventListener("change", () => {
+      const type = showPwToggle.checked ? "text" : "password";
+      el.querySelectorAll("input.auth-pw").forEach((inp) => { inp.type = type; });
+    });
+  }
+  const switchLink = el.querySelector("[data-auth-mode]");
+  if (switchLink) {
+    switchLink.addEventListener("click", (event) => {
+      event.preventDefault();
+      renderAuthScreen(switchLink.dataset.authMode);
+    });
+  }
   const form = document.getElementById("authForm");
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -110,6 +153,14 @@ function renderAuthScreen(mode) {
     const endpoint = isRegister ? "/auth/register" : "/auth/login";
     const errBox = document.getElementById("authFormError");
     errBox.hidden = true;
+    if (isRegister) {
+      const confirm = String(fd.get("passwordConfirm") || "");
+      if (password !== confirm) {
+        errBox.textContent = "Passwords don't match.";
+        errBox.hidden = false;
+        return;
+      }
+    }
     form.classList.add("submitting");
     try {
       const resp = await fetch(`${API_BASE}${endpoint}`, {

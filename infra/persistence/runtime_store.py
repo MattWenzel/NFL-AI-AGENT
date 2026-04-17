@@ -70,6 +70,8 @@ class UserRecord:
     password_hash: str
     created_at: str
     updated_at: str
+    role: str = "user"
+    email_verified_at: str | None = None
 
 
 @dataclass
@@ -274,12 +276,18 @@ class RuntimeStore:
                     updated_at TEXT NOT NULL
                 );
 
+                -- users: one row per account. Future OAuth plan adds a
+                -- user_identities(user_id, provider, provider_subject) table so
+                -- one user can link multiple login methods; today's password-only
+                -- users just have password_hash set.
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     email TEXT NOT NULL UNIQUE,
                     password_hash TEXT NOT NULL,
                     created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    role TEXT NOT NULL DEFAULT 'user',
+                    email_verified_at TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS user_api_keys (
@@ -319,6 +327,10 @@ class RuntimeStore:
             self._ensure_column(conn, "sessions", "source_csv_id", "TEXT")
             self._ensure_column(conn, "sessions", "user_id", "INTEGER REFERENCES users(id)")
             self._ensure_column(conn, "exports", "user_id", "INTEGER REFERENCES users(id)")
+            # Multi-user additions. Both are additive (ADD COLUMN) so existing
+            # rows get the DEFAULT / NULL. No table rebuild.
+            self._ensure_column(conn, "users", "role", "TEXT NOT NULL DEFAULT 'user'")
+            self._ensure_column(conn, "users", "email_verified_at", "TEXT")
             # Indexes that depend on migrated columns go after _ensure_column so they
             # succeed on pre-existing DBs where the column is only just being added.
             conn.execute(
@@ -436,11 +448,13 @@ class RuntimeStore:
                 ),
             )
 
-    def set_session_pinned(self, session_id: str, pinned: bool) -> SessionRecord | None:
+    def set_session_pinned(
+        self, session_id: str, pinned: bool, *, user_id: int | None = None
+    ) -> SessionRecord | None:
         """Pin or unpin a session. Pinning stamps pinned_at so callers can
         order most-recently-pinned first; unpinning clears it. Does not touch
         updated_at so pinning a stale conversation doesn't fake recency."""
-        session = self.get_session(session_id)
+        session = self.get_session(session_id, user_id=user_id)
         if session is None:
             return None
         session.pinned_at = _utcnow() if pinned else None
@@ -451,8 +465,10 @@ class RuntimeStore:
             )
         return session
 
-    def set_session_source_csv(self, session_id: str, export_id: str | None) -> SessionRecord | None:
-        session = self.get_session(session_id)
+    def set_session_source_csv(
+        self, session_id: str, export_id: str | None, *, user_id: int | None = None
+    ) -> SessionRecord | None:
+        session = self.get_session(session_id, user_id=user_id)
         if session is None:
             return None
         session.source_csv_id = export_id
@@ -536,7 +552,7 @@ class RuntimeStore:
         with self._connect() as conn:
             if user_id is not None:
                 rows = conn.execute(
-                    "SELECT * FROM exports WHERE user_id = ? OR user_id IS NULL ORDER BY created_at DESC",
+                    "SELECT * FROM exports WHERE user_id = ? ORDER BY created_at DESC",
                     (user_id,),
                 ).fetchall()
             else:
@@ -549,7 +565,7 @@ class RuntimeStore:
         with self._connect() as conn:
             if user_id is not None:
                 row = conn.execute(
-                    "SELECT * FROM exports WHERE id = ? AND (user_id = ? OR user_id IS NULL)",
+                    "SELECT * FROM exports WHERE id = ? AND user_id = ?",
                     (export_id, user_id),
                 ).fetchone()
             else:
@@ -560,7 +576,7 @@ class RuntimeStore:
         with self._connect() as conn:
             if user_id is not None:
                 row = conn.execute(
-                    "SELECT * FROM exports WHERE filename = ? AND (user_id = ? OR user_id IS NULL)",
+                    "SELECT * FROM exports WHERE filename = ? AND user_id = ?",
                     (filename, user_id),
                 ).fetchone()
             else:
@@ -569,25 +585,41 @@ class RuntimeStore:
                 ).fetchone()
         return self._row_to_export(row) if row else None
 
-    def update_export_title(self, export_id: str, title: str) -> ExportRecord | None:
+    def update_export_title(
+        self, export_id: str, title: str, *, user_id: int | None = None
+    ) -> ExportRecord | None:
         now = _utcnow()
         with self._connect() as conn:
-            cur = conn.execute(
-                "UPDATE exports SET title = ?, updated_at = ? WHERE id = ?",
-                (title, now, export_id),
-            )
+            if user_id is not None:
+                cur = conn.execute(
+                    "UPDATE exports SET title = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+                    (title, now, export_id, user_id),
+                )
+            else:
+                cur = conn.execute(
+                    "UPDATE exports SET title = ?, updated_at = ? WHERE id = ?",
+                    (title, now, export_id),
+                )
             if cur.rowcount == 0:
                 return None
-        return self.get_export(export_id)
+        return self.get_export(export_id, user_id=user_id)
 
-    def delete_export(self, export_id: str) -> ExportRecord | None:
+    def delete_export(
+        self, export_id: str, *, user_id: int | None = None
+    ) -> ExportRecord | None:
         """Remove the registry row. Caller is responsible for unlinking the
         on-disk file; returning the record so the caller knows the filename."""
-        record = self.get_export(export_id)
+        record = self.get_export(export_id, user_id=user_id)
         if record is None:
             return None
         with self._connect() as conn:
-            conn.execute("DELETE FROM exports WHERE id = ?", (export_id,))
+            if user_id is not None:
+                conn.execute(
+                    "DELETE FROM exports WHERE id = ? AND user_id = ?",
+                    (export_id, user_id),
+                )
+            else:
+                conn.execute("DELETE FROM exports WHERE id = ?", (export_id,))
         return record
 
     def get_session(self, session_id: str | None, *, user_id: int | None = None) -> SessionRecord | None:
@@ -596,7 +628,7 @@ class RuntimeStore:
         with self._connect() as conn:
             if user_id is not None:
                 row = conn.execute(
-                    "SELECT * FROM sessions WHERE id = ? AND (user_id = ? OR user_id IS NULL)",
+                    "SELECT * FROM sessions WHERE id = ? AND user_id = ?",
                     (session_id, user_id),
                 ).fetchone()
             else:
@@ -940,7 +972,7 @@ class RuntimeStore:
                            s.model,
                            (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id) AS turn_count
                     FROM sessions s
-                    WHERE s.user_id = ? OR s.user_id IS NULL
+                    WHERE s.user_id = ?
                     ORDER BY s.pinned_at DESC, s.updated_at DESC
                     """,
                     (user_id,),
@@ -972,7 +1004,7 @@ class RuntimeStore:
         with self._connect() as conn:
             if user_id is not None:
                 row = conn.execute(
-                    "SELECT id FROM sessions WHERE id = ? AND (user_id = ? OR user_id IS NULL)",
+                    "SELECT id FROM sessions WHERE id = ? AND user_id = ?",
                     (session_id, user_id),
                 ).fetchone()
             else:
@@ -994,16 +1026,23 @@ class RuntimeStore:
             row = conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()
         return int(row["n"])
 
-    def create_user(self, *, email: str, password_hash: str) -> UserRecord:
+    def create_user(
+        self,
+        *,
+        email: str,
+        password_hash: str,
+        role: str = "user",
+        email_verified_at: str | None = None,
+    ) -> UserRecord:
         now = _utcnow()
         normalized = email.strip().lower()
         with self._connect() as conn:
             cur = conn.execute(
                 """
-                INSERT INTO users (email, password_hash, created_at, updated_at)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO users (email, password_hash, created_at, updated_at, role, email_verified_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (normalized, password_hash, now, now),
+                (normalized, password_hash, now, now, role, email_verified_at),
             )
             user_id = int(cur.lastrowid)
         return UserRecord(
@@ -1012,6 +1051,8 @@ class RuntimeStore:
             password_hash=password_hash,
             created_at=now,
             updated_at=now,
+            role=role,
+            email_verified_at=email_verified_at,
         )
 
     def get_user_by_email(self, email: str) -> UserRecord | None:
@@ -1025,6 +1066,44 @@ class RuntimeStore:
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
         return self._row_to_user(row) if row else None
+
+    def count_orphan_rows(self) -> dict[str, int]:
+        """Rows with NULL user_id in user-scoped tables.
+
+        Expected to be {0, 0} after first registration (backfill_orphan_ownership
+        runs once). A non-zero result in multi-user mode means data is invisible
+        to the scoped queries — surfaced as a startup warning.
+        """
+        with self._connect() as conn:
+            sessions_null = int(conn.execute(
+                "SELECT COUNT(*) FROM sessions WHERE user_id IS NULL"
+            ).fetchone()[0])
+            exports_null = int(conn.execute(
+                "SELECT COUNT(*) FROM exports WHERE user_id IS NULL"
+            ).fetchone()[0])
+        return {"sessions": sessions_null, "exports": exports_null}
+
+    def ensure_admin_exists(self) -> int | None:
+        """Promote the oldest user to admin if no admin exists.
+
+        Safety net for DBs that predate the `role` column (pre-multi-user
+        registrations default to 'user' via ALTER TABLE). Returns the promoted
+        user's id, or None if the invariant already held / there are no users.
+        """
+        with self._connect() as conn:
+            has_admin = conn.execute(
+                "SELECT 1 FROM users WHERE role = 'admin' LIMIT 1"
+            ).fetchone()
+            if has_admin is not None:
+                return None
+            row = conn.execute(
+                "SELECT id FROM users ORDER BY id ASC LIMIT 1"
+            ).fetchone()
+            if row is None:
+                return None
+            uid = int(row["id"])
+            conn.execute("UPDATE users SET role = 'admin' WHERE id = ?", (uid,))
+            return uid
 
     def backfill_orphan_ownership(self, user_id: int) -> tuple[int, int]:
         """Assign the given user_id to any sessions/exports that have none.
@@ -1153,12 +1232,15 @@ class RuntimeStore:
 
     @staticmethod
     def _row_to_user(row: sqlite3.Row) -> UserRecord:
+        keys = row.keys()
         return UserRecord(
             id=int(row["id"]),
             email=row["email"],
             password_hash=row["password_hash"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            role=row["role"] if "role" in keys and row["role"] is not None else "user",
+            email_verified_at=row["email_verified_at"] if "email_verified_at" in keys else None,
         )
 
     @staticmethod

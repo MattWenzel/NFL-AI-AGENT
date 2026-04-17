@@ -27,6 +27,16 @@ EXPORTS_DIR = Path(__file__).parent / "exports"
 # Auth / settings
 AUTH_TOKEN_TTL_DAYS = int(os.environ.get("AUTH_TOKEN_TTL_DAYS", "30"))
 
+# CORS. Comma-separated origins; if unset we fall back to the localhost
+# defaults baked into api/main.py (plus "null" for file:// dev). When
+# deploying behind a real domain, set this to the prod origin(s).
+_origins_env = os.environ.get("ALLOWED_ORIGINS", "").strip()
+ALLOWED_ORIGINS: list[str] | None = (
+    [o.strip() for o in _origins_env.split(",") if o.strip()]
+    if _origins_env
+    else None
+)
+
 
 def format_file_size(size_bytes: int) -> str:
     """Human-readable file size (B, KB, MB)."""

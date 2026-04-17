@@ -70,6 +70,14 @@ def _prepare_chat(
     /stream so both endpoints agree on how body params map to a live
     session.
     """
+    # IDOR guard: if a conversation_id was supplied, it must belong to the
+    # caller. Without this, get_or_create_session would try to INSERT a new
+    # row with someone else's PK (IntegrityError 500) instead of returning a
+    # clean 404. Same-shape 404 whether the id is unknown or owned by another
+    # user so we don't leak existence.
+    if body.conversation_id and store.get_session(body.conversation_id, user_id=user.id) is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
     provider_name = body.provider or get_default_provider()
     user_key = _resolve_user_api_key(store, user.id, provider_name)
     client = create_client_for_request(body.provider, body.model, api_key=user_key)

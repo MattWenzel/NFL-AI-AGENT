@@ -136,7 +136,7 @@ async def update_conversation(
         session.title = body.title.strip()
         store.update_session(session)
     if body.pinned is not None:
-        session = store.set_session_pinned(conversation_id, body.pinned) or session
+        session = store.set_session_pinned(conversation_id, body.pinned, user_id=user.id) or session
     entry = next(
         (s for s in store.list_sessions(user_id=user.id) if s["id"] == conversation_id),
         None,

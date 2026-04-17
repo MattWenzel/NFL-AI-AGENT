@@ -14,10 +14,8 @@ backups/
 api_keys.json
 .env
 
-# Runtime data
-data/runtime.sqlite3
-data/runtime.sqlite3-shm
-data/runtime.sqlite3-wal
+# Runtime data (DB file + SQLite sidecars + pre-migration backups)
+data/runtime.sqlite3*
 
 # Local artifacts (not used by this branch, but may exist from other branches)
 data/codex_auth.json

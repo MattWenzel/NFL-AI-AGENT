@@ -110,10 +110,7 @@ async def rename_csv(
     store: RuntimeStore = Depends(get_store),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
-    # Ownership check first so renames for other users' CSVs return 404 consistently.
-    if store.get_export(export_id, user_id=user.id) is None:
-        raise HTTPException(status_code=404, detail="CSV not found")
-    updated = store.update_export_title(export_id, body.title.strip())
+    updated = store.update_export_title(export_id, body.title.strip(), user_id=user.id)
     if updated is None:
         raise HTTPException(status_code=404, detail="CSV not found")
     return _to_info(updated)
@@ -132,9 +129,7 @@ async def delete_csv(
     back-reference will no longer resolve (UI renders a 'CSV deleted'
     chip).
     """
-    if store.get_export(export_id, user_id=user.id) is None:
-        raise HTTPException(status_code=404, detail="CSV not found")
-    record = store.delete_export(export_id)
+    record = store.delete_export(export_id, user_id=user.id)
     if record is None:
         raise HTTPException(status_code=404, detail="CSV not found")
     csv_path = EXPORTS_DIR / record.filename
@@ -177,7 +172,7 @@ async def new_session_from_csv(
     )
     session.title = record.title
     store.update_session(session)
-    store.set_session_source_csv(session.id, export_id)
+    store.set_session_source_csv(session.id, export_id, user_id=user.id)
 
     columns = _columns(record)
     summary_text = (

@@ -156,6 +156,7 @@ class ProviderResponse(BaseModel):
 class AuthUser(BaseModel):
     id: int
     email: str
+    role: str = "user"
 
 
 class AuthStatusResponse(BaseModel):

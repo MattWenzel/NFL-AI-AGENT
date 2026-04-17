@@ -11,7 +11,7 @@ from api.routers import auth, chat, conversations, csvs, exports, providers, set
 from agent.runtime import ChatRuntime
 from infra import encryption
 from infra.persistence.runtime_store import RuntimeStore
-from config import DB_PATH, PBP_DB_PATH, RUNTIME_DB_PATH, format_file_size
+from config import ALLOWED_ORIGINS, DB_PATH, PBP_DB_PATH, RUNTIME_DB_PATH, format_file_size
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,21 @@ async def lifespan(app: FastAPI):
         logger.info("No users registered yet — first visitor to the UI will be prompted to create an account.")
     else:
         logger.info("%d user account(s) registered", user_count)
+
+        # Ensure an admin exists (safety net for DBs that predate the `role` column).
+        promoted = app.state.runtime_store.ensure_admin_exists()
+        if promoted is not None:
+            logger.info("Promoted user %d to admin (no admin existed yet)", promoted)
+
+        # Orphan-row check: after multi-user is live, any NULL user_id rows are
+        # invisible to scoped queries and therefore inaccessible from the UI.
+        # Should always be {0, 0} in normal operation.
+        orphans = app.state.runtime_store.count_orphan_rows()
+        if any(orphans.values()):
+            logger.warning(
+                "Found orphan rows with NULL user_id — invisible to scoped queries: %s",
+                orphans,
+            )
 
     # DB checks
     if DB_PATH.exists():
@@ -93,14 +108,17 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS — the app runs locally; `"null"` covers chat.html opened via file://.
+    # CORS — local defaults cover the dev setup; ALLOWED_ORIGINS env var
+    # replaces them wholesale for hosted deploys. `"null"` is how Chrome
+    # reports file:// origins when chat.html is opened directly.
+    origins = ALLOWED_ORIGINS or [
+        "http://localhost:8001",
+        "http://127.0.0.1:8001",
+        "null",
+    ]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost:8001",
-            "http://127.0.0.1:8001",
-            "null",
-        ],
+        allow_origins=origins,
         allow_credentials=False,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
         allow_headers=["*"],

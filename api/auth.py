@@ -1,9 +1,11 @@
 """Auth primitives: password hashing, token generation, and the
 `get_current_user` FastAPI dependency used by every protected router.
 
-Scope: single-user mode today, schema-multi-user-ready — nothing here
-assumes there's only one user. Flipping to multi-user is purely a matter
-of relaxing the register-gate in `api/routers/auth.py`.
+Multi-user password auth. Registration is open; first registrant becomes
+the admin (see `api/routers/auth.py`). OAuth is not implemented — when
+it is, the session-token mechanism here is reused as-is (opaque bearer
+tokens in auth_sessions, revocable). See CLAUDE.md's "OAuth migration
+path" section for the slotting plan.
 """
 
 from __future__ import annotations
@@ -28,10 +30,11 @@ class AuthenticatedUser:
     the full UserRecord (which carries password_hash — don't leak it by accident)."""
     id: int
     email: str
+    role: str = "user"
 
     @classmethod
     def from_record(cls, record: UserRecord) -> "AuthenticatedUser":
-        return cls(id=record.id, email=record.email)
+        return cls(id=record.id, email=record.email, role=record.role)
 
 
 def hash_password(plain: str) -> str:

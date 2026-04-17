@@ -129,6 +129,30 @@ python3 NFLVERSE/scripts/check_updates.py                 # Check which tables/y
 
 **Note**: Restart the API server (`python3 run.py`) after changing `agent/prompts/system.py` or `agent/tools/*` — the running server caches imports.
 
+## Auth & multi-user
+
+Multi-user password auth with open signup. First registrant becomes `role='admin'`; subsequent signups get `role='user'`. Sessions are opaque 32-byte bearer tokens stored in `auth_sessions` (30-day TTL, revocable on logout). Per-user API keys are Fernet-encrypted at rest with the master key in `SETTINGS_ENCRYPTION_KEY`. Registration/login are rate-limited per IP (5/15min and 10/15min).
+
+Env vars:
+- `SETTINGS_ENCRYPTION_KEY` — required. Generate once with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
+- `AUTH_TOKEN_TTL_DAYS` — session lifetime, default 30.
+- `ALLOWED_ORIGINS` — CSV of CORS origins. Unset → localhost defaults only. Set to your prod origin(s) when hosted.
+
+### OAuth migration path (deferred)
+
+When Google OAuth ships, the following six-step plan picks up from the current state. Don't half-land any of it — when it's time, do all six in one branch:
+
+1. `pip install authlib` (or `google-auth` + `google-auth-oauthlib`); add to `requirements.txt`.
+2. New table `user_identities(id, user_id, provider, provider_subject, created_at, UNIQUE(provider, provider_subject))`. On migration, seed one `('password', user.email)` row per existing user for consistency. Also rebuild `users` to drop NOT NULL on `password_hash` (SQLite requires a table rebuild — do it in a separate commit with a pre-flight backup).
+3. New endpoints in `api/routers/auth.py`:
+   - `GET /auth/oauth/google/start` — PKCE + state, 302 to Google.
+   - `GET /auth/oauth/google/callback` — exchange code, verify `id_token`, look up by `(provider='google', provider_subject=sub)`. If not found, look up by email: link if an existing password user matches, else call `_create_user_from_verified_identity(email=…, password_hash=None, verified=True)`. Issue session via `_issue_session`.
+4. Frontend: render a "Continue with Google" button in the reserved `.auth-alt` slot (`chat-ui/js/auth.js`); point it at `/auth/oauth/google/start`.
+5. Settings modal: add an "Account" section listing linked identities, with unlink buttons. Guard: don't let a user unlink their last identity if they have no password.
+6. Google Cloud Console: create OAuth client, set authorized redirect URI to `<prod-url>/auth/oauth/google/callback` (and `http://localhost:8001/auth/oauth/google/callback` for dev).
+
+The tail `_create_user_from_verified_identity` → `_issue_session` path in `api/routers/auth.py` is already shaped so the OAuth callback reuses it unchanged — the password and OAuth flows differ only in how they produce a verified email.
+
 ## Notes
 
 - 2025 stats available from nflverse native data
