@@ -7,25 +7,26 @@
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
 :root {
-  --bg: linear-gradient(180deg, #f7f2e8 0%, #efe6d6 100%);
-  --panel: rgba(255, 252, 247, 0.88);
-  --panel-strong: #fffdf8;
-  --panel-muted: #f3ead9;
-  --border: rgba(110, 86, 56, 0.16);
-  --text: #23170d;
-  --muted: #74614d;
-  --muted-strong: #594433;
-  --accent: #9f3a22;
-  --accent-strong: #7f2d1a;
-  --accent-soft: #f4d8c5;
-  --green: #0f766e;
-  --green-soft: #d8f3ee;
-  --amber: #a16207;
-  --amber-soft: #fef0c7;
-  --red: #b42318;
-  --red-soft: #fee4e2;
-  --shadow: 0 10px 30px rgba(74, 51, 27, 0.08);
-  --shadow-lg: 0 24px 50px rgba(74, 51, 27, 0.14);
+  --bg: #FFFFFF;
+  --panel: #FFFFFF;
+  --panel-strong: #FFFFFF;
+  --panel-muted: #F1F5F9;
+  --border: #CBD5E1;
+  --border-subtle: #E2E8F0;
+  --text: #0F172A;
+  --muted: #64748B;
+  --muted-strong: #334155;
+  --accent: #4F46E5;
+  --accent-strong: #4338CA;
+  --accent-soft: #EEF2FF;
+  --green: #059669;
+  --green-soft: #D1FAE5;
+  --amber: #B45309;
+  --amber-soft: #FEF3C7;
+  --red: #DC2626;
+  --red-soft: #FEE2E2;
+  --shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 1px rgba(15, 23, 42, 0.06);
+  --shadow-lg: 0 4px 12px rgba(15, 23, 42, 0.08);
 }
 
 * { box-sizing: border-box; }
@@ -52,7 +53,6 @@ body {
 
 .sidebar,
 .inspector {
-  backdrop-filter: blur(18px);
   background: var(--panel);
   border-right: 1px solid var(--border);
 }
@@ -102,7 +102,7 @@ body {
 .button {
   width: 100%;
   border: 0;
-  border-radius: 14px;
+  border-radius: 10px;
   padding: 12px 14px;
   background: var(--accent);
   color: #fff;
@@ -138,15 +138,13 @@ body {
 }
 
 .conversation-item:hover {
-  background: rgba(255, 255, 255, 0.55);
+  background: var(--panel-muted);
   border-color: var(--border);
-  transform: translateY(-1px);
 }
 
 .conversation-item.active {
-  background: var(--panel-strong);
-  border-color: rgba(159, 58, 34, 0.22);
-  box-shadow: var(--shadow);
+  background: var(--accent-soft);
+  border-color: var(--accent);
 }
 
 .conversation-top {
@@ -198,7 +196,7 @@ body {
 
 .delete-btn:hover,
 .rename-btn:hover {
-  background: rgba(110, 86, 56, 0.1);
+  background: var(--panel-muted);
   color: var(--text);
 }
 
@@ -296,7 +294,7 @@ body {
   width: 100%;
   background: var(--panel-strong);
   border: 1px solid var(--border);
-  border-radius: 30px;
+  border-radius: 16px;
   box-shadow: var(--shadow-lg);
   padding: 32px;
 }
@@ -322,8 +320,8 @@ body {
 
 .suggestion {
   border: 1px solid var(--border);
-  border-radius: 20px;
-  background: linear-gradient(180deg, #fffaf3 0%, #f8f0e5 100%);
+  border-radius: 12px;
+  background: var(--panel-strong);
   padding: 14px;
   cursor: pointer;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
@@ -348,19 +346,18 @@ body {
 .turn-card {
   border: 1px solid var(--border);
   background: var(--panel-strong);
-  border-radius: 24px;
-  box-shadow: var(--shadow);
+  border-radius: 12px;
   padding: 18px 18px 16px;
   cursor: pointer;
 }
 
 .turn-card.selected {
-  border-color: rgba(159, 58, 34, 0.32);
-  box-shadow: 0 18px 40px rgba(159, 58, 34, 0.14);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
 .turn-card.user {
-  background: linear-gradient(180deg, #fff7ef 0%, #fcebdd 100%);
+  background: var(--panel-muted);
 }
 
 .turn-meta {
@@ -388,7 +385,7 @@ body {
   background: var(--accent);
 }
 
-.turn-role.user .dot { background: var(--accent); }
+.turn-role.user .dot { background: var(--muted-strong); }
 .turn-role.assistant .dot { background: var(--green); }
 .turn-role.summary .dot { background: var(--amber); }
 
@@ -413,15 +410,15 @@ body {
 }
 
 .turn-text pre {
-  background: #1d2730;
-  color: #e5edf5;
+  background: #0F172A;
+  color: #E2E8F0;
   padding: 14px;
-  border-radius: 16px;
+  border-radius: 10px;
   overflow-x: auto;
 }
 
 .turn-text code {
-  background: rgba(116, 97, 77, 0.09);
+  background: var(--panel-muted);
   padding: 2px 6px;
   border-radius: 6px;
 }
@@ -439,17 +436,25 @@ body {
   gap: 8px;
   border-radius: 999px;
   border: 1px solid var(--border);
-  padding: 7px 10px;
+  padding: 6px 10px;
   font-size: 0.77rem;
   background: var(--panel-muted);
+  color: var(--muted-strong);
 }
 
-.tool-chip.running { background: var(--amber-soft); color: #8a5a00; }
-.tool-chip.completed { background: var(--green-soft); color: #0e5a54; }
+.tool-chip.running { background: var(--amber-soft); color: var(--amber); border-color: transparent; }
+.tool-chip.completed { background: var(--panel-muted); color: var(--muted-strong); }
+.tool-chip.completed::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+}
 .tool-chip.error,
-.tool-chip.failed { background: var(--red-soft); color: var(--red); }
+.tool-chip.failed { background: var(--red-soft); color: var(--red); border-color: transparent; }
 .tool-chip[data-turn-id] { cursor: pointer; }
-.tool-chip[data-turn-id]:hover { filter: brightness(0.97); }
+.tool-chip[data-turn-id]:hover { border-color: var(--muted); }
 
 .spinner {
   width: 12px;
@@ -477,14 +482,13 @@ body {
 }
 
 .summary-card {
-  background: linear-gradient(180deg, #fff6db 0%, #fff0c2 100%);
+  background: var(--amber-soft);
 }
 
 .input-shell {
   padding: 16px 24px 22px;
   border-top: 1px solid var(--border);
-  background: rgba(255, 252, 247, 0.72);
-  backdrop-filter: blur(12px);
+  background: var(--panel-strong);
 }
 
 .composer-row {
@@ -501,7 +505,7 @@ body {
 .composer textarea {
   width: 100%;
   border: 1px solid var(--border);
-  border-radius: 24px;
+  border-radius: 14px;
   padding: 18px 62px 18px 18px;
   font: inherit;
   font-size: 0.96rem;
@@ -511,6 +515,13 @@ body {
   max-height: 220px;
   background: var(--panel-strong);
   box-shadow: var(--shadow);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.composer textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .composer button {
@@ -519,11 +530,16 @@ body {
   bottom: 10px;
   width: 42px;
   height: 42px;
-  border-radius: 14px;
+  border-radius: 10px;
   border: 0;
   background: var(--accent);
   color: #fff;
   cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.composer button:hover:not(:disabled) {
+  background: var(--accent-strong);
 }
 
 .composer button:disabled { opacity: 0.45; cursor: not-allowed; }
@@ -558,7 +574,7 @@ body {
 }
 
 .inspector-collapse:hover {
-  background: rgba(110, 86, 56, 0.1);
+  background: var(--panel-muted);
   color: var(--text);
 }
 
@@ -613,10 +629,9 @@ body {
 
 .panel-card {
   border: 1px solid var(--border);
-  border-radius: 20px;
+  border-radius: 12px;
   background: var(--panel-strong);
   padding: 16px;
-  box-shadow: var(--shadow);
 }
 
 .panel-card h4 {
@@ -625,6 +640,13 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--muted);
+}
+
+.panel-card.panel-bare {
+  border: 0;
+  background: none;
+  padding: 0;
+  box-shadow: none;
 }
 
 .stats-grid {
@@ -658,9 +680,9 @@ body {
 
 .detail-item {
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: 10px;
   padding: 12px;
-  background: #fffdf9;
+  background: var(--panel-strong);
 }
 
 .detail-top {
@@ -702,9 +724,9 @@ body {
 .detail-prose p:first-child { margin-top: 0; }
 .detail-prose p:last-child { margin-bottom: 0; }
 .detail-prose pre {
-  background: rgba(0,0,0,0.04);
+  background: var(--panel-muted);
   padding: 8px;
-  border-radius: 8px;
+  border-radius: 6px;
   overflow-x: auto;
   font-size: 0.76rem;
 }
@@ -716,10 +738,10 @@ body {
 }
 
 .summary-entry {
-  border-radius: 14px;
+  border-radius: 10px;
   padding: 10px 12px;
-  background: #fff7dd;
-  border: 1px solid rgba(161, 98, 7, 0.15);
+  background: var(--amber-soft);
+  border: 1px solid var(--amber-soft);
   font-size: 0.8rem;
 }
 
@@ -1209,6 +1231,11 @@ function renderSessionHeader() {
 
 function renderThread() {
   const thread = document.getElementById("thread");
+  // Preserve scroll across re-renders: stick to the bottom if the user was
+  // already there (so streaming updates follow the latest text), otherwise
+  // keep their current position (so clicking a chip or turn doesn't yank them).
+  const wasNearBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 100;
+  const savedScroll = thread.scrollTop;
   const transcript = state.activeSessionId ? state.transcripts.get(state.activeSessionId) : null;
   if (!transcript && !state.liveTurn) {
     thread.innerHTML = renderWelcome();
@@ -1270,7 +1297,7 @@ function renderThread() {
       await downloadCSV(button.dataset.exportUrl, button.dataset.exportFname);
     });
   }
-  thread.scrollTop = thread.scrollHeight;
+  thread.scrollTop = wasNearBottom ? thread.scrollHeight : savedScroll;
 }
 
 function renderTurnCard(turn, toolRuns, parts) {
@@ -1445,7 +1472,7 @@ function renderInspector() {
   if (selectedToolRuns.length || (live && live.toolRuns.length)) {
     const runs = selectedToolRuns.length ? selectedToolRuns : live.toolRuns;
     cards.push(`
-      <section class="panel-card">
+      <section class="panel-card panel-bare">
         <h4>Tool Runs</h4>
         <div class="detail-list">
           ${runs.map(run => `
