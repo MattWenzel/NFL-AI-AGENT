@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import re
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -36,7 +37,7 @@ from api.schemas import (
     PasswordChangeRequest,
     RegisterRequest,
 )
-from config import AUTH_TOKEN_TTL_DAYS, EXPORTS_DIR
+from config import AUTH_TOKEN_TTL_DAYS, EXPORTS_DIR, REGISTRATION_INVITE_CODE
 from infra.persistence.runtime_store import RuntimeStore, UserRecord
 
 logger = logging.getLogger(__name__)
@@ -133,6 +134,7 @@ def auth_status(
         has_users=store.count_users() > 0,
         authenticated=user is not None,
         user=_to_auth_user(user) if user else None,
+        invite_required=REGISTRATION_INVITE_CODE is not None,
     )
 
 
@@ -143,6 +145,16 @@ def register(
     store: RuntimeStore = Depends(get_store),
 ) -> AuthTokenResponse:
     _register_limiter.check(request)
+    # Optional invite-code gate. If the operator set REGISTRATION_INVITE_CODE,
+    # every signup must include a matching code. compare_digest avoids
+    # timing-leaking the code character-by-character to a scripted guesser.
+    if REGISTRATION_INVITE_CODE is not None:
+        provided = (payload.invite_code or "").strip()
+        if not provided or not secrets.compare_digest(provided, REGISTRATION_INVITE_CODE):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Invalid invite code",
+            )
     email = _validate_password_credentials(payload.email, payload.password)
     user = _create_user_from_verified_identity(
         store,

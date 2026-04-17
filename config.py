@@ -27,6 +27,12 @@ EXPORTS_DIR = Path(__file__).parent / "exports"
 # Auth / settings
 AUTH_TOKEN_TTL_DAYS = int(os.environ.get("AUTH_TOKEN_TTL_DAYS", "30"))
 
+# Optional invite code gate on /auth/register. If unset, registration is open
+# (fine for local dev). Set to any random string to restrict signups to people
+# you've shared it with — simple way to avoid opening a public app to the
+# whole internet without a full invite-management system.
+REGISTRATION_INVITE_CODE: str | None = os.environ.get("REGISTRATION_INVITE_CODE") or None
+
 # CORS. Comma-separated origins; if unset we fall back to the localhost
 # defaults baked into api/main.py (plus "null" for file:// dev). When
 # deploying behind a real domain, set this to the prod origin(s).

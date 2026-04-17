@@ -5,6 +5,9 @@
 const AUTH_TOKEN_KEY = "nfl_auth_token";
 
 let _currentUser = null;
+// Populated by bootAuth() from /auth/status. When true, the register form
+// renders an "Invite code" input and the server enforces the match.
+let _inviteRequired = false;
 
 function getAuthToken() {
   return localStorage.getItem(AUTH_TOKEN_KEY) || "";
@@ -66,6 +69,7 @@ async function bootAuth() {
     showAuthError(`Cannot reach backend at ${API_BASE}. ${err.message}`);
     return false;
   }
+  _inviteRequired = !!status.invite_required;
   if (status.authenticated && status.user) {
     _currentUser = status.user;
     hideAuthScreen();
@@ -116,6 +120,12 @@ function renderAuthScreen(mode) {
           Confirm password
           <input class="auth-pw" name="passwordConfirm" type="password" autocomplete="new-password" required minlength="8">
         </label>
+        ${_inviteRequired ? `
+        <label>
+          Invite code
+          <input name="inviteCode" type="text" autocomplete="off" spellcheck="false" required>
+        </label>
+        ` : ""}
         ` : ""}
         <label class="auth-show-pw">
           <input type="checkbox" id="authShowPw">
@@ -153,6 +163,7 @@ function renderAuthScreen(mode) {
     const endpoint = isRegister ? "/auth/register" : "/auth/login";
     const errBox = document.getElementById("authFormError");
     errBox.hidden = true;
+    const body = { email, password };
     if (isRegister) {
       const confirm = String(fd.get("passwordConfirm") || "");
       if (password !== confirm) {
@@ -160,20 +171,23 @@ function renderAuthScreen(mode) {
         errBox.hidden = false;
         return;
       }
+      if (_inviteRequired) {
+        body.invite_code = String(fd.get("inviteCode") || "").trim();
+      }
     }
     form.classList.add("submitting");
     try {
       const resp = await fetch(`${API_BASE}${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify(body),
       });
-      const body = await resp.json().catch(() => ({}));
+      const respBody = await resp.json().catch(() => ({}));
       if (!resp.ok) {
-        throw new Error(body.detail || `Request failed (${resp.status})`);
+        throw new Error(respBody.detail || `Request failed (${resp.status})`);
       }
-      setAuthToken(body.token);
-      _currentUser = body.user;
+      setAuthToken(respBody.token);
+      _currentUser = respBody.user;
       hideAuthScreen();
       await postLoginInit();
     } catch (err) {

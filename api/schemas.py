@@ -163,11 +163,13 @@ class AuthStatusResponse(BaseModel):
     has_users: bool
     authenticated: bool
     user: AuthUser | None = None
+    invite_required: bool = False
 
 
 class RegisterRequest(BaseModel):
     email: str = Field(..., min_length=3, max_length=200)
     password: str = Field(..., min_length=8, max_length=200)
+    invite_code: str | None = Field(None, max_length=200)
 
 
 class LoginRequest(BaseModel):

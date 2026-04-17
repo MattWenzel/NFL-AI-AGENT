@@ -137,6 +137,7 @@ Env vars:
 - `SETTINGS_ENCRYPTION_KEY` — required. Generate once with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
 - `AUTH_TOKEN_TTL_DAYS` — session lifetime, default 30.
 - `ALLOWED_ORIGINS` — CSV of CORS origins. Unset → localhost defaults only. Set to your prod origin(s) when hosted.
+- `REGISTRATION_INVITE_CODE` — optional invite-code gate. When set, `/auth/register` rejects signups without a matching code (403). When unset, registration is open. Share the code out-of-band with anyone you want to let in; rotate by changing the env var and restarting.
 
 ### OAuth migration path (deferred)
 
