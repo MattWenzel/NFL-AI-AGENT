@@ -1423,7 +1423,7 @@ body {
     </div>
     <div class="sidebar-tabs" role="tablist">
       <button type="button" class="sidebar-tab active" id="tabChats" role="tab">Chats</button>
-      <button type="button" class="sidebar-tab" id="tabCsvs" role="tab">CSVs</button>
+      <button type="button" class="sidebar-tab" id="tabCsvs" role="tab">Reports</button>
     </div>
     <div class="sidebar-search">
       <input type="search" id="sidebarSearch" placeholder="Search conversations" autocomplete="off">
@@ -1683,7 +1683,7 @@ function applySidebarView() {
   document.getElementById("tabChats").classList.toggle("active", view === "chats");
   document.getElementById("tabCsvs").classList.toggle("active", view === "csvs");
   const search = document.getElementById("sidebarSearch");
-  search.placeholder = view === "csvs" ? "Search CSVs" : "Search conversations";
+  search.placeholder = view === "csvs" ? "Search reports" : "Search conversations";
 }
 
 function setSidebarView(view) {
@@ -1964,7 +1964,7 @@ function renderCsvList() {
   if (!state.csvs.length) {
     const empty = document.createElement("div");
     empty.className = "csv-empty";
-    empty.textContent = "No saved CSVs yet. Ask the agent to export data and it'll land here.";
+    empty.textContent = "No saved reports yet. Ask the agent to export data and it'll land here.";
     list.appendChild(empty);
     return;
   }
