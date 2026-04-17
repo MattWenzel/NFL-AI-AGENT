@@ -203,22 +203,20 @@ python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().
 
 #### Seed the databases
 
-The 2.3GB of nflverse + pbp DBs aren't in the Docker image (they'd bloat every deploy); they live on the volume. Upload them once via SFTP:
+The 2.3GB of nflverse + pbp DBs aren't in the Docker image (they'd bloat every deploy); they live on the volume. The Dockerfile's CMD creates `/data/runtime`, `/data/nflverse`, and `/data/exports` on every startup, so a fresh volume is ready for uploads without any prep. Push the DBs via SFTP (two separate one-shot commands — less fragile than the interactive shell):
 
 ```bash
-fly ssh sftp shell
-# Then at the sftp> prompt:
-put NFLVERSE/data/nflverse.db /data/nflverse/nflverse.db
-put NFLVERSE/data/pbp.db /data/nflverse/pbp.db
-quit
+fly ssh sftp put NFLVERSE/data/nflverse.db /data/nflverse/nflverse.db
+fly ssh sftp put NFLVERSE/data/pbp.db /data/nflverse/pbp.db
 ```
 
-The upload goes through Fly's ssh proxy at your home upload speed — 2GB typically takes 20-60 minutes. You can log out mid-upload, the machine stays running.
+The upload goes through Fly's ssh proxy at your home upload speed — 2GB typically takes 20-60 minutes. Run the `pbp.db` one in the background (`&` or a separate terminal) and the machine stays running through it.
 
-After the upload finishes, restart the machine so the app reopens the SQLite handles against the freshly-seeded files:
+After both uploads finish, restart the machine so the app reopens SQLite handles against the freshly-seeded files:
 
 ```bash
-fly machine restart
+fly machine list     # grab the machine ID
+fly machine restart <machine-id>
 ```
 
 #### Verify
@@ -230,8 +228,10 @@ curl https://<your-app-name>.fly.dev/health
 curl https://<your-app-name>.fly.dev/auth/status
 # {"has_users":false,"authenticated":false,"user":null,"invite_required":true}
 
-fly ssh console -C 'sqlite3 /data/nflverse/nflverse.db "SELECT COUNT(*) FROM players;"'
-# Should match your local count.
+# Row-count sanity. Wrap in `sh -c '...'` because flyctl's -C parses remaining
+# args as flags for the outer command, not as args to sqlite3.
+fly ssh console -C "sh -c 'sqlite3 /data/nflverse/nflverse.db \"SELECT COUNT(*) FROM players;\" && sqlite3 /data/nflverse/pbp.db \"SELECT COUNT(*) FROM play_by_play;\"'"
+# Should print two counts matching your local copies.
 ```
 
 Visit `https://<your-app-name>.fly.dev/` in a browser, register with your invite code, paste an API key into Settings, ask a question. If all that works you're live.
@@ -241,7 +241,7 @@ Visit `https://<your-app-name>.fly.dev/` in a browser, register with your invite
 - **Logs:** `fly logs` (tail) or `fly logs --since 1h`.
 - **Shell:** `fly ssh console`.
 - **Deploy code changes:** `git push` and `fly deploy`. Volume and secrets persist across deploys; only the app container is replaced.
-- **Backups:** `fly ssh console -C 'sqlite3 /data/runtime/runtime.sqlite3 ".backup /data/runtime/backup.sqlite3"'` — or pull a copy locally via SFTP periodically. The runtime DB holds users, conversations, and encrypted API keys; the nflverse DBs are reproducible.
+- **Backups:** `fly ssh console -C "sh -c 'sqlite3 /data/runtime/runtime.sqlite3 \".backup /data/runtime/backup-$(date +%F).sqlite3\"'"` — or pull a copy locally with `fly ssh sftp get /data/runtime/runtime.sqlite3 ./runtime-backup.sqlite3` periodically. The runtime DB holds users, conversations, and encrypted API keys; the nflverse DBs are reproducible.
 - **Rotate the encryption key or invite code:** `fly secrets set KEY=new_value` → Fly restarts the machine automatically. **Do not rotate `SETTINGS_ENCRYPTION_KEY` without a migration plan** — every stored user API key becomes undecryptable the moment the old key is gone.
 - **Scale memory:** `fly scale memory 4096` if pbp queries start hitting OOM.
 
