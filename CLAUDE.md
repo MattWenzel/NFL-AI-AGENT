@@ -155,7 +155,16 @@ The tail `_create_user_from_verified_identity` → `_issue_session` path in `api
 
 ## Deployment
 
-The app is single-origin: FastAPI serves both the UI (`GET /` → `chat.html`, static assets at `/chat-ui/*`) and the API. One process, one domain — terminate TLS at a reverse proxy in front.
+The app is single-origin: FastAPI serves the UI (`GET /` → `chat.html`, static assets at `/chat-ui/*`) and the API. One process, one domain. **TLS is required** — without a reverse proxy terminating HTTPS in front, every password, bearer token, and API key moves in plaintext. Treat the Caddy step as non-optional.
+
+### Pre-flight checklist
+
+Before pointing anyone at the hostname, confirm all of:
+- [ ] `SETTINGS_ENCRYPTION_KEY` is set in the server's env. Losing this key makes every stored API key unreadable; leaking it + the DB means the keys are decryptable. Back it up somewhere safe and separate from the DB.
+- [ ] The app is bound to `127.0.0.1`, not `0.0.0.0`. Verify with `ss -tlnp | grep 8001`.
+- [ ] A reverse proxy (Caddy/nginx) is in front of the app and terminates TLS. `curl -I https://yourhost.com` returns 200 with a valid cert; `curl -I http://yourhost.com` either redirects to HTTPS or is blocked at the firewall.
+- [ ] The server's firewall (ufw / iptables / cloud security group) blocks inbound 8001 from the internet. Only 80/443 should be open.
+- [ ] A backup job for `data/runtime.sqlite3` runs and is verified (restore into a scratch DB to confirm).
 
 ### 1. One-time server setup
 
@@ -175,7 +184,9 @@ Put the key and any other env vars in `/srv/nflverse/.env` (already gitignored):
 
 ```
 SETTINGS_ENCRYPTION_KEY=<output from the command above>
-ALLOWED_ORIGINS=https://yourhost.com      # optional; single-origin traffic doesn't need CORS, leave unset if unsure
+HOST=127.0.0.1                            # loopback — only reachable via reverse proxy
+FORWARDED_ALLOW_IPS=127.0.0.1             # trust X-Forwarded-For only from local proxy
+ALLOWED_ORIGINS=https://yourhost.com      # optional; single-origin traffic doesn't need CORS
 AUTH_TOKEN_TTL_DAYS=30                    # optional; default 30
 ```
 
@@ -184,12 +195,15 @@ The app doesn't need provider API keys at deploy time — each user enters their
 ### 2. Run the server
 
 ```bash
-uvicorn api.main:app --host 127.0.0.1 --port 8001
+uvicorn api.main:app \
+    --host 127.0.0.1 --port 8001 \
+    --proxy-headers --forwarded-allow-ips 127.0.0.1
 ```
 
 - **No `--reload`** — that's a dev convenience that forks an extra process.
-- **No `--workers N > 1`**. The rate limiter for `/auth/register` and `/auth/login` is an in-memory sliding window per process, so multiple workers would each accept the full quota independently (5×N attempts, 10×N attempts). For the current self-hosted scale this is fine. When traffic demands scaling, swap the limiter for `slowapi` with a Redis backend — contract is a single `.check(request)` call in `api/rate_limit.py`.
-- Bind to `127.0.0.1` so only the reverse proxy can reach the app directly.
+- **No `--workers N > 1`**. The rate limiters are an in-memory sliding window per process, so multiple workers would each accept the full quota independently. When traffic demands scaling, swap `api/rate_limit.py` for `slowapi` with a Redis backend — contract is a single `.check(request)` call.
+- **`--host 127.0.0.1`** — the app is only reachable on the loopback interface. The reverse proxy is the only gatekeeper.
+- **`--proxy-headers --forwarded-allow-ips 127.0.0.1`** — trusts `X-Forwarded-For` from Caddy so the per-IP rate limiter sees real end-user IPs (not just `127.0.0.1` for every request). Only the loopback proxy is trusted to set that header; a directly-reachable app would refuse to honor it.
 
 ### 3. Reverse proxy (Caddy)
 
@@ -202,7 +216,9 @@ yourhost.com {
 }
 ```
 
-`systemctl reload caddy` and it provisions the cert on first request. `/health` is public and returns `{"status":"ok"}` if you want an external uptime monitor.
+`systemctl reload caddy` and it provisions the cert on first HTTPS request. Caddy sets `X-Forwarded-For` and `X-Forwarded-Proto` automatically, and adds `Strict-Transport-Security` (HSTS) by default — no extra config needed.
+
+`/health` is public and returns `{"status":"ok"}` if you want an external uptime monitor.
 
 ### 4. systemd unit (optional)
 
@@ -217,7 +233,9 @@ After=network.target
 User=nflverse
 WorkingDirectory=/srv/nflverse
 EnvironmentFile=/srv/nflverse/.env
-ExecStart=/srv/nflverse/.venv/bin/uvicorn api.main:app --host 127.0.0.1 --port 8001
+ExecStart=/srv/nflverse/.venv/bin/uvicorn api.main:app \
+    --host 127.0.0.1 --port 8001 \
+    --proxy-headers --forwarded-allow-ips 127.0.0.1
 Restart=on-failure
 RestartSec=3
 
@@ -232,11 +250,11 @@ journalctl -u nflverse -f   # tail logs
 
 ### 5. Backups
 
-`data/runtime.sqlite3` holds everything mutable — users, auth sessions, conversations, encrypted API keys. A nightly `sqlite3 data/runtime.sqlite3 '.backup /backups/runtime-$(date +%F).sqlite3'` in cron is the whole backup story. Exports in `exports/` are cheap to regenerate but include them if you care about preserving past CSV downloads.
+`data/runtime.sqlite3` holds everything mutable — users, auth sessions, conversations, encrypted API keys. A nightly `sqlite3 data/runtime.sqlite3 '.backup /backups/runtime-$(date +%F).sqlite3'` in cron is the whole backup story. Exports in `exports/` are cheap to regenerate but include them if you care about preserving past CSV downloads. Keep `.env` backups separate from DB backups — an attacker with both can decrypt stored keys.
 
-### Dev path after the single-origin change
+### Dev path
 
-`python3 run.py` and open `http://localhost:8001/` — the UI is served directly. The old `open chat.html` flow still works (chat.html uses `?api=` to point at the backend), but there's no reason to prefer it anymore.
+`python3 run.py` and open `http://localhost:8001/`. By default the dev server also binds to `127.0.0.1` — if you want to hit the dev box from another machine on your LAN, start it with `HOST=0.0.0.0 python3 run.py` (the server logs a warning when it binds to a public interface).
 
 ## Notes
 
