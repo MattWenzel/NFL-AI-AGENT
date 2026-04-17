@@ -84,6 +84,10 @@
   </aside>
 </div>
 
+<script>
+  // API backend URL. Override via ?api=... URL param, or edit the fallback below when deploying.
+  window.API_BASE = new URLSearchParams(location.search).get("api") || "http://localhost:8001";
+</script>
 <!-- Load order matters: state first, pure helpers next, I/O, features, main last. -->
 <script src="chat-ui/js/state.js"></script>
 <script src="chat-ui/js/utils.js"></script>
