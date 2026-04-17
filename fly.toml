@@ -1,0 +1,51 @@
+# Fly.io app config. Adjust `app` and `primary_region` if the defaults
+# don't match your account / preferred region. Secrets
+# (SETTINGS_ENCRYPTION_KEY, REGISTRATION_INVITE_CODE) go via
+# `fly secrets set`, never here.
+app = "nfl-agent"
+primary_region = "iad"
+
+[build]
+
+[env]
+  HOST = "0.0.0.0"
+  PORT = "8080"
+  FORWARDED_ALLOW_IPS = "*"
+  # DB + exports paths point at the mounted volume. config.py reads these
+  # env vars at import time and falls back to repo-relative defaults for
+  # local dev.
+  DB_PATH = "/data/nflverse/nflverse.db"
+  PBP_DB_PATH = "/data/nflverse/pbp.db"
+  RUNTIME_DB_PATH = "/data/runtime/runtime.sqlite3"
+  EXPORTS_DIR = "/data/exports"
+
+# Persistent volume for the three SQLite files + CSV exports. 10GB is
+# comfortable: ~2.3GB of nflverse/pbp DBs, room for the runtime DB to grow
+# with conversations, plus headroom for exports and backups.
+[[mounts]]
+  source = "nfl_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # SQLite + volumes pin us to a single machine. Disable scale-to-zero
+  # (auto_stop_machines = false) so the app stays warm — cold starts that
+  # reopen the SQLite WAL are slow and needlessly paginate the 2GB pbp DB
+  # out of the page cache on every wake.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/health"
+
+[[vm]]
+  memory = "2gb"
+  cpu_kind = "shared"
+  cpus = 1

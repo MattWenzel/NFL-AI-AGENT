@@ -15,14 +15,18 @@ def load_dotenv():
                     key, _, value = line.partition("=")
                     os.environ.setdefault(key.strip(), value.strip())
 
-DB_PATH = Path(__file__).parent / "NFLVERSE" / "data" / "nflverse.db"
-PBP_DB_PATH = Path(__file__).parent / "NFLVERSE" / "data" / "pbp.db"
+# All four paths are env-overridable so a deploy (e.g. Fly.io) can point them
+# at a mounted persistent volume (typically /data/...) while local dev keeps
+# using the repo-relative defaults.
+_PROJECT_ROOT = Path(__file__).parent
+DB_PATH = Path(os.environ.get("DB_PATH") or _PROJECT_ROOT / "NFLVERSE" / "data" / "nflverse.db")
+PBP_DB_PATH = Path(os.environ.get("PBP_DB_PATH") or _PROJECT_ROOT / "NFLVERSE" / "data" / "pbp.db")
 
 # Conversation persistence
-RUNTIME_DB_PATH = Path(__file__).parent / "data" / "runtime.sqlite3"
+RUNTIME_DB_PATH = Path(os.environ.get("RUNTIME_DB_PATH") or _PROJECT_ROOT / "data" / "runtime.sqlite3")
 
 # CSV exports
-EXPORTS_DIR = Path(__file__).parent / "exports"
+EXPORTS_DIR = Path(os.environ.get("EXPORTS_DIR") or _PROJECT_ROOT / "exports")
 
 # Auth / settings
 AUTH_TOKEN_TTL_DAYS = int(os.environ.get("AUTH_TOKEN_TTL_DAYS", "30"))

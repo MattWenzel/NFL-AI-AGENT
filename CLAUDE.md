@@ -156,44 +156,135 @@ The tail `_create_user_from_verified_identity` → `_issue_session` path in `api
 
 ## Deployment
 
-The app is single-origin: FastAPI serves the UI (`GET /` → `chat.html`, static assets at `/chat-ui/*`) and the API. One process, one domain. **TLS is required** — without a reverse proxy terminating HTTPS in front, every password, bearer token, and API key moves in plaintext. Treat the Caddy step as non-optional.
+The app is single-origin: FastAPI serves the UI (`GET /` → `chat.html`, static assets at `/chat-ui/*`) and the API. One process, one domain. **TLS is mandatory** — passwords, bearer tokens, and user API keys all move over the wire; without HTTPS they leak.
 
-### Pre-flight checklist
+Two documented paths: **Fly.io** (recommended, minimal ops overhead, TLS + volumes built-in) and **self-hosted VPS with Caddy** (more DIY, more control).
 
-Before pointing anyone at the hostname, confirm all of:
-- [ ] `SETTINGS_ENCRYPTION_KEY` is set in the server's env. Losing this key makes every stored API key unreadable; leaking it + the DB means the keys are decryptable. Back it up somewhere safe and separate from the DB.
-- [ ] The app is bound to `127.0.0.1`, not `0.0.0.0`. Verify with `ss -tlnp | grep 8001`.
-- [ ] A reverse proxy (Caddy/nginx) is in front of the app and terminates TLS. `curl -I https://yourhost.com` returns 200 with a valid cert; `curl -I http://yourhost.com` either redirects to HTTPS or is blocked at the firewall.
-- [ ] The server's firewall (ufw / iptables / cloud security group) blocks inbound 8001 from the internet. Only 80/443 should be open.
-- [ ] A backup job for `data/runtime.sqlite3` runs and is verified (restore into a scratch DB to confirm).
+### Deploying to Fly.io
 
-### 1. One-time server setup
+Repo ships with `Dockerfile`, `fly.toml`, `.dockerignore`, and `.python-version` tuned for this deploy. Config paths (`DB_PATH`, `PBP_DB_PATH`, `RUNTIME_DB_PATH`, `EXPORTS_DIR`) are env-driven and point at `/data/...` on the Fly volume in `fly.toml`.
+
+**Cost estimate:** `shared-cpu-1x@2gb` + 10GB volume ≈ $12-13/mo.
+
+#### Pre-flight
+
+- [ ] Install flyctl: `curl -L https://fly.io/install.sh | sh` (or `brew install flyctl` on macOS).
+- [ ] `fly auth login` — browser-interactive.
+- [ ] `fly auth whoami` confirms you're in.
+
+#### One-time setup
 
 ```bash
-# Clone + install
+# Pick a unique app name (globally unique on Fly); edit fly.toml's `app = ...`
+# if the default collides. Primary region is already set to `iad` in fly.toml.
+fly apps create <your-app-name>
+
+# 10GB volume: ~2.3GB for the NFL DBs, plenty of room for the runtime DB and
+# CSV exports to grow.
+fly volumes create nfl_data --region iad --size 10 --yes
+
+# Secrets — env vars that aren't in fly.toml for security. Generate the
+# encryption key with the Fernet one-liner below if you don't already have one.
+fly secrets set \
+    SETTINGS_ENCRYPTION_KEY='<your Fernet key>' \
+    REGISTRATION_INVITE_CODE='<a secret code>'
+
+# Deploy — builds the Docker image, pushes to Fly's registry, starts a machine
+# with the volume attached. Healthcheck on /health must pass for the deploy
+# to succeed.
+fly deploy
+```
+
+Generate a Fernet key locally if needed:
+
+```bash
+python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+#### Seed the databases
+
+The 2.3GB of nflverse + pbp DBs aren't in the Docker image (they'd bloat every deploy); they live on the volume. Upload them once via SFTP:
+
+```bash
+fly ssh sftp shell
+# Then at the sftp> prompt:
+put NFLVERSE/data/nflverse.db /data/nflverse/nflverse.db
+put NFLVERSE/data/pbp.db /data/nflverse/pbp.db
+quit
+```
+
+The upload goes through Fly's ssh proxy at your home upload speed — 2GB typically takes 20-60 minutes. You can log out mid-upload, the machine stays running.
+
+After the upload finishes, restart the machine so the app reopens the SQLite handles against the freshly-seeded files:
+
+```bash
+fly machine restart
+```
+
+#### Verify
+
+```bash
+curl https://<your-app-name>.fly.dev/health
+# {"status":"ok"}
+
+curl https://<your-app-name>.fly.dev/auth/status
+# {"has_users":false,"authenticated":false,"user":null,"invite_required":true}
+
+fly ssh console -C 'sqlite3 /data/nflverse/nflverse.db "SELECT COUNT(*) FROM players;"'
+# Should match your local count.
+```
+
+Visit `https://<your-app-name>.fly.dev/` in a browser, register with your invite code, paste an API key into Settings, ask a question. If all that works you're live.
+
+#### Ongoing ops
+
+- **Logs:** `fly logs` (tail) or `fly logs --since 1h`.
+- **Shell:** `fly ssh console`.
+- **Deploy code changes:** `git push` and `fly deploy`. Volume and secrets persist across deploys; only the app container is replaced.
+- **Backups:** `fly ssh console -C 'sqlite3 /data/runtime/runtime.sqlite3 ".backup /data/runtime/backup.sqlite3"'` — or pull a copy locally via SFTP periodically. The runtime DB holds users, conversations, and encrypted API keys; the nflverse DBs are reproducible.
+- **Rotate the encryption key or invite code:** `fly secrets set KEY=new_value` → Fly restarts the machine automatically. **Do not rotate `SETTINGS_ENCRYPTION_KEY` without a migration plan** — every stored user API key becomes undecryptable the moment the old key is gone.
+- **Scale memory:** `fly scale memory 4096` if pbp queries start hitting OOM.
+
+#### Custom domain (optional)
+
+`fly certs create yourhost.com` then add the DNS records Fly prints. TLS is auto-provisioned in seconds.
+
+### Alternative: self-hosted VPS (Caddy + systemd)
+
+More control, more ops work. TLS still mandatory — don't skip it.
+
+#### Pre-flight
+
+- [ ] `SETTINGS_ENCRYPTION_KEY` set in the server's env. Losing the key makes every stored API key unreadable.
+- [ ] App bound to `127.0.0.1`, not `0.0.0.0`. Verify with `ss -tlnp | grep 8001`.
+- [ ] Caddy (or nginx) terminates TLS. `curl -I https://yourhost.com` returns 200 with a valid cert.
+- [ ] Firewall blocks inbound 8001 from the internet. Only 80/443 open.
+- [ ] Backup job for `data/runtime.sqlite3` verified (restore into a scratch DB to confirm).
+
+#### Setup
+
+```bash
 git clone <repo> /srv/nflverse && cd /srv/nflverse
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 # Place the DBs (nflverse.db + pbp.db) under NFLVERSE/data/ — see build scripts above
 
-# Generate the encryption key for per-user API-key storage
 python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-Put the key and any other env vars in `/srv/nflverse/.env` (already gitignored):
+`/srv/nflverse/.env`:
 
 ```
 SETTINGS_ENCRYPTION_KEY=<output from the command above>
-HOST=127.0.0.1                            # loopback — only reachable via reverse proxy
+HOST=127.0.0.1                            # loopback — reachable only via reverse proxy
 FORWARDED_ALLOW_IPS=127.0.0.1             # trust X-Forwarded-For only from local proxy
-ALLOWED_ORIGINS=https://yourhost.com      # optional; single-origin traffic doesn't need CORS
+ALLOWED_ORIGINS=https://yourhost.com      # optional
 AUTH_TOKEN_TTL_DAYS=30                    # optional; default 30
+REGISTRATION_INVITE_CODE=<a secret>       # optional; open signup if unset
 ```
 
-The app doesn't need provider API keys at deploy time — each user enters their own through Settings.
-
-### 2. Run the server
+#### Run
 
 ```bash
 uvicorn api.main:app \
@@ -201,14 +292,11 @@ uvicorn api.main:app \
     --proxy-headers --forwarded-allow-ips 127.0.0.1
 ```
 
-- **No `--reload`** — that's a dev convenience that forks an extra process.
-- **No `--workers N > 1`**. The rate limiters are an in-memory sliding window per process, so multiple workers would each accept the full quota independently. When traffic demands scaling, swap `api/rate_limit.py` for `slowapi` with a Redis backend — contract is a single `.check(request)` call.
-- **`--host 127.0.0.1`** — the app is only reachable on the loopback interface. The reverse proxy is the only gatekeeper.
-- **`--proxy-headers --forwarded-allow-ips 127.0.0.1`** — trusts `X-Forwarded-For` from Caddy so the per-IP rate limiter sees real end-user IPs (not just `127.0.0.1` for every request). Only the loopback proxy is trusted to set that header; a directly-reachable app would refuse to honor it.
+- No `--reload`, no `--workers N > 1` (rate limiter is in-memory per-process).
 
-### 3. Reverse proxy (Caddy)
+#### Caddy
 
-Caddy handles TLS automatically via Let's Encrypt. `/etc/caddy/Caddyfile`:
+`/etc/caddy/Caddyfile`:
 
 ```
 yourhost.com {
@@ -217,11 +305,9 @@ yourhost.com {
 }
 ```
 
-`systemctl reload caddy` and it provisions the cert on first HTTPS request. Caddy sets `X-Forwarded-For` and `X-Forwarded-Proto` automatically, and adds `Strict-Transport-Security` (HSTS) by default — no extra config needed.
+`systemctl reload caddy` and Caddy provisions the cert on first HTTPS request, sets `X-Forwarded-*` headers, and adds HSTS automatically.
 
-`/health` is public and returns `{"status":"ok"}` if you want an external uptime monitor.
-
-### 4. systemd unit (optional)
+#### systemd unit
 
 `/etc/systemd/system/nflverse.service`:
 
@@ -249,13 +335,13 @@ systemctl daemon-reload && systemctl enable --now nflverse
 journalctl -u nflverse -f   # tail logs
 ```
 
-### 5. Backups
+#### Backups
 
-`data/runtime.sqlite3` holds everything mutable — users, auth sessions, conversations, encrypted API keys. A nightly `sqlite3 data/runtime.sqlite3 '.backup /backups/runtime-$(date +%F).sqlite3'` in cron is the whole backup story. Exports in `exports/` are cheap to regenerate but include them if you care about preserving past CSV downloads. Keep `.env` backups separate from DB backups — an attacker with both can decrypt stored keys.
+`data/runtime.sqlite3` holds everything mutable. Nightly `sqlite3 data/runtime.sqlite3 '.backup /backups/runtime-$(date +%F).sqlite3'` in cron is the whole story. Keep `.env` backups separate from DB backups — an attacker with both can decrypt stored keys.
 
 ### Dev path
 
-`python3 run.py` and open `http://localhost:8001/`. By default the dev server also binds to `127.0.0.1` — if you want to hit the dev box from another machine on your LAN, start it with `HOST=0.0.0.0 python3 run.py` (the server logs a warning when it binds to a public interface).
+`python3 run.py` → open `http://localhost:8001/`. Defaults bind to `127.0.0.1`; set `HOST=0.0.0.0 python3 run.py` to expose to LAN.
 
 ## Notes
 

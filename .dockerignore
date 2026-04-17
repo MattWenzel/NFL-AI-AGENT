@@ -1,0 +1,43 @@
+# Git + IDE + OS cruft
+.git
+.gitignore
+.gitattributes
+.vscode
+.idea
+.DS_Store
+
+# Python build artifacts
+__pycache__
+*.py[cod]
+*$py.class
+*.egg-info
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Virtual environments
+.venv
+venv
+env
+
+# Tests never ship in the runtime image
+tests/
+
+# Secrets + local state never ship in the image. The SQLite runtime DB
+# and the NFL DBs are on the volume; exports are regenerated.
+.env
+.env.*
+data/
+exports/
+NFLVERSE/data/
+NFLVERSE/raw/
+
+# Logs + scratch
+*.log
+/tmp/
+
+# Claude Code metadata
+.claude/
+
+# Plan + memory + scratch paths outside repo root are already excluded
+# by git; keeping them here for defense-in-depth.
