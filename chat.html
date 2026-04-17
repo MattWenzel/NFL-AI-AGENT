@@ -725,9 +725,16 @@ body {
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--panel-strong);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
   padding: 14px;
   cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.suggestion:hover {
+  border-color: var(--accent);
 }
 
 .suggestion:hover {
@@ -1358,6 +1365,14 @@ body {
   color: #fff;
   text-decoration: none;
   font-weight: 600;
+}
+
+.download-btn.unavailable {
+  background: var(--panel-muted);
+  color: var(--muted);
+  border: 1px dashed var(--border);
+  cursor: default;
+  font-weight: 500;
 }
 
 @media (max-width: 1220px) {
@@ -2429,7 +2444,17 @@ function renderThread() {
   for (const button of thread.querySelectorAll("[data-export-url]")) {
     button.addEventListener("click", async (e) => {
       e.preventDefault();
-      await downloadCSV(button.dataset.exportUrl, button.dataset.exportFname);
+      if (button.classList.contains("unavailable")) return;
+      try {
+        await downloadCSV(button.dataset.exportUrl, button.dataset.exportFname);
+      } catch (err) {
+        console.error("Download failed:", err);
+        const is404 = String(err && err.message || "").includes("404");
+        button.classList.add("unavailable");
+        button.textContent = is404
+          ? "CSV no longer available"
+          : `Download failed: ${err.message}`;
+      }
     });
   }
   thread.scrollTop = wasNearBottom ? thread.scrollHeight : savedScroll;
