@@ -1067,6 +1067,34 @@ class RuntimeStore:
             row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
         return self._row_to_user(row) if row else None
 
+    def update_user_password(self, user_id: int, password_hash: str) -> None:
+        now = _utcnow()
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?",
+                (password_hash, now, user_id),
+            )
+
+    def delete_user(self, user_id: int) -> list[str]:
+        """Full cascade delete of a user and all owned data.
+
+        Returns the list of CSV filenames that were registered to this user so
+        the caller can unlink them from disk — the DB row is gone by then.
+
+        Order matters: sessions first (each via `delete_session` to cascade
+        turns / parts / tool_runs / compaction_summaries), then exports, then
+        the user row. auth_sessions and user_api_keys cascade automatically
+        via the FK ON DELETE CASCADE declared in _init_db.
+        """
+        session_ids = [s["id"] for s in self.list_sessions(user_id=user_id)]
+        for sid in session_ids:
+            self.delete_session(sid, user_id=user_id)
+        filenames = [e.filename for e in self.list_exports(user_id=user_id)]
+        with self._connect() as conn:
+            conn.execute("DELETE FROM exports WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        return filenames
+
     def count_orphan_rows(self) -> dict[str, int]:
         """Rows with NULL user_id in user-scoped tables.
 
@@ -1219,6 +1247,19 @@ class RuntimeStore:
         with self._connect() as conn:
             cur = conn.execute("DELETE FROM auth_sessions WHERE token = ?", (token,))
             return cur.rowcount > 0
+
+    def invalidate_other_auth_sessions(self, user_id: int, keep_token: str) -> int:
+        """Revoke every auth session for this user except the one in use.
+
+        Called after a password change so stolen tokens can't outlive the
+        rotation. Returns the number of tokens killed.
+        """
+        with self._connect() as conn:
+            cur = conn.execute(
+                "DELETE FROM auth_sessions WHERE user_id = ? AND token != ?",
+                (user_id, keep_token),
+            )
+            return cur.rowcount
 
     def purge_expired_auth_sessions(self) -> int:
         now = _utcnow()

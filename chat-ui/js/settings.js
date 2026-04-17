@@ -34,12 +34,66 @@ async function renderSettingsBody() {
     body.innerHTML = `<div class="settings-error">Failed to load: ${escapeHtml(err.message)}</div>`;
     return;
   }
-  body.innerHTML = items.map(renderProviderSection).join("");
+  body.innerHTML =
+    items.map(renderProviderSection).join("") + renderAccountSection();
   body.querySelectorAll("form[data-provider]").forEach((form) => {
     form.addEventListener("submit", onSaveKey);
     const clearBtn = form.querySelector("button[data-action='clear']");
     if (clearBtn) clearBtn.addEventListener("click", onClearKey);
   });
+  const pwForm = document.getElementById("accountPasswordForm");
+  if (pwForm) pwForm.addEventListener("submit", onChangePassword);
+  const delForm = document.getElementById("accountDeleteForm");
+  if (delForm) delForm.addEventListener("submit", onDeleteAccount);
+}
+
+function renderAccountSection() {
+  const user = (typeof getCurrentUser === "function" ? getCurrentUser() : null) || {};
+  const emailLine = user.email
+    ? `<p class="settings-account-identity">${escapeHtml(user.email)}${user.role ? ` · ${escapeHtml(user.role)}` : ""}</p>`
+    : "";
+  return `
+    <section class="settings-section settings-account">
+      <header><h3>Account</h3></header>
+      ${emailLine}
+
+      <h4 class="settings-subheading">Change password</h4>
+      <form id="accountPasswordForm" autocomplete="off">
+        <label>
+          Current password
+          <input type="password" name="current_password" autocomplete="current-password" required>
+        </label>
+        <label>
+          New password
+          <input type="password" name="new_password" minlength="8" autocomplete="new-password" required>
+        </label>
+        <label>
+          Confirm new password
+          <input type="password" name="new_password_confirm" minlength="8" autocomplete="new-password" required>
+        </label>
+        <div class="settings-row-actions">
+          <button type="submit" class="settings-save">Save new password</button>
+        </div>
+        <div class="settings-feedback" hidden></div>
+      </form>
+
+      <h4 class="settings-subheading settings-danger-heading">Delete account</h4>
+      <p class="settings-danger-copy">
+        This permanently removes your account, conversations, saved CSVs, and stored API keys.
+        This can't be undone.
+      </p>
+      <form id="accountDeleteForm" autocomplete="off">
+        <label>
+          Confirm with your password
+          <input type="password" name="password" autocomplete="current-password" required>
+        </label>
+        <div class="settings-row-actions">
+          <button type="submit" class="settings-save destructive">Delete account</button>
+        </div>
+        <div class="settings-feedback" hidden></div>
+      </form>
+    </section>
+  `;
 }
 
 function renderProviderSection(item) {
@@ -95,6 +149,75 @@ async function onSaveKey(event) {
     feedback.hidden = false;
     feedback.className = "settings-feedback error";
     feedback.textContent = err.message || "Save failed";
+  } finally {
+    form.classList.remove("saving");
+  }
+}
+
+async function onChangePassword(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const feedback = form.querySelector(".settings-feedback");
+  const fd = new FormData(form);
+  const current = String(fd.get("current_password") || "");
+  const next = String(fd.get("new_password") || "");
+  const confirm = String(fd.get("new_password_confirm") || "");
+  feedback.hidden = true;
+  if (next !== confirm) {
+    feedback.hidden = false;
+    feedback.className = "settings-feedback error";
+    feedback.textContent = "New passwords don't match.";
+    return;
+  }
+  form.classList.add("saving");
+  try {
+    await fetchJSON("/auth/password", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ current_password: current, new_password: next }),
+      skipAuthRedirect: true,
+    });
+    form.reset();
+    feedback.hidden = false;
+    feedback.className = "settings-feedback success";
+    feedback.textContent = "Password updated. Other sessions have been signed out.";
+  } catch (err) {
+    feedback.hidden = false;
+    feedback.className = "settings-feedback error";
+    feedback.textContent = err.message || "Password change failed";
+  } finally {
+    form.classList.remove("saving");
+  }
+}
+
+async function onDeleteAccount(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const feedback = form.querySelector(".settings-feedback");
+  const password = String(new FormData(form).get("password") || "");
+  feedback.hidden = true;
+  const ok = await confirmDialog({
+    title: "Delete your account?",
+    message: "Your account, conversations, saved CSVs, and stored API keys will be permanently removed. This can't be undone.",
+    confirmText: "Delete forever",
+    destructive: true,
+  });
+  if (!ok) return;
+  form.classList.add("saving");
+  try {
+    await fetchJSON("/auth/me", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+      skipAuthRedirect: true,
+    });
+    // Token is dead on the server; drop it locally and reload into the sign-in screen.
+    clearAuthToken();
+    location.reload();
+  } catch (err) {
+    feedback.hidden = false;
+    feedback.className = "settings-feedback error";
+    feedback.textContent = err.message || "Account deletion failed";
   } finally {
     form.classList.remove("saving");
   }

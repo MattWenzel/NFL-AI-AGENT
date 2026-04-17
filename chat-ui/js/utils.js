@@ -1,15 +1,22 @@
 async function fetchJSON(path, init) {
   const options = { ...(init || {}) };
+  // Opt-out for endpoints where a 401 means "the password you just typed is
+  // wrong" rather than "your session expired" (change-password, delete-account).
+  // Bouncing the user to login there would be hostile.
+  const skipAuthRedirect = options.skipAuthRedirect === true;
+  delete options.skipAuthRedirect;
   options.headers = authHeaders(options.headers || {});
   const resp = await fetch(`${API_BASE}${path}`, options);
-  if (resp.status === 401) {
+  if (resp.status === 401 && !skipAuthRedirect) {
     // Token expired or was revoked — bounce to the sign-in screen.
     if (typeof handleUnauthorized === "function") await handleUnauthorized();
     throw new Error("Session expired — please sign in again.");
   }
   if (!resp.ok) {
     const text = await resp.text();
-    throw new Error(text || `Request failed (${resp.status})`);
+    let detail = text;
+    try { detail = JSON.parse(text).detail || text; } catch (_) {}
+    throw new Error(detail || `Request failed (${resp.status})`);
   }
   return resp.json();
 }

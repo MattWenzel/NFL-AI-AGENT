@@ -447,9 +447,51 @@
   color: var(--red);
 }
 
+.settings-feedback.success {
+  color: var(--accent-strong);
+}
+
 .settings-section form.saving {
   opacity: 0.7;
   pointer-events: none;
+}
+
+/* ---- Account section ---- */
+.settings-account-identity {
+  margin: 4px 0 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.settings-subheading {
+  margin: 20px 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted-strong);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.settings-subheading.settings-danger-heading {
+  color: var(--red);
+  margin-top: 28px;
+}
+
+.settings-danger-copy {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.settings-save.destructive {
+  background: var(--red);
+  color: #fff;
+}
+
+.settings-save.destructive:hover {
+  background: var(--red);
+  opacity: 0.9;
 }
 
 /* ---- Generic confirm dialog ---- */

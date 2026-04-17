@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from api.auth import (
     AuthenticatedUser,
+    _extract_bearer,
     generate_token,
     get_current_user,
     get_current_user_optional,
@@ -26,13 +27,16 @@ from api.auth import (
 from api.dependencies import get_store
 from api.rate_limit import RateLimiter
 from api.schemas import (
+    AuthOkResponse,
     AuthStatusResponse,
     AuthTokenResponse,
     AuthUser,
+    DeleteAccountRequest,
     LoginRequest,
+    PasswordChangeRequest,
     RegisterRequest,
 )
-from config import AUTH_TOKEN_TTL_DAYS
+from config import AUTH_TOKEN_TTL_DAYS, EXPORTS_DIR
 from infra.persistence.runtime_store import RuntimeStore, UserRecord
 
 logger = logging.getLogger(__name__)
@@ -181,3 +185,66 @@ def logout(
     if len(parts) == 2 and parts[0].lower() == "bearer":
         store.delete_auth_session(parts[1].strip())
     return {"ok": True}
+
+
+@router.put("/password", response_model=AuthOkResponse)
+def change_password(
+    payload: PasswordChangeRequest,
+    request: Request,
+    store: RuntimeStore = Depends(get_store),
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> AuthOkResponse:
+    """Rotate the current user's password.
+
+    Requires the current password so a stolen bearer token can't silently
+    lock the owner out. On success, every OTHER auth session for this user
+    is invalidated — the calling session stays alive so the UI doesn't
+    bounce to the login screen mid-flow.
+    """
+    _login_limiter.check(request)
+    record = store.get_user_by_id(user.id)
+    if record is None or not verify_password(payload.current_password, record.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current password is incorrect",
+        )
+    store.update_user_password(user.id, hash_password(payload.new_password))
+    current_token = _extract_bearer(request) or ""
+    killed = store.invalidate_other_auth_sessions(user.id, keep_token=current_token)
+    if killed:
+        logger.info(
+            "Password change for user %d invalidated %d other session(s)",
+            user.id, killed,
+        )
+    return AuthOkResponse(ok=True)
+
+
+@router.delete("/me", response_model=AuthOkResponse)
+def delete_account(
+    payload: DeleteAccountRequest,
+    request: Request,
+    store: RuntimeStore = Depends(get_store),
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> AuthOkResponse:
+    """Full cascade delete of the current user's account and data.
+
+    Wipes conversations, exports (on-disk CSV files included), encrypted
+    API keys, and every auth session for this user. Irreversible. The
+    current bearer token dies along with the rest, so subsequent requests
+    from this client will 401 and bounce to the auth screen.
+    """
+    _login_limiter.check(request)
+    record = store.get_user_by_id(user.id)
+    if record is None or not verify_password(payload.password, record.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Password is incorrect",
+        )
+    filenames = store.delete_user(user.id)
+    for filename in filenames:
+        try:
+            (EXPORTS_DIR / filename).unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning("Could not unlink %s during account delete: %s", filename, exc)
+    logger.info("Deleted user %d (%s); %d CSV file(s) removed", user.id, user.email, len(filenames))
+    return AuthOkResponse(ok=True)
