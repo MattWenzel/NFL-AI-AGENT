@@ -2,7 +2,7 @@
 # don't match your account / preferred region. Secrets
 # (SETTINGS_ENCRYPTION_KEY, REGISTRATION_INVITE_CODE) go via
 # `fly secrets set`, never here.
-app = "nfl-agent"
+app = "nfl-stats-agent"
 primary_region = "iad"
 
 [build]

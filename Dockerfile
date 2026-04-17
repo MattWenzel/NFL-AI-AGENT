@@ -17,18 +17,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Create the volume mount points inside the image so a fresh container
-# (e.g. local docker run without a volume) still has writable dirs. Fly's
-# volume mount at /data shadows these in production, which is expected.
+# (e.g. local docker run without a volume) has writable dirs. Fly's volume
+# mount at /data shadows these in production, so a fresh volume starts
+# empty — the CMD below re-creates them on every startup for that case.
 RUN mkdir -p /data/runtime /data/nflverse /data/exports
 
 EXPOSE 8080
 
+# Ensure the volume dirs exist on a cold-start against a fresh volume
+# (where the image-time mkdir is hidden by the mount). Then exec uvicorn.
 # --proxy-headers + --forwarded-allow-ips="*" trusts X-Forwarded-For from
-# the Fly edge (the only thing that can reach the machine on the private
-# network). Without this, the per-IP rate limiter would see every request
-# as coming from Fly's internal proxy IP.
-CMD ["uvicorn", "api.main:app", \
-     "--host", "0.0.0.0", \
-     "--port", "8080", \
-     "--proxy-headers", \
-     "--forwarded-allow-ips", "*"]
+# the Fly edge; without it, the per-IP rate limiter sees every request as
+# coming from Fly's internal proxy IP.
+CMD ["/bin/sh", "-c", "mkdir -p /data/runtime /data/nflverse /data/exports && exec uvicorn api.main:app --host 0.0.0.0 --port 8080 --proxy-headers --forwarded-allow-ips '*'"]
