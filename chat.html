@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NFL AI Stats Agent</title>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <style>
 :root {
   --bg: #F8FAFC;
@@ -545,6 +546,16 @@ body {
 
 .csv-viewer-table-wrap tbody tr:hover {
   background: var(--panel-muted);
+}
+
+.inline-chart {
+  margin-top: 14px;
+  position: relative;
+  height: 320px;
+  background: var(--panel-strong);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
 }
 
 .csv-viewer-truncated {
@@ -1483,6 +1494,8 @@ const state = {
   csvs: [],
   activeCsvId: localStorage.getItem("nfl_csv_active_id") || null,
   csvDetails: new Map(),
+  chartInstances: new Map(),    // data-chart-id -> Chart.js instance (for lifecycle)
+  pendingCharts: new Map(),     // data-chart-id -> {spec, rows} queued for post-render rebuild
 };
 
 marked.setOptions({ breaks: true, gfm: true });
@@ -1693,9 +1706,9 @@ async function loadTranscript(sessionId) {
 }
 
 function pickDefaultTurn(transcript) {
-  const visibleTurns = transcript.turns.filter(turn => !turn.compacted || turn.role === "summary");
-  const preferred = [...visibleTurns].reverse().find(turn => turn.role !== "user");
-  return preferred ? preferred.id : (visibleTurns[0] ? visibleTurns[0].id : null);
+  const turns = transcript.turns;
+  const preferred = [...turns].reverse().find(turn => turn.role !== "user");
+  return preferred ? preferred.id : (turns[0] ? turns[0].id : null);
 }
 
 function startNewSession() {
@@ -1813,6 +1826,23 @@ async function sendMessage() {
   }
 }
 
+function patchLiveText() {
+  // Direct-DOM update of the streaming assistant turn's text — bypasses
+  // render() so text deltas don't re-parse markdown across the whole
+  // transcript. Returns true if the patch succeeded; callers can fall
+  // back to render() when the live card isn't mounted yet.
+  const el = document.querySelector('[data-live-turn="true"] [data-live-text="true"]');
+  if (!el || !state.liveTurn) return false;
+  el.innerHTML = renderMarkdown(state.liveTurn.assistantText || "");
+  // Stick to the bottom while streaming so the reader follows new text.
+  const thread = document.getElementById("thread");
+  if (thread) {
+    const nearBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 120;
+    if (nearBottom) thread.scrollTop = thread.scrollHeight;
+  }
+  return true;
+}
+
 function handleStreamEvent(event) {
   if (!state.liveTurn) return;
   if (event.type === "conversation_id") {
@@ -1824,6 +1854,14 @@ function handleStreamEvent(event) {
   } else if (event.type === "text") {
     state.liveTurn.status = "responding";
     state.liveTurn.assistantText += event.text;
+    // Critical: skip the full re-render on text deltas. Streaming emits
+    // dozens of text events per second, and with many prior turns in the
+    // transcript each render re-parses markdown + rebuilds Chart.js
+    // instances across the whole thread — main thread chokes. Instead
+    // patch only the live turn's text node in place.
+    if (patchLiveText()) return;
+    // Fall through to render() only if the live card isn't in the DOM yet
+    // (first text delta of the turn).
   } else if (event.type === "tool_call") {
     state.liveTurn.status = "tooling";
     state.liveTurn.toolRuns.push({
@@ -1860,15 +1898,27 @@ function handleStreamEvent(event) {
 async function finishLiveTurn() {
   const sessionId = state.liveTurn ? state.liveTurn.sessionId : state.activeSessionId;
   state.isStreaming = false;
+  // Clear the live turn BEFORE reloading the transcript. loadTranscript
+  // triggers render(); if the live turn is still present, the thread
+  // renders the just-persisted turn AND a stale live-turn card for the
+  // same content — Chart.js can bind to the wrong canvas (or to one
+  // whose parent gets replaced by the final render), and the chart
+  // ends up empty until the user refreshes.
+  state.liveTurn = null;
   if (sessionId) {
     await Promise.all([refreshConversations(), refreshCsvs()]);
     await loadTranscript(sessionId);
+  } else {
+    render();
   }
-  state.liveTurn = null;
-  render();
 }
 
 function render() {
+  // Destroy existing Chart.js instances before the DOM swap that follows —
+  // otherwise they leak (Chart.js holds a ref to the canvas element).
+  destroyAllCharts();
+  state.pendingCharts.clear();
+
   if (state.sidebarView === "csvs") {
     renderCsvList();
   } else {
@@ -1878,6 +1928,10 @@ function render() {
   renderMain();
   renderInspector();
   document.getElementById("sendBtn").disabled = state.isStreaming;
+
+  // Any render path that emits <canvas data-chart-id="…"> will have stashed
+  // its spec+rows on state.pendingCharts. Bind them now that the DOM is stable.
+  mountPendingCharts(document);
 }
 
 function renderMain() {
@@ -1953,6 +2007,132 @@ function buildCsvItem(csv) {
     beginCsvRename(item, csv);
   });
   return item;
+}
+
+// -----------------------------------------------------------------------
+// Chart rendering — shared by the CSV viewer builder and inline tool results
+// -----------------------------------------------------------------------
+
+const CHART_PALETTE = [
+  "#4F46E5", "#059669", "#B45309", "#BE185D", "#0891B2",
+  "#7C3AED", "#DC2626", "#CA8A04", "#2563EB", "#65A30D",
+];
+
+function asNumber(v) {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function destroyAllCharts() {
+  for (const chart of state.chartInstances.values()) {
+    try { chart.destroy(); } catch (err) { console.warn("chart.destroy failed:", err); }
+  }
+  state.chartInstances.clear();
+}
+
+// Walk the DOM for every <canvas data-chart-id="…">, look up its queued
+// spec+rows in state.pendingCharts, and bind a Chart.js instance. Called
+// after any innerHTML write that would orphan previously-tracked charts.
+function mountPendingCharts(root) {
+  const canvases = (root || document).querySelectorAll("canvas[data-chart-id]");
+  for (const canvas of canvases) {
+    const id = canvas.dataset.chartId;
+    const payload = state.pendingCharts.get(id);
+    if (!payload) continue;
+    const chart = renderChart(canvas, payload.spec, payload.rows);
+    if (chart) state.chartInstances.set(id, chart);
+  }
+}
+
+function renderChart(canvas, spec, rows) {
+  if (!window.Chart) {
+    console.warn("Chart.js not loaded");
+    return null;
+  }
+  if (!spec || !rows || !rows.length) return null;
+  const type = spec.type || "bar";
+  const xKey = spec.x;
+  const yKey = spec.y;
+  const groupKey = spec.group_by || null;
+
+  let data;
+  if (type === "scatter") {
+    data = {
+      datasets: [{
+        label: spec.title || yKey,
+        data: rows.map(r => ({ x: asNumber(r[xKey]), y: asNumber(r[yKey]) }))
+                  .filter(p => p.x != null && p.y != null),
+        backgroundColor: CHART_PALETTE[0],
+        borderColor: CHART_PALETTE[0],
+      }],
+    };
+  } else if (type === "pie") {
+    data = {
+      labels: rows.map(r => String(r[xKey] ?? "")),
+      datasets: [{
+        label: yKey,
+        data: rows.map(r => asNumber(r[yKey]) ?? 0),
+        backgroundColor: rows.map((_, i) => CHART_PALETTE[i % CHART_PALETTE.length]),
+      }],
+    };
+  } else {
+    // bar / line — share the same label+dataset shape; group_by splits into series
+    const labels = [...new Set(rows.map(r => String(r[xKey] ?? "")))];
+    let datasets;
+    if (groupKey) {
+      const groups = [...new Set(rows.map(r => String(r[groupKey] ?? "")))];
+      datasets = groups.map((g, i) => {
+        const color = CHART_PALETTE[i % CHART_PALETTE.length];
+        const byLabel = new Map(labels.map(l => [l, null]));
+        for (const row of rows) {
+          if (String(row[groupKey] ?? "") !== g) continue;
+          byLabel.set(String(row[xKey] ?? ""), asNumber(row[yKey]));
+        }
+        return {
+          label: g,
+          data: labels.map(l => byLabel.get(l)),
+          backgroundColor: color,
+          borderColor: color,
+          tension: type === "line" ? 0.3 : undefined,
+          fill: false,
+        };
+      });
+    } else {
+      datasets = [{
+        label: spec.title || yKey,
+        data: rows.map(r => asNumber(r[yKey])),
+        backgroundColor: rows.map((_, i) => CHART_PALETTE[i % CHART_PALETTE.length]),
+        borderColor: CHART_PALETTE[0],
+        tension: type === "line" ? 0.3 : undefined,
+        fill: false,
+      }];
+    }
+    data = { labels, datasets };
+  }
+
+  const config = {
+    type,
+    data,
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: type === "pie" || !!groupKey },
+        title: spec.title ? { display: true, text: spec.title } : undefined,
+      },
+      scales: (type === "pie") ? undefined : {
+        x: { ticks: { autoSkip: true, maxRotation: 40 } },
+        y: { beginAtZero: true },
+      },
+    },
+  };
+  try {
+    return new Chart(canvas, config);
+  } catch (err) {
+    console.error("Chart init failed:", err);
+    return null;
+  }
 }
 
 function formatCsvCell(val) {
@@ -2348,7 +2528,12 @@ function renderThread() {
     return;
   }
 
-  let turns = transcript ? transcript.turns.filter(turn => !turn.compacted || turn.role === "summary") : [];
+  // Show every turn, including compacted ones. Compaction is a context-
+  // window concern (see `build_model_messages` — compacted turns are
+  // excluded from LLM input) and must never hide chat history from the
+  // user. The inserted summary turn stays visible too so the reader can
+  // see the shape of what the LLM currently remembers.
+  let turns = transcript ? transcript.turns.slice() : [];
   // A CSV-seeded session has a synthetic summary turn at index 0 that
   // primes the LLM with the SQL/columns/row count. It's meant for the
   // model, not the reader — surface a chip instead. source_csv_id lives on
@@ -2416,14 +2601,24 @@ function renderThread() {
     node.addEventListener("click", (e) => {
       e.stopPropagation();
       state.selectedTurnId = node.getAttribute("data-turn-id");
-      // Auto-open inspector only when user explicitly clicks a tool run row
-      // (they're asking to inspect the tool call). Plain turn clicks just
-      // select without forcing the drawer open.
       if (node.classList.contains("thinking-row")) {
         setInspectorOpen(true);
       }
+      // Selecting a turn changes zero content — it only moves the
+      // .selected marker and updates the inspector. Toggle classes in
+      // place instead of re-rendering the thread so Chart.js canvases
+      // (and anything else expensive) don't have to tear down and
+      // rebuild. Group cards are "selected" if the selected id belongs
+      // to the group's outer article OR any descendant with a turn id
+      // (e.g. a thinking-row for one of the iterations).
+      for (const card of thread.querySelectorAll(".turn-card")) {
+        const ids = [
+          card.getAttribute("data-turn-id"),
+          ...[...card.querySelectorAll("[data-turn-id]")].map(n => n.getAttribute("data-turn-id")),
+        ].filter(Boolean);
+        card.classList.toggle("selected", ids.includes(state.selectedTurnId));
+      }
       renderInspector();
-      renderThread();
     });
   }
   for (const summary of thread.querySelectorAll(".thinking-summary")) {
@@ -2460,6 +2655,28 @@ function renderThread() {
   thread.scrollTop = wasNearBottom ? thread.scrollHeight : savedScroll;
 }
 
+function renderInlineCharts(toolRuns) {
+  // Scan completed create_chart tool runs and queue each for post-render
+  // Chart.js mount. Emits one <canvas> per chart, placed below the
+  // assistant's text so it reads as an answer, not as a tool artifact.
+  const blocks = [];
+  for (const run of toolRuns) {
+    if (run.tool_name !== "create_chart") continue;
+    if (run.status !== "completed" || !run.result) continue;
+    let parsed;
+    try {
+      parsed = JSON.parse(run.result);
+    } catch {
+      continue;
+    }
+    if (!parsed || !parsed.chart_spec || !Array.isArray(parsed.data)) continue;
+    const chartId = `tool-${run.id}`;
+    state.pendingCharts.set(chartId, { spec: parsed.chart_spec, rows: parsed.data });
+    blocks.push(`<div class="inline-chart"><canvas data-chart-id="${escapeHtml(chartId)}"></canvas></div>`);
+  }
+  return blocks.join("");
+}
+
 function renderTurnCard(turn, toolRuns, parts) {
   const roleClass = turn.role === "summary" ? "summary" : turn.role;
   const selected = turn.id === state.selectedTurnId ? " selected" : "";
@@ -2481,11 +2698,13 @@ function renderTurnCard(turn, toolRuns, parts) {
       : `<div class="inline-status"><span class="spinner"></span>Waiting on tool activity</div>`;
 
   const thinkingHtml = renderThinkingBlock(toolRuns, { groupKey: turn.id });
+  const chartsHtml = renderInlineCharts(toolRuns);
 
   return `
     <article class="turn-card ${roleClass}${selected}" data-turn-id="${escapeHtml(turn.id)}">
       ${thinkingHtml}
       ${body}
+      ${chartsHtml}
       ${turn.error ? `<div class="inline-status" style="background:var(--red-soft);color:var(--red)">${escapeHtml(turn.error)}</div>` : ""}
       ${toolRuns.some(run => run.status === "running") ? `<div class="inline-status"><span class="spinner"></span>Tool execution persisted in transcript</div>` : ""}
     </article>`;
@@ -2535,11 +2754,13 @@ function renderAssistantGroupCard(iterations, toolRunsByTurn, partsByTurn) {
     : `<div class="inline-status"><span class="spinner"></span>Waiting on tool activity</div>`;
 
   const thinkingHtml = renderThinkingBlock(allToolRuns, { groupKey: last.id });
+  const chartsHtml = renderInlineCharts(allToolRuns);
 
   return `
     <article class="turn-card assistant${selected}" data-turn-id="${escapeHtml(last.id)}">
       ${thinkingHtml}
       ${body}
+      ${chartsHtml}
       ${firstError ? `<div class="inline-status" style="background:var(--red-soft);color:var(--red)">${escapeHtml(firstError)}</div>` : ""}
       ${allToolRuns.some(run => run.status === "running") ? `<div class="inline-status"><span class="spinner"></span>Tool execution persisted in transcript</div>` : ""}
     </article>`;
@@ -2562,9 +2783,9 @@ function renderLiveTurnCard() {
   const isTyping = !live.assistantText && live.status === "responding";
   const showTypingStatus = !live.assistantText && !isTyping;
   return `
-    <article class="turn-card assistant${selected}">
+    <article class="turn-card assistant${selected}" data-live-turn="true">
       ${renderThinkingBlock(live.toolRuns, { forceOpen: true })}
-      <div class="turn-text">${live.assistantText ? renderMarkdown(live.assistantText) : ""}</div>
+      <div class="turn-text" data-live-text="true">${live.assistantText ? renderMarkdown(live.assistantText) : ""}</div>
       ${isTyping ? `<div class="typing-dots"><span></span><span></span><span></span></div>` : ""}
       ${showTypingStatus ? `<div class="inline-status"><span class="spinner"></span>${escapeHtml(statusLabel(live.status))}</div>` : ""}
       ${live.compaction ? `<div class="inline-status">Compaction triggered before this turn (${live.compaction.active_tokens_before} active tokens / ${live.compaction.context_window} budget)</div>` : ""}
@@ -2645,8 +2866,8 @@ function renderInspector() {
         <div class="summary-list">
           ${transcript.summaries.map(summary => `
             <div class="summary-entry">
-              <strong>${escapeHtml(summary.summary_turn_id)}</strong><br>
-              ${summary.source_turn_ids.length} source turns compacted · ${escapeHtml(formatTime(summary.created_at))}
+              <strong>${summary.source_turn_ids.length} turns compacted</strong><br>
+              ${escapeHtml(formatTime(summary.created_at))}
             </div>
           `).join("")}
         </div>
@@ -2718,14 +2939,14 @@ function renderWelcome() {
   return `
     <div class="welcome">
       <div class="welcome-card">
-        <h2>Ask deeper NFL questions without losing the thread.</h2>
-        <p>The backend now stores a real transcript with tool runs and compaction summaries. This UI is built around that runtime: conversations load from the server, long sessions stay inspectable, and you can see how the agent got its answer when you need to.</p>
+        <h2>Every NFL stat since 1999 — just ask.</h2>
+        <p>Players, seasons, play-by-play, advanced metrics, Next Gen Stats. Compare careers, dig into a single drive, or export a CSV for spreadsheet-land. The agent writes the SQL and shows its work.</p>
         <div class="suggestions">
           ${[
             ["Who led the NFL in passing yards in 2024?", "Season leaderboard"],
-            ["Compare Derrick Henry and Saquon Barkley rushing stats in 2024", "Side-by-side player view"],
-            ["Create a CSV of top 25 PPR scorers from 2024", "Export and download flow"],
-            ["What were the biggest playoff upsets in 2024?", "Games, spreads, and results"],
+            ["Compare Patrick Mahomes and Josh Allen's 2024 seasons", "Side-by-side player stats"],
+            ["Export the top 25 PPR scorers from 2024 to CSV", "Saved to your CSV library"],
+            ["Which rookie QB has had the best season since 1999?", "25 years of history"],
           ].map(([label, desc]) => `
             <button class="suggestion" data-suggestion="${escapeHtml(label)}">
               <strong>${escapeHtml(label)}</strong>

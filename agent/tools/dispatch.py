@@ -12,6 +12,7 @@ import logging
 import time
 
 from agent.tools.definitions import TOOL_DEFINITIONS
+from agent.tools.handlers.create_chart import _create_chart
 from agent.tools.handlers.create_csv_export import _create_csv_export
 from agent.tools.handlers.execute_sql import _execute_sql
 from agent.tools.handlers.get_schema import _get_schema
@@ -28,6 +29,7 @@ _TOOL_DISPATCH = {
     "get_schema": _get_schema,
     "get_player_info": _get_player_info,
     "create_csv_export": _create_csv_export,
+    "create_chart": _create_chart,
 }
 
 # Registry drift guard: every dispatch entry must map to a TOOL_DEFINITIONS

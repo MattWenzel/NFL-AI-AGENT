@@ -758,6 +758,13 @@ class RuntimeStore:
                 text = turn.text
                 if not text:
                     text = "".join(part.content for part in parts if part.kind == "text")
+                # Anthropic rejects messages whose final assistant content
+                # ends with trailing whitespace ("messages: final assistant
+                # content cannot end with trailing whitespace", 400). Models
+                # stream text that ends with \n frequently; strip before
+                # replay so a single past turn doesn't wedge every future
+                # call on the session.
+                text = (text or "").rstrip()
                 tool_calls = []
                 for tool_run in transcript.tool_runs_by_turn.get(turn.id, []):
                     tool_calls.append(
