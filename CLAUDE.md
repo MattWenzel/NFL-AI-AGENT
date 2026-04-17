@@ -153,6 +153,91 @@ When Google OAuth ships, the following six-step plan picks up from the current s
 
 The tail `_create_user_from_verified_identity` → `_issue_session` path in `api/routers/auth.py` is already shaped so the OAuth callback reuses it unchanged — the password and OAuth flows differ only in how they produce a verified email.
 
+## Deployment
+
+The app is single-origin: FastAPI serves both the UI (`GET /` → `chat.html`, static assets at `/chat-ui/*`) and the API. One process, one domain — terminate TLS at a reverse proxy in front.
+
+### 1. One-time server setup
+
+```bash
+# Clone + install
+git clone <repo> /srv/nflverse && cd /srv/nflverse
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+# Place the DBs (nflverse.db + pbp.db) under NFLVERSE/data/ — see build scripts above
+
+# Generate the encryption key for per-user API-key storage
+python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Put the key and any other env vars in `/srv/nflverse/.env` (already gitignored):
+
+```
+SETTINGS_ENCRYPTION_KEY=<output from the command above>
+ALLOWED_ORIGINS=https://yourhost.com      # optional; single-origin traffic doesn't need CORS, leave unset if unsure
+AUTH_TOKEN_TTL_DAYS=30                    # optional; default 30
+```
+
+The app doesn't need provider API keys at deploy time — each user enters their own through Settings.
+
+### 2. Run the server
+
+```bash
+uvicorn api.main:app --host 127.0.0.1 --port 8001
+```
+
+- **No `--reload`** — that's a dev convenience that forks an extra process.
+- **No `--workers N > 1`**. The rate limiter for `/auth/register` and `/auth/login` is an in-memory sliding window per process, so multiple workers would each accept the full quota independently (5×N attempts, 10×N attempts). For the current self-hosted scale this is fine. When traffic demands scaling, swap the limiter for `slowapi` with a Redis backend — contract is a single `.check(request)` call in `api/rate_limit.py`.
+- Bind to `127.0.0.1` so only the reverse proxy can reach the app directly.
+
+### 3. Reverse proxy (Caddy)
+
+Caddy handles TLS automatically via Let's Encrypt. `/etc/caddy/Caddyfile`:
+
+```
+yourhost.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:8001
+}
+```
+
+`systemctl reload caddy` and it provisions the cert on first request. `/health` is public and returns `{"status":"ok"}` if you want an external uptime monitor.
+
+### 4. systemd unit (optional)
+
+`/etc/systemd/system/nflverse.service`:
+
+```ini
+[Unit]
+Description=nflverse API + UI
+After=network.target
+
+[Service]
+User=nflverse
+WorkingDirectory=/srv/nflverse
+EnvironmentFile=/srv/nflverse/.env
+ExecStart=/srv/nflverse/.venv/bin/uvicorn api.main:app --host 127.0.0.1 --port 8001
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+systemctl daemon-reload && systemctl enable --now nflverse
+journalctl -u nflverse -f   # tail logs
+```
+
+### 5. Backups
+
+`data/runtime.sqlite3` holds everything mutable — users, auth sessions, conversations, encrypted API keys. A nightly `sqlite3 data/runtime.sqlite3 '.backup /backups/runtime-$(date +%F).sqlite3'` in cron is the whole backup story. Exports in `exports/` are cheap to regenerate but include them if you care about preserving past CSV downloads.
+
+### Dev path after the single-origin change
+
+`python3 run.py` and open `http://localhost:8001/` — the UI is served directly. The old `open chat.html` flow still works (chat.html uses `?api=` to point at the backend), but there's no reason to prefer it anymore.
+
 ## Notes
 
 - 2025 stats available from nflverse native data

@@ -126,7 +126,10 @@
 
 <script>
   // API backend URL. Override via ?api=... URL param, or edit the fallback below when deploying.
-  window.API_BASE = new URLSearchParams(location.search).get("api") || "http://localhost:8001";
+  // Default to same-origin ("") so every fetch goes to whatever host serves
+  // chat.html — this works when FastAPI serves the UI directly. ?api=<url>
+  // overrides for split-hosting or legacy file:// dev.
+  window.API_BASE = new URLSearchParams(location.search).get("api") || "";
 </script>
 <!-- Load order matters: state first, pure helpers next, I/O, features, main last. -->
 <script src="chat-ui/js/state.js"></script>

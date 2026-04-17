@@ -3,15 +3,23 @@
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from api.routers import auth, chat, conversations, csvs, exports, providers, settings
 from agent.runtime import ChatRuntime
 from infra import encryption
 from infra.persistence.runtime_store import RuntimeStore
 from config import ALLOWED_ORIGINS, DB_PATH, PBP_DB_PATH, RUNTIME_DB_PATH, format_file_size
+
+# Project root — one level up from this file (api/main.py → project/).
+# Used to resolve the UI's static assets and the chat.html entry point so the
+# same process serves both the API and the front-end (single-origin deploy).
+APP_ROOT = Path(__file__).resolve().parent.parent
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +145,20 @@ def create_app() -> FastAPI:
     def health_check():
         """Health check endpoint."""
         return {"status": "ok"}
+
+    # Serve the UI from the same origin as the API. Specific API routes above
+    # take precedence; this mount only catches /chat-ui/* asset requests and
+    # the bare root. chat.html's <link>/<script> tags use relative paths
+    # (chat-ui/...), so mounting at /chat-ui/ keeps those resolving.
+    app.mount(
+        "/chat-ui",
+        StaticFiles(directory=APP_ROOT / "chat-ui"),
+        name="chat-ui",
+    )
+
+    @app.get("/", include_in_schema=False)
+    def serve_ui():
+        return FileResponse(APP_ROOT / "chat.html")
 
     return app
 
