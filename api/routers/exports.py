@@ -1,8 +1,13 @@
-"""CSV export download endpoint and cleanup utilities."""
+"""CSV export download endpoint.
+
+Files are registered in the `exports` table when created by the
+`create_csv_export` tool and persist until explicitly deleted via the
+`/chat/exports/{id}` endpoints. No TTL cleanup; the library is the
+source of truth for which exports the user can see.
+"""
 
 import logging
 import re
-import time
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
@@ -37,23 +42,3 @@ def download_export(filename: str):
         filename=filename,
         media_type="text/csv",
     )
-
-
-def cleanup_old_exports(max_age_seconds: int = 3600) -> int:
-    """Remove CSV files older than max_age_seconds from the exports directory.
-
-    Returns the number of files removed.
-    """
-    if not EXPORTS_DIR.exists():
-        return 0
-
-    now = time.time()
-    removed = 0
-    for f in EXPORTS_DIR.glob("*.csv"):
-        try:
-            if now - f.stat().st_mtime > max_age_seconds:
-                f.unlink()
-                removed += 1
-        except OSError as e:
-            logger.warning("Could not remove export %s: %s", f.name, e)
-    return removed

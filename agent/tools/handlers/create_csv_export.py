@@ -3,11 +3,14 @@
 import csv
 import io
 import json
+import logging
 import re
 import time
 
 from agent.tools.sql_sandbox import execute_export_sql
 from config import EXPORTS_DIR, format_file_size
+
+logger = logging.getLogger(__name__)
 
 
 def _sanitize_filename(name: str) -> str:
@@ -17,7 +20,7 @@ def _sanitize_filename(name: str) -> str:
     return sanitized[:80] or "export"
 
 
-def _create_csv_export(input_data: dict) -> str:
+def _create_csv_export(input_data: dict, ctx: dict | None = None) -> str:
     sql = input_data.get("sql", "")
     raw_filename = input_data.get("filename", "export")
 
@@ -39,7 +42,32 @@ def _create_csv_export(input_data: dict) -> str:
     writer.writerows(result.rows)
     csv_path.write_text(buf.getvalue(), encoding="utf-8")
 
-    size_display = format_file_size(csv_path.stat().st_size)
+    file_size = csv_path.stat().st_size
+    size_display = format_file_size(file_size)
+
+    # Register in the CSV library if a store hook was supplied (API/CLI both
+    # pass one; a missing hook means the tool is being invoked outside the
+    # runtime, in which case we still return the download info but skip
+    # library registration). If the registry write fails we delete the file
+    # so the user doesn't end up with an orphaned CSV they can't manage.
+    register = ctx.get("register_export") if ctx else None
+    if register is not None:
+        try:
+            register({
+                "filename": csv_filename,
+                "title": sanitized,
+                "sql": sql,
+                "row_count": result.row_count,
+                "columns": result.columns,
+                "file_size": file_size,
+            })
+        except Exception as exc:
+            logger.exception("Failed to register export %s; unlinking file", csv_filename)
+            try:
+                csv_path.unlink()
+            except OSError:
+                pass
+            return json.dumps({"error": f"Could not save export to library: {exc}"})
 
     output = {
         "download_url": f"/exports/{csv_filename}",

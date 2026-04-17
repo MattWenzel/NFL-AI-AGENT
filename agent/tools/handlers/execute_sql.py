@@ -8,7 +8,7 @@ from agent.tools._helpers import _truncate_rows
 logger = logging.getLogger(__name__)
 
 
-def _execute_sql(input_data: dict) -> str:
+def _execute_sql(input_data: dict, ctx: dict | None = None) -> str:
     sql = input_data.get("sql", "")
     result = execute_safe_sql(sql)
 

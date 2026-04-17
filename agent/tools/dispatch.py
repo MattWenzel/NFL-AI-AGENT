@@ -49,13 +49,17 @@ def _summarize_input(input_data: dict) -> str:
     return json.dumps(input_data, default=str)[:200]
 
 
-async def execute_tool(name: str, input_data: dict) -> str:
+async def execute_tool(name: str, input_data: dict, ctx: dict | None = None) -> str:
     """Execute a tool and return the result as a string.
 
     Tool handlers are synchronous and run via asyncio.to_thread so SQLite
     I/O doesn't block the event loop. Returns JSON (structured data or an
     error envelope), with a remediation hint appended when the error
     matches a known pattern.
+
+    `ctx` is an optional side-channel for runtime hooks (e.g. a
+    `register_export` callback for `create_csv_export`). Handlers that
+    don't need it ignore the argument.
     """
     t0 = time.monotonic()
     try:
@@ -63,7 +67,7 @@ async def execute_tool(name: str, input_data: dict) -> str:
         if fn is None:
             result = json.dumps({"error": f"Unknown tool: {name}"})
         else:
-            result = await asyncio.to_thread(fn, input_data)
+            result = await asyncio.to_thread(fn, input_data, ctx)
     except SQLValidationError as e:
         result = json.dumps({"error": str(e)})
     except Exception as e:
@@ -75,7 +79,7 @@ async def execute_tool(name: str, input_data: dict) -> str:
     return inject_hint(result)
 
 
-async def execute_tool_structured(name: str, input_data: dict) -> dict:
+async def execute_tool_structured(name: str, input_data: dict, ctx: dict | None = None) -> dict:
     """Execute a tool and return a normalized envelope for persisted tool runs."""
     validation_error = validate_tool_input(name, input_data)
     if validation_error:
@@ -89,7 +93,7 @@ async def execute_tool_structured(name: str, input_data: dict) -> dict:
         }
 
     started = time.monotonic()
-    result = await execute_tool(name, input_data)
+    result = await execute_tool(name, input_data, ctx=ctx)
     duration_ms = int((time.monotonic() - started) * 1000)
     error = None
     hint = None

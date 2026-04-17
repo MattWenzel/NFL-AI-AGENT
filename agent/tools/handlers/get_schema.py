@@ -229,7 +229,7 @@ def build_table_schema(table_name: str) -> dict | None:
 # Tool entrypoint
 # ---------------------------------------------------------------------------
 
-def _get_schema(input_data: dict) -> str:
+def _get_schema(input_data: dict, ctx: dict | None = None) -> str:
     table_name = input_data.get("table_name", "")
     if table_name:
         result = build_table_schema(table_name)

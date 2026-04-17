@@ -261,7 +261,17 @@ class ChatRuntime:
                 name=tool_run.tool_name, tool_run_id=tool_run.id,
             )
             return {"status": "error", "content": err, "error": err}
-        result = await execute_tool_structured(tool_run.tool_name, tool_input)
+        # Side-channel hooks tools may use (e.g. create_csv_export registers
+        # the file in the export library). Closure captures session + tool_run
+        # so the handler doesn't need to know about persistence.
+        ctx = {
+            "register_export": lambda meta: self.store.register_export(
+                **meta,
+                source_session_id=session_id,
+                source_tool_run_id=tool_run.id,
+            ),
+        }
+        result = await execute_tool_structured(tool_run.tool_name, tool_input, ctx=ctx)
         status = "completed" if result["status"] == "completed" else "error"
         self.store.update_tool_run(
             tool_run.id,

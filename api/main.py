@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import chat, conversations, exports, providers
+from api.routers import chat, conversations, csvs, exports, providers
 from agent.runtime import ChatRuntime
 from infra.persistence.runtime_store import RuntimeStore
 from config import DB_PATH, PBP_DB_PATH, RUNTIME_DB_PATH, format_file_size
@@ -56,11 +56,6 @@ async def lifespan(app: FastAPI):
         size = format_file_size(RUNTIME_DB_PATH.stat().st_size)
         logger.info("runtime db: %s (%s)", RUNTIME_DB_PATH, size)
 
-    # Export cleanup
-    removed = exports.cleanup_old_exports()
-    if removed:
-        logger.info("Cleaned up %d old export file(s)", removed)
-
     yield
 
 
@@ -93,6 +88,7 @@ def create_app() -> FastAPI:
     app.include_router(conversations.router)
     app.include_router(providers.router)
     app.include_router(exports.router)
+    app.include_router(csvs.router)
 
     @app.get("/health")
     def health_check():

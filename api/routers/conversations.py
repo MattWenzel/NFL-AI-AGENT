@@ -26,6 +26,7 @@ async def list_conversations(store: RuntimeStore = Depends(get_store)):
             model=item.get("model"),
             updated_at=item.get("updated_at"),
             pinned_at=item.get("pinned_at"),
+            source_csv_id=item.get("source_csv_id"),
         )
         for item in store.list_sessions()
     ]
@@ -133,6 +134,7 @@ async def update_conversation(
         model=session.model,
         updated_at=session.updated_at,
         pinned_at=session.pinned_at,
+        source_csv_id=session.source_csv_id,
     )
 
 

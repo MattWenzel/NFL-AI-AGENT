@@ -59,6 +59,22 @@ class SessionRecord:
     title: str | None = None
     context_window: int = 0
     pinned_at: str | None = None
+    source_csv_id: str | None = None
+
+
+@dataclass
+class ExportRecord:
+    id: str
+    filename: str
+    title: str
+    sql: str
+    row_count: int
+    columns_json: str
+    file_size: int
+    source_session_id: str | None
+    source_tool_run_id: str | None
+    created_at: str
+    updated_at: str
 
 
 @dataclass
@@ -216,17 +232,34 @@ class RuntimeStore:
                     FOREIGN KEY (summary_turn_id) REFERENCES turns(id)
                 );
 
+                CREATE TABLE IF NOT EXISTS exports (
+                    id TEXT PRIMARY KEY,
+                    filename TEXT NOT NULL UNIQUE,
+                    title TEXT NOT NULL,
+                    sql TEXT NOT NULL,
+                    row_count INTEGER NOT NULL,
+                    columns_json TEXT NOT NULL,
+                    file_size INTEGER NOT NULL,
+                    source_session_id TEXT,
+                    source_tool_run_id TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_turns_session_created
                     ON turns(session_id, created_at);
                 CREATE INDEX IF NOT EXISTS idx_parts_turn_order
                     ON assistant_parts(turn_id, order_index);
                 CREATE INDEX IF NOT EXISTS idx_tool_runs_turn_created
                     ON tool_runs(turn_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_exports_created
+                    ON exports(created_at DESC);
                 """
             )
             self._ensure_column(conn, "turns", "input_tokens", "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(conn, "turns", "output_tokens", "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(conn, "sessions", "pinned_at", "TEXT")
+            self._ensure_column(conn, "sessions", "source_csv_id", "TEXT")
 
     @staticmethod
     def _ensure_column(conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
@@ -320,7 +353,8 @@ class RuntimeStore:
             conn.execute(
                 """
                 UPDATE sessions
-                SET updated_at = ?, provider = ?, model = ?, title = ?, context_window = ?, pinned_at = ?
+                SET updated_at = ?, provider = ?, model = ?, title = ?,
+                    context_window = ?, pinned_at = ?, source_csv_id = ?
                 WHERE id = ?
                 """,
                 (
@@ -330,6 +364,7 @@ class RuntimeStore:
                     session.title,
                     session.context_window,
                     session.pinned_at,
+                    session.source_csv_id,
                     session.id,
                 ),
             )
@@ -348,6 +383,119 @@ class RuntimeStore:
                 (session.pinned_at, session_id),
             )
         return session
+
+    def set_session_source_csv(self, session_id: str, export_id: str | None) -> SessionRecord | None:
+        session = self.get_session(session_id)
+        if session is None:
+            return None
+        session.source_csv_id = export_id
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE sessions SET source_csv_id = ? WHERE id = ?",
+                (export_id, session_id),
+            )
+        return session
+
+    def seed_summary(self, session_id: str, summary_text: str) -> TurnRecord:
+        """Insert a synthetic summary turn without recording a compaction event.
+
+        Used to seed a fresh session with assistant-visible context (e.g. the
+        SQL that produced an opened CSV). The turn is stored with role='summary'
+        so `build_model_messages` prefixes it with '[Compacted summary]' and
+        the LLM treats it as established context — no separate branch in the
+        runtime loop. We skip the compaction_summaries row because nothing is
+        being compacted; transcript.summaries stays empty for real compaction
+        events only.
+        """
+        return self.create_turn(session_id, "summary", text=summary_text, status="completed")
+
+    def register_export(
+        self,
+        *,
+        filename: str,
+        title: str,
+        sql: str,
+        row_count: int,
+        columns: list[str],
+        file_size: int,
+        source_session_id: str | None,
+        source_tool_run_id: str | None,
+    ) -> ExportRecord:
+        now = _utcnow()
+        record = ExportRecord(
+            id=_new_id(),
+            filename=filename,
+            title=title,
+            sql=sql,
+            row_count=row_count,
+            columns_json=json.dumps(columns),
+            file_size=file_size,
+            source_session_id=source_session_id,
+            source_tool_run_id=source_tool_run_id,
+            created_at=now,
+            updated_at=now,
+        )
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO exports (
+                    id, filename, title, sql, row_count, columns_json, file_size,
+                    source_session_id, source_tool_run_id, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record.id,
+                    record.filename,
+                    record.title,
+                    record.sql,
+                    record.row_count,
+                    record.columns_json,
+                    record.file_size,
+                    record.source_session_id,
+                    record.source_tool_run_id,
+                    record.created_at,
+                    record.updated_at,
+                ),
+            )
+        return record
+
+    def list_exports(self) -> list[ExportRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM exports ORDER BY created_at DESC"
+            ).fetchall()
+        return [self._row_to_export(r) for r in rows]
+
+    def get_export(self, export_id: str) -> ExportRecord | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM exports WHERE id = ?", (export_id,)).fetchone()
+        return self._row_to_export(row) if row else None
+
+    def get_export_by_filename(self, filename: str) -> ExportRecord | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM exports WHERE filename = ?", (filename,)).fetchone()
+        return self._row_to_export(row) if row else None
+
+    def update_export_title(self, export_id: str, title: str) -> ExportRecord | None:
+        now = _utcnow()
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE exports SET title = ?, updated_at = ? WHERE id = ?",
+                (title, now, export_id),
+            )
+            if cur.rowcount == 0:
+                return None
+        return self.get_export(export_id)
+
+    def delete_export(self, export_id: str) -> ExportRecord | None:
+        """Remove the registry row. Caller is responsible for unlinking the
+        on-disk file; returning the record so the caller knows the filename."""
+        record = self.get_export(export_id)
+        if record is None:
+            return None
+        with self._connect() as conn:
+            conn.execute("DELETE FROM exports WHERE id = ?", (export_id,))
+        return record
 
     def get_session(self, session_id: str | None) -> SessionRecord | None:
         if not session_id:
@@ -657,6 +805,7 @@ class RuntimeStore:
                 SELECT s.id,
                        s.updated_at,
                        s.pinned_at,
+                       s.source_csv_id,
                        COALESCE(s.title, (
                            SELECT SUBSTR(text, 1, 60)
                            FROM turns t
@@ -697,6 +846,23 @@ class RuntimeStore:
             title=row["title"],
             context_window=row["context_window"],
             pinned_at=row["pinned_at"] if "pinned_at" in row.keys() else None,
+            source_csv_id=row["source_csv_id"] if "source_csv_id" in row.keys() else None,
+        )
+
+    @staticmethod
+    def _row_to_export(row: sqlite3.Row) -> ExportRecord:
+        return ExportRecord(
+            id=row["id"],
+            filename=row["filename"],
+            title=row["title"],
+            sql=row["sql"],
+            row_count=row["row_count"],
+            columns_json=row["columns_json"],
+            file_size=row["file_size"],
+            source_session_id=row["source_session_id"],
+            source_tool_run_id=row["source_tool_run_id"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
         )
 
     @staticmethod

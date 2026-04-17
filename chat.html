@@ -223,7 +223,7 @@ body {
 
 .conversation-top {
   display: flex;
-  align-items: start;
+  align-items: stretch;
   gap: 10px;
 }
 
@@ -252,8 +252,19 @@ body {
 
 .conversation-actions {
   display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.conversation-action-row {
+  display: flex;
   gap: 4px;
   align-items: center;
+}
+
+.conversation-actions .csv-icon {
+  margin-top: auto;
 }
 
 .delete-btn,
@@ -278,6 +289,284 @@ body {
 
 .pin-btn.active {
   color: var(--accent);
+}
+
+.sidebar-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px 0;
+}
+
+.sidebar-tab {
+  flex: 1;
+  background: transparent;
+  border: 0;
+  padding: 8px 10px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.sidebar-tab:hover {
+  color: var(--text);
+}
+
+.sidebar-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.sidebar-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-pane[hidden] {
+  display: none;
+}
+
+.csv-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.csv-item {
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.csv-item:hover {
+  background: var(--panel-muted);
+  border-color: var(--border);
+}
+
+.csv-item.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.csv-empty {
+  padding: 20px 12px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: center;
+  line-height: 1.5;
+}
+
+.csv-icon {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+  font-size: 0.9rem;
+  cursor: pointer;
+  opacity: 0.8;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.csv-icon:hover {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+.csv-icon.stale {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.csv-icon.stale:hover {
+  opacity: 0.4;
+  transform: none;
+}
+
+.thread-csv-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  font-size: 0.82rem;
+  font-weight: 500;
+  margin: 0 0 16px;
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.thread-csv-banner:hover {
+  filter: brightness(0.96);
+}
+
+.csv-viewer {
+  padding: 28px 32px;
+  overflow-y: auto;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  box-sizing: border-box;
+}
+
+.csv-viewer-title {
+  margin: 0;
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.25;
+}
+
+.csv-viewer-meta {
+  color: var(--muted);
+  font-size: 0.82rem;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.csv-viewer-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.button-primary,
+.button-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.button-primary {
+  background: var(--accent);
+  color: #FFFFFF;
+  border: 1px solid var(--accent);
+}
+
+.button-primary:hover {
+  filter: brightness(0.95);
+}
+
+.button-secondary {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.button-secondary:hover {
+  background: var(--panel-muted);
+  border-color: var(--muted);
+}
+
+.csv-viewer-sql {
+  background: var(--panel-muted);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.csv-viewer-sql summary {
+  cursor: pointer;
+  color: var(--muted-strong);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+
+.csv-viewer-sql pre {
+  margin: 10px 0 0;
+  padding: 0;
+  background: transparent;
+  font-size: 0.82rem;
+  color: var(--text);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.csv-viewer-table-wrap {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: auto;
+  max-height: calc(100vh - 340px);
+  background: var(--panel-strong);
+}
+
+.csv-viewer-table-wrap table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.82rem;
+}
+
+.csv-viewer-table-wrap th,
+.csv-viewer-table-wrap td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.csv-viewer-table-wrap th {
+  position: sticky;
+  top: 0;
+  background: var(--panel-muted);
+  color: var(--muted-strong);
+  font-weight: 600;
+  font-size: 0.76rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  z-index: 1;
+}
+
+.csv-viewer-table-wrap tbody tr:hover {
+  background: var(--panel-muted);
+}
+
+.csv-viewer-truncated {
+  padding: 10px 14px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-align: center;
+  border-top: 1px solid var(--border);
+  background: var(--panel-muted);
+}
+
+.csv-viewer-missing {
+  padding: 14px 16px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: center;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+}
+
+.main.viewing-csv .input-shell {
+  display: none;
 }
 
 .rename-input {
@@ -1106,11 +1395,20 @@ body {
         <span>New chat</span>
       </button>
     </div>
+    <div class="sidebar-tabs" role="tablist">
+      <button type="button" class="sidebar-tab active" id="tabChats" role="tab">Chats</button>
+      <button type="button" class="sidebar-tab" id="tabCsvs" role="tab">CSVs</button>
+    </div>
     <div class="sidebar-search">
       <input type="search" id="sidebarSearch" placeholder="Search conversations" autocomplete="off">
       <div class="sidebar-search-count" id="sidebarSearchCount"></div>
     </div>
-    <div class="conversation-list" id="conversationList"></div>
+    <div class="sidebar-pane" id="pane-chats">
+      <div class="conversation-list" id="conversationList"></div>
+    </div>
+    <div class="sidebar-pane" id="pane-csvs" hidden>
+      <div class="csv-list" id="csvList"></div>
+    </div>
   </aside>
 
   <main class="main">
@@ -1166,6 +1464,10 @@ const state = {
   sidebarSearch: "",
   inspectorOpen: false,
   thinkingOpen: new Set(),
+  sidebarView: localStorage.getItem("nfl_sidebar_view") || "chats",
+  csvs: [],
+  activeCsvId: localStorage.getItem("nfl_csv_active_id") || null,
+  csvDetails: new Map(),
 };
 
 marked.setOptions({ breaks: true, gfm: true });
@@ -1199,17 +1501,25 @@ document.getElementById("input").addEventListener("keydown", handleInputKeydown)
 document.getElementById("input").addEventListener("input", autoResize);
 document.getElementById("sidebarSearch").addEventListener("input", (e) => {
   state.sidebarSearch = e.target.value;
-  renderConversationList();
+  if (state.sidebarView === "csvs") renderCsvList();
+  else renderConversationList();
 });
+document.getElementById("tabChats").addEventListener("click", () => setSidebarView("chats"));
+document.getElementById("tabCsvs").addEventListener("click", () => setSidebarView("csvs"));
 
 async function init() {
   await loadProviders();
-  await refreshConversations();
+  await Promise.all([refreshConversations(), refreshCsvs()]);
   if (state.activeSessionId && state.conversations.some(c => c.id === state.activeSessionId)) {
     await loadTranscript(state.activeSessionId);
   } else {
     state.activeSessionId = null;
   }
+  if (state.activeCsvId && !state.csvs.some(c => c.id === state.activeCsvId)) {
+    state.activeCsvId = null;
+    localStorage.removeItem("nfl_csv_active_id");
+  }
+  applySidebarView();
   document.addEventListener("click", handleCopyClick);
   render();
 }
@@ -1327,6 +1637,35 @@ async function refreshConversations() {
     state.activeSessionId = null;
     state.selectedTurnId = null;
   }
+}
+
+async function refreshCsvs() {
+  try {
+    state.csvs = await fetchJSON("/chat/exports");
+  } catch (err) {
+    console.error("Failed to load CSVs:", err);
+    state.csvs = [];
+  }
+}
+
+function applySidebarView() {
+  const view = state.sidebarView === "csvs" ? "csvs" : "chats";
+  document.getElementById("pane-chats").hidden = view !== "chats";
+  document.getElementById("pane-csvs").hidden = view !== "csvs";
+  document.getElementById("tabChats").classList.toggle("active", view === "chats");
+  document.getElementById("tabCsvs").classList.toggle("active", view === "csvs");
+  const search = document.getElementById("sidebarSearch");
+  search.placeholder = view === "csvs" ? "Search CSVs" : "Search conversations";
+}
+
+function setSidebarView(view) {
+  const next = view === "csvs" ? "csvs" : "chats";
+  state.sidebarView = next;
+  localStorage.setItem("nfl_sidebar_view", next);
+  state.sidebarSearch = "";
+  document.getElementById("sidebarSearch").value = "";
+  applySidebarView();
+  render();
 }
 
 async function loadTranscript(sessionId) {
@@ -1507,7 +1846,7 @@ async function finishLiveTurn() {
   const sessionId = state.liveTurn ? state.liveTurn.sessionId : state.activeSessionId;
   state.isStreaming = false;
   if (sessionId) {
-    await refreshConversations();
+    await Promise.all([refreshConversations(), refreshCsvs()]);
     await loadTranscript(sessionId);
   }
   state.liveTurn = null;
@@ -1515,11 +1854,281 @@ async function finishLiveTurn() {
 }
 
 function render() {
-  renderConversationList();
+  if (state.sidebarView === "csvs") {
+    renderCsvList();
+  } else {
+    renderConversationList();
+  }
   renderSessionHeader();
-  renderThread();
+  renderMain();
   renderInspector();
   document.getElementById("sendBtn").disabled = state.isStreaming;
+}
+
+function renderMain() {
+  const mainEl = document.querySelector(".main");
+  const viewingCsv = state.sidebarView === "csvs" && state.activeCsvId;
+  mainEl.classList.toggle("viewing-csv", Boolean(viewingCsv));
+  if (viewingCsv) {
+    renderCsvViewer();
+  } else {
+    renderThread();
+  }
+}
+
+function renderCsvList() {
+  const list = document.getElementById("csvList");
+  const countEl = document.getElementById("sidebarSearchCount");
+  list.innerHTML = "";
+
+  const query = state.sidebarSearch.trim().toLowerCase();
+  const filtered = query
+    ? state.csvs.filter(c => (c.title || c.filename || "").toLowerCase().includes(query))
+    : state.csvs;
+
+  if (countEl) {
+    countEl.textContent = query
+      ? `${filtered.length} of ${state.csvs.length}`
+      : (state.csvs.length ? `${state.csvs.length} total` : "");
+  }
+
+  if (!state.csvs.length) {
+    const empty = document.createElement("div");
+    empty.className = "csv-empty";
+    empty.textContent = "No saved CSVs yet. Ask the agent to export data and it'll land here.";
+    list.appendChild(empty);
+    return;
+  }
+
+  for (const csv of filtered) {
+    list.appendChild(buildCsvItem(csv));
+  }
+}
+
+function buildCsvItem(csv) {
+  const item = document.createElement("div");
+  item.className = "csv-item" + (csv.id === state.activeCsvId ? " active" : "");
+  item.innerHTML = `
+    <div class="conversation-top">
+      <div style="flex:1">
+        <div class="conversation-title">${escapeHtml(csv.title || csv.filename || "Untitled")}</div>
+        <div class="conversation-meta">
+          <span>${csv.row_count} rows</span>
+          <span>${formatFileSize(csv.file_size)}</span>
+          ${csv.created_at ? `<span>${escapeHtml(formatTime(csv.created_at))}</span>` : ""}
+        </div>
+      </div>
+      <div class="conversation-actions">
+        <button class="rename-btn" title="Rename CSV">&#9998;</button>
+        <button class="delete-btn" title="Delete CSV">&times;</button>
+      </div>
+    </div>`;
+  item.addEventListener("click", () => openCsv(csv.id));
+  item.querySelector(".delete-btn").addEventListener("click", async (e) => {
+    e.stopPropagation();
+    if (!window.confirm("Delete this CSV? The file will be removed from disk.")) return;
+    try {
+      await deleteCsv(csv.id);
+    } catch (err) {
+      console.error("Delete CSV failed:", err);
+    }
+  });
+  item.querySelector(".rename-btn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    beginCsvRename(item, csv);
+  });
+  return item;
+}
+
+function formatCsvCell(val) {
+  // Trim IEEE-754 trailing noise in the preview only. The CSV file on disk
+  // keeps its exact numeric values (the agent chose ROUND() or didn't), so
+  // the download stays faithful; this just prevents the preview table from
+  // surfacing "471.20000000000005" when the meaningful value is 471.2.
+  if (val == null || val === "") return "";
+  const str = String(val);
+  if (/\.\d{5,}/.test(str)) {
+    const num = Number(str);
+    if (Number.isFinite(num)) {
+      return parseFloat(num.toFixed(4)).toString();
+    }
+  }
+  return str;
+}
+
+function formatFileSize(bytes) {
+  if (!bytes && bytes !== 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+async function openCsv(csvId) {
+  state.activeCsvId = csvId;
+  localStorage.setItem("nfl_csv_active_id", csvId);
+  if (!state.csvDetails.has(csvId)) {
+    try {
+      const detail = await fetchJSON(`/chat/exports/${csvId}`);
+      state.csvDetails.set(csvId, detail);
+    } catch (err) {
+      console.error("Failed to load CSV detail:", err);
+    }
+  }
+  render();
+}
+
+async function renameCsv(csvId, newTitle) {
+  const updated = await fetchJSON(`/chat/exports/${csvId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: newTitle }),
+  });
+  const idx = state.csvs.findIndex(c => c.id === csvId);
+  if (idx !== -1) state.csvs[idx] = updated;
+  if (state.csvDetails.has(csvId)) {
+    const detail = state.csvDetails.get(csvId);
+    state.csvDetails.set(csvId, { ...detail, title: updated.title, updated_at: updated.updated_at });
+  }
+  render();
+}
+
+async function deleteCsv(csvId) {
+  await fetchJSON(`/chat/exports/${csvId}`, { method: "DELETE" });
+  state.csvs = state.csvs.filter(c => c.id !== csvId);
+  state.csvDetails.delete(csvId);
+  if (state.activeCsvId === csvId) {
+    state.activeCsvId = null;
+    localStorage.removeItem("nfl_csv_active_id");
+  }
+  render();
+}
+
+function beginCsvRename(item, csv) {
+  const titleEl = item.querySelector(".conversation-title");
+  if (!titleEl || titleEl.querySelector("input")) return;
+  const currentTitle = csv.title || csv.filename || "Untitled";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "rename-input";
+  input.value = currentTitle;
+  input.maxLength = 200;
+  titleEl.innerHTML = "";
+  titleEl.appendChild(input);
+  input.focus();
+  input.select();
+  input.addEventListener("click", (e) => e.stopPropagation());
+
+  let settled = false;
+  const cancel = () => {
+    if (settled) return;
+    settled = true;
+    titleEl.textContent = currentTitle;
+  };
+  const save = async () => {
+    if (settled) return;
+    const next = input.value.trim();
+    if (!next || next === currentTitle) { cancel(); return; }
+    settled = true;
+    try {
+      await renameCsv(csv.id, next);
+    } catch (err) {
+      console.error("Rename CSV failed:", err);
+      titleEl.textContent = currentTitle;
+    }
+  };
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); save(); }
+    else if (e.key === "Escape") { e.preventDefault(); cancel(); }
+  });
+  input.addEventListener("blur", save);
+}
+
+function renderCsvViewer() {
+  const thread = document.getElementById("thread");
+  const detail = state.csvDetails.get(state.activeCsvId);
+  const summary = state.csvs.find(c => c.id === state.activeCsvId);
+  if (!detail) {
+    thread.innerHTML = `<div class="csv-viewer"><div class="csv-viewer-missing">Loading CSV…</div></div>`;
+    return;
+  }
+  const columns = detail.columns || [];
+  const rows = detail.preview_rows || [];
+  const title = detail.title || (summary && summary.title) || detail.filename;
+  const headerCells = columns.map(col => `<th>${escapeHtml(col)}</th>`).join("");
+  const bodyRows = rows.map(row => {
+    const cells = columns.map(col => `<td>${escapeHtml(formatCsvCell(row[col]))}</td>`).join("");
+    return `<tr>${cells}</tr>`;
+  }).join("");
+  const tableHtml = columns.length
+    ? `<div class="csv-viewer-table-wrap">
+         <table>
+           <thead><tr>${headerCells}</tr></thead>
+           <tbody>${bodyRows}</tbody>
+         </table>
+         ${detail.preview_truncated ? `<div class="csv-viewer-truncated">Preview limited to ${rows.length} rows. Download for full data.</div>` : ""}
+       </div>`
+    : `<div class="csv-viewer-missing">CSV file is missing on disk — the library row is still here for reference.</div>`;
+
+  thread.innerHTML = `
+    <div class="csv-viewer">
+      <div class="csv-viewer-header">
+        <h2 class="csv-viewer-title">${escapeHtml(title)}</h2>
+        <div class="csv-viewer-meta">
+          <span>${detail.row_count} rows</span>
+          <span>${columns.length} columns</span>
+          <span>${formatFileSize(detail.file_size)}</span>
+          ${detail.created_at ? `<span>${escapeHtml(formatTime(detail.created_at))}</span>` : ""}
+          <span class="mono">${escapeHtml(detail.filename)}</span>
+        </div>
+        <div class="csv-viewer-actions">
+          <button type="button" class="button-primary" id="startChatWithCsv">Start chat about this CSV</button>
+          <a class="button-secondary" href="${API_BASE}${detail.download_url}" download>Download</a>
+        </div>
+      </div>
+      <details class="csv-viewer-sql"${state.thinkingOpen.has(`sql-${detail.id}`) ? " open" : ""}>
+        <summary>Source SQL</summary>
+        <pre><code>${escapeHtml(detail.sql || "")}</code></pre>
+      </details>
+      ${tableHtml}
+    </div>`;
+  const btn = document.getElementById("startChatWithCsv");
+  if (btn) {
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      try {
+        await startChatFromCsv(detail.id);
+      } catch (err) {
+        console.error("Start chat from CSV failed:", err);
+        btn.disabled = false;
+      }
+    });
+  }
+  const sqlDetails = thread.querySelector(".csv-viewer-sql");
+  if (sqlDetails) {
+    const key = `sql-${detail.id}`;
+    sqlDetails.addEventListener("toggle", () => {
+      if (sqlDetails.open) state.thinkingOpen.add(key);
+      else state.thinkingOpen.delete(key);
+    });
+  }
+}
+
+async function startChatFromCsv(csvId) {
+  const payload = {
+    provider: state.selectedProvider || null,
+    model: state.selectedModel || null,
+  };
+  const resp = await fetchJSON(`/chat/exports/${csvId}/new-session`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const newId = resp.conversation_id;
+  await refreshConversations();
+  state.sidebarView = "chats";
+  localStorage.setItem("nfl_sidebar_view", "chats");
+  applySidebarView();
+  await loadTranscript(newId);
 }
 
 function renderConversationList() {
@@ -1573,6 +2182,27 @@ function buildConversationItem(session) {
   const isPinned = Boolean(session.pinned_at);
   const pinIcon = isPinned ? "&#9733;" : "&#9734;";
   const pinTitle = isPinned ? "Unpin session" : "Pin session";
+  // A conversation can be linked to a CSV two ways: it was opened from one
+  // (source_csv_id) or it generated some (exports.source_session_id). Prefer
+  // the seed CSV because that's the context the chat was built around; fall
+  // back to the most recently generated CSV from this session. Either way,
+  // one 📄 icon; click opens the most relevant target.
+  const seedCsv = session.source_csv_id ? state.csvs.find(c => c.id === session.source_csv_id) : null;
+  const generatedCsvs = state.csvs
+    .filter(c => c.source_session_id === session.id)
+    .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+  const linkedCsv = seedCsv || generatedCsvs[0] || null;
+  const csvLinkCount = (seedCsv ? 1 : 0) + generatedCsvs.length;
+  const linkTitle = linkedCsv
+    ? (csvLinkCount > 1
+        ? `${csvLinkCount} linked CSVs — open: ${linkedCsv.title || linkedCsv.filename}`
+        : `Open CSV: ${linkedCsv.title || linkedCsv.filename}`)
+    : null;
+  const csvIcon = linkedCsv
+    ? `<span class="csv-icon" data-csv-id="${escapeHtml(linkedCsv.id)}" title="${escapeHtml(linkTitle)}">&#128196;</span>`
+    : (session.source_csv_id
+        ? `<span class="csv-icon stale" title="CSV no longer in library">&#128196;</span>`
+        : "");
   item.innerHTML = `
     <div class="conversation-top">
       <div style="flex:1">
@@ -1584,9 +2214,12 @@ function buildConversationItem(session) {
         </div>
       </div>
       <div class="conversation-actions">
-        <button class="pin-btn${isPinned ? " active" : ""}" title="${pinTitle}">${pinIcon}</button>
-        <button class="rename-btn" title="Rename session">&#9998;</button>
-        <button class="delete-btn" title="Delete session">&times;</button>
+        <div class="conversation-action-row">
+          <button class="pin-btn${isPinned ? " active" : ""}" title="${pinTitle}">${pinIcon}</button>
+          <button class="rename-btn" title="Rename session">&#9998;</button>
+          <button class="delete-btn" title="Delete session">&times;</button>
+        </div>
+        ${csvIcon}
       </div>
     </div>`;
   item.addEventListener("click", () => loadTranscript(session.id));
@@ -1607,6 +2240,14 @@ function buildConversationItem(session) {
       console.error("Pin toggle failed:", err);
     }
   });
+  const icon = item.querySelector(".csv-icon:not(.stale)");
+  if (icon) {
+    icon.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openCsv(icon.dataset.csvId);
+      setSidebarView("csvs");
+    });
+  }
   return item;
 }
 
@@ -1692,7 +2333,18 @@ function renderThread() {
     return;
   }
 
-  const turns = transcript ? transcript.turns.filter(turn => !turn.compacted || turn.role === "summary") : [];
+  let turns = transcript ? transcript.turns.filter(turn => !turn.compacted || turn.role === "summary") : [];
+  // A CSV-seeded session has a synthetic summary turn at index 0 that
+  // primes the LLM with the SQL/columns/row count. It's meant for the
+  // model, not the reader — surface a chip instead. source_csv_id lives on
+  // the conversation list entry (not the transcript response), so look it
+  // up there.
+  const activeConvo = transcript
+    ? state.conversations.find(c => c.id === state.activeSessionId)
+    : null;
+  const sourceCsvId = activeConvo?.source_csv_id || null;
+  const seededFromCsv = Boolean(sourceCsvId) && turns.length && turns[0].role === "summary";
+  if (seededFromCsv) turns = turns.slice(1);
   const toolRunsByTurn = groupBy(transcript?.tool_runs || [], run => run.turn_id);
   const partsByTurn = groupBy(transcript?.parts || [], part => part.turn_id);
 
@@ -1724,7 +2376,25 @@ function renderThread() {
     items.push(renderLiveTurnCard());
   }
 
-  thread.innerHTML = `<div class="thread-inner">${items.join("")}</div>`;
+  let bannerHtml = "";
+  if (sourceCsvId) {
+    const csvInfo = state.csvs.find(c => c.id === sourceCsvId);
+    if (csvInfo) {
+      bannerHtml = `<div class="thread-csv-banner" data-csv-id="${escapeHtml(sourceCsvId)}" title="Open CSV viewer">&#128196; Based on: ${escapeHtml(csvInfo.title || csvInfo.filename)}</div>`;
+    } else {
+      bannerHtml = `<div class="thread-csv-banner stale" title="CSV no longer in library">&#128196; CSV deleted</div>`;
+    }
+  }
+  thread.innerHTML = `<div class="thread-inner">${bannerHtml}${items.join("")}</div>`;
+  const banner = thread.querySelector(".thread-csv-banner:not(.stale)");
+  if (banner) {
+    banner.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = banner.dataset.csvId;
+      openCsv(id);
+      setSidebarView("csvs");
+    });
+  }
   // stopPropagation on each node so a chip click selects the chip's
   // iteration, not the wrapping assistant card.
   for (const node of thread.querySelectorAll("[data-turn-id]")) {

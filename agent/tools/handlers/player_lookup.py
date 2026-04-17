@@ -6,7 +6,7 @@ from agent.tools.sql_sandbox import execute_safe_sql
 from agent.tools._helpers import _truncate, _truncate_rows
 
 
-def _search_players(input_data: dict) -> str:
+def _search_players(input_data: dict, ctx: dict | None = None) -> str:
     conditions = []
     params = []
     if input_data.get("name"):
@@ -31,7 +31,7 @@ def _search_players(input_data: dict) -> str:
     return _truncate_rows(result.rows, "data")
 
 
-def _get_player_info(input_data: dict) -> str:
+def _get_player_info(input_data: dict, ctx: dict | None = None) -> str:
     gsis_id = input_data.get("gsis_id", "")
     result = {}
 
