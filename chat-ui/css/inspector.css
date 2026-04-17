@@ -22,7 +22,7 @@
 .inspector-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.25);
+  background: var(--backdrop-faint);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s ease;

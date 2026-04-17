@@ -19,6 +19,8 @@
   --red-soft: #F5D5D5;
   --shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 1px 1px rgba(15, 23, 42, 0.07);
   --shadow-lg: 0 4px 12px rgba(15, 23, 42, 0.1);
+  --backdrop: rgba(15, 23, 42, 0.55);
+  --backdrop-faint: rgba(15, 23, 42, 0.25);
   --code-bg: #0F172A;
   --code-text: #E2E8F0;
 }
@@ -44,6 +46,8 @@
   --red-soft: #2D0E0C;
   --shadow: 0 1px 2px rgba(1, 4, 9, 0.4), 0 1px 1px rgba(1, 4, 9, 0.5);
   --shadow-lg: 0 4px 12px rgba(1, 4, 9, 0.6);
+  --backdrop: rgba(0, 0, 0, 0.65);
+  --backdrop-faint: rgba(0, 0, 0, 0.35);
   --code-bg: #161B22;
   --code-text: #E6EDF3;
 }
