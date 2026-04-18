@@ -5,7 +5,6 @@ import sqlite3
 from pathlib import Path
 
 from config import DB_PATH, PBP_DB_PATH
-from agent.tools._helpers import _truncate
 
 
 # ---------------------------------------------------------------------------
@@ -237,4 +236,6 @@ def _get_schema(input_data: dict, ctx: dict | None = None) -> str:
             return json.dumps({"error": f"Unknown table: {table_name}"})
     else:
         result = build_schema_response()
-    return _truncate(json.dumps(result))
+    # Schema responses are structured JSON; character-level truncation corrupts
+    # them. Return the full payload — callers treat schema as reference data.
+    return json.dumps(result)

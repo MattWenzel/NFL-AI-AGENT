@@ -25,6 +25,7 @@ from infra.persistence.runtime_store import (
 )
 from infra.providers import (
     BaseLLMClient,
+    StopReason,
     TextEvent,
     ToolDefinition,
     ToolUseEvent,
@@ -124,6 +125,7 @@ class ChatRuntime:
                     # Reset per-turn usage so a prior turn's tokens don't leak into
                     # this one's accounting if the provider never emits a usage event.
                     client.last_usage = Usage()
+                    client.last_stop_reason = None
                     try:
                         async for event in client.stream_message(
                             messages=self.store.build_model_messages(session.id),
@@ -170,6 +172,12 @@ class ChatRuntime:
                             output_tokens=final_usage.output_tokens,
                         )
                         if not tool_runs:
+                            if client.last_stop_reason == StopReason.MAX_TOKENS:
+                                raise RuntimeLoopError(
+                                    "Response truncated — the model hit its output token limit "
+                                    "mid-turn without emitting a tool call. Ask a more focused "
+                                    "question, or reply 'continue' to resume."
+                                )
                             yield RuntimeEvent(type="turn_finished", session_id=session.id, turn_id=assistant_turn.id, iterations=iterations)
                             assistant_turn = None
                             return

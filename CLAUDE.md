@@ -44,8 +44,8 @@ Natural language interface to the database. Supports Anthropic Claude and OpenAI
 
 | Provider | Auth | Default Model | Context |
 |----------|------|---------------|---------|
-| Anthropic | `ANTHROPIC_API_KEY` | `claude-sonnet-4-20250514` | 200K |
-| OpenAI | `OPENAI_API_KEY` | `gpt-4o` | 128K |
+| Anthropic | `ANTHROPIC_API_KEY` | `claude-sonnet-4-6` | 200K |
+| OpenAI | `OPENAI_API_KEY` | `gpt-5` | 128K |
 
 Select via `CHAT_PROVIDER` env var (default: `anthropic`), CLI `--provider` flag, or UI dropdown.
 

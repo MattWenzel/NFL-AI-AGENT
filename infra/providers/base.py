@@ -90,13 +90,17 @@ class Message:
 class BaseLLMClient(ABC):
     """Abstract base class for LLM provider clients."""
 
-    def __init__(self, model: str, *, max_output_tokens: int = 4096):
+    def __init__(self, model: str, *, max_output_tokens: int = 16384):
         self.model = model
         self.max_output_tokens = max_output_tokens
         self.last_usage = Usage()
+        self.last_stop_reason: StopReason | None = None
 
     def _set_last_usage(self, usage: Usage | None) -> None:
         self.last_usage = usage or Usage()
+
+    def _set_last_stop_reason(self, reason: StopReason | None) -> None:
+        self.last_stop_reason = reason
 
     @abstractmethod
     async def create_message(

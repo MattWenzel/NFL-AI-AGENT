@@ -5,8 +5,8 @@ async function loadProviders() {
     state.providers = [{
       name: "anthropic",
       display_name: "Anthropic",
-      models: ["claude-sonnet-4-20250514"],
-      default_model: "claude-sonnet-4-20250514",
+      models: ["claude-sonnet-4-6"],
+      default_model: "claude-sonnet-4-6",
       available: false,
       context_window: 200000,
       supports_streaming: true,

@@ -77,8 +77,8 @@ python3 -m cli.chat_cli --provider openai
 
 | Provider  | Env var              | Default model               | Context |
 |-----------|----------------------|-----------------------------|---------|
-| Anthropic | `ANTHROPIC_API_KEY`  | `claude-sonnet-4-20250514`  | 200K    |
-| OpenAI    | `OPENAI_API_KEY`     | `gpt-4o`                    | 128K    |
+| Anthropic | `ANTHROPIC_API_KEY`  | `claude-sonnet-4-6`         | 200K    |
+| OpenAI    | `OPENAI_API_KEY`     | `gpt-5`                     | 128K    |
 
 Adding a provider is a new file under `infra/providers/` plus one `register_provider()` call — see `infra/providers/base.py` for the ABC.
 

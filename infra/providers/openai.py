@@ -26,7 +26,7 @@ _STOP_MAP: dict[str, StopReason] = {
 class OpenAIClient(BaseLLMClient):
     """OpenAI client with streaming and tool support."""
 
-    def __init__(self, model: str, *, max_output_tokens: int = 4096, api_key: str | None = None):
+    def __init__(self, model: str, *, max_output_tokens: int = 16384, api_key: str | None = None):
         super().__init__(model, max_output_tokens=max_output_tokens)
         self._client = openai.AsyncOpenAI(
             api_key=api_key or os.environ.get("OPENAI_API_KEY"),
@@ -62,10 +62,11 @@ class OpenAIClient(BaseLLMClient):
         duration = time.monotonic() - t0
         parsed = self._parse_response(response)
         self._set_last_usage(parsed.usage)
+        self._set_last_stop_reason(parsed.stop_reason)
         logger.debug(
-            "LLM create  model=%s  in=%d out=%d  %.1fs",
+            "LLM create  model=%s  in=%d out=%d  stop=%s  %.1fs",
             self.model, parsed.usage.input_tokens,
-            parsed.usage.output_tokens, duration,
+            parsed.usage.output_tokens, parsed.stop_reason, duration,
         )
         return parsed
 
@@ -90,6 +91,7 @@ class OpenAIClient(BaseLLMClient):
         tool_calls_acc: dict[int, dict] = {}  # index -> {id, name, arguments}
         input_tokens = 0
         output_tokens = 0
+        finish_reason: str | None = None
 
         try:
             async for chunk in stream:
@@ -126,6 +128,8 @@ class OpenAIClient(BaseLLMClient):
 
                 # Check for finish reason to emit completed tool calls
                 finish = chunk.choices[0].finish_reason if chunk.choices else None
+                if finish:
+                    finish_reason = finish
                 if finish == "tool_calls":
                     for event in self._emit_accumulated_tools(tool_calls_acc):
                         yield event
@@ -145,9 +149,10 @@ class OpenAIClient(BaseLLMClient):
 
         duration = time.monotonic() - t0
         self._set_last_usage(Usage(input_tokens=input_tokens, output_tokens=output_tokens))
+        self._set_last_stop_reason(_STOP_MAP.get(finish_reason) if finish_reason else None)
         logger.debug(
-            "LLM stream  model=%s  in=%d out=%d  %.1fs",
-            self.model, input_tokens, output_tokens, duration,
+            "LLM stream  model=%s  in=%d out=%d  stop=%s  %.1fs",
+            self.model, input_tokens, output_tokens, finish_reason, duration,
         )
 
     @staticmethod
@@ -232,7 +237,7 @@ class OpenAIClient(BaseLLMClient):
             messages = [{"role": "system", "content": system}] + messages
         kwargs = {
             "model": self.model,
-            "max_tokens": self.max_output_tokens,
+            "max_completion_tokens": self.max_output_tokens,
             "messages": messages,
         }
         if tools:

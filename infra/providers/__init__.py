@@ -21,7 +21,7 @@ class ProviderInfo:
     default_model: str
     models: list[str] = field(default_factory=list)
     context_window: int = 128_000
-    max_output_tokens: int = 4096
+    max_output_tokens: int = 16384
     supports_streaming: bool = True
     supports_tools: bool = True
     client_class: type[BaseLLMClient] | None = None
@@ -97,14 +97,16 @@ register_provider(ProviderInfo(
     name="anthropic",
     display_name="Anthropic",
     env_key="ANTHROPIC_API_KEY",
-    default_model="claude-sonnet-4-20250514",
+    default_model="claude-sonnet-4-6",
     models=[
+        "claude-opus-4-7",
+        "claude-opus-4-6",
+        "claude-sonnet-4-6",
         "claude-sonnet-4-20250514",
         "claude-haiku-4-5-20251001",
-        "claude-opus-4-6",
     ],
     context_window=200_000,
-    max_output_tokens=4096,
+    max_output_tokens=64_000,
     supports_streaming=True,
     supports_tools=True,
     client_class=AnthropicClient,
@@ -116,10 +118,19 @@ try:
         name="openai",
         display_name="OpenAI",
         env_key="OPENAI_API_KEY",
-        default_model="gpt-4o",
-        models=["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o3-mini"],
+        default_model="gpt-5",
+        models=[
+            "gpt-5",
+            "gpt-5-mini",
+            "gpt-4.1",
+            "gpt-4.1-mini",
+            "gpt-4o",
+            "gpt-4o-mini",
+            "o3",
+            "o3-mini",
+        ],
         context_window=128_000,
-        max_output_tokens=4096,
+        max_output_tokens=16384,
         supports_streaming=True,
         supports_tools=True,
         client_class=OpenAIClient,

@@ -25,7 +25,7 @@ _STOP_MAP: dict[str, StopReason] = {
 class AnthropicClient(BaseLLMClient):
     """Anthropic Claude client with streaming support."""
 
-    def __init__(self, model: str, *, max_output_tokens: int = 4096, api_key: str | None = None):
+    def __init__(self, model: str, *, max_output_tokens: int = 16384, api_key: str | None = None):
         super().__init__(model, max_output_tokens=max_output_tokens)
         self._client = anthropic.AsyncAnthropic(
             api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"),
@@ -59,10 +59,11 @@ class AnthropicClient(BaseLLMClient):
         duration = time.monotonic() - t0
         parsed = self._parse_response(response)
         self._set_last_usage(parsed.usage)
+        self._set_last_stop_reason(parsed.stop_reason)
         logger.debug(
-            "LLM create  model=%s  in=%d out=%d  %.1fs",
+            "LLM create  model=%s  in=%d out=%d  stop=%s  %.1fs",
             self.model, parsed.usage.input_tokens,
-            parsed.usage.output_tokens, duration,
+            parsed.usage.output_tokens, parsed.stop_reason, duration,
         )
         return parsed
 
@@ -81,6 +82,7 @@ class AnthropicClient(BaseLLMClient):
 
         input_tokens = 0
         output_tokens = 0
+        stop_reason: StopReason | None = None
         try:
             async with stream_ctx as stream:
                 current_tool_id = None
@@ -121,6 +123,10 @@ class AnthropicClient(BaseLLMClient):
                         usage = getattr(event, "usage", None)
                         if usage:
                             output_tokens = getattr(usage, "output_tokens", 0) or 0
+                        delta = getattr(event, "delta", None)
+                        raw_stop = getattr(delta, "stop_reason", None) if delta else None
+                        if raw_stop:
+                            stop_reason = _STOP_MAP.get(raw_stop, StopReason.END_TURN)
         except LLMError:
             raise
         except Exception as exc:
@@ -128,9 +134,10 @@ class AnthropicClient(BaseLLMClient):
 
         duration = time.monotonic() - t0
         self._set_last_usage(Usage(input_tokens=input_tokens, output_tokens=output_tokens))
+        self._set_last_stop_reason(stop_reason)
         logger.debug(
-            "LLM stream  model=%s  in=%d out=%d  %.1fs",
-            self.model, input_tokens, output_tokens, duration,
+            "LLM stream  model=%s  in=%d out=%d  stop=%s  %.1fs",
+            self.model, input_tokens, output_tokens, stop_reason, duration,
         )
 
     @staticmethod
