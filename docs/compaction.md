@@ -39,20 +39,25 @@ tiktoken is used as the fallback when the provider didn't report usage (mid-stre
 
 ## Retention policy
 
-`RetentionPolicy.for_context_window` (`compaction.py:63`). Scales with the session's context window:
+`RetentionPolicy.for_context_window`. Scales with the session's context window:
 
 ```
-recent_raw_turns     = clamp(6, 24,  MIN + (window - 32K) // 16K)
-recent_raw_tool_runs = clamp(12, 40, MIN + (window - 32K) // 8K)
+recent_raw_turns         = clamp(6, 24,  MIN + (window - 32K) // 16K)
+recent_raw_tool_runs     = clamp(12, 40, MIN + (window - 32K) // 8K)
+retention_budget_tokens  = max(200, window // 2)
 ```
 
-A 32K session keeps ≥6 raw user/assistant turns and ≥12 raw tool runs. A 200K session keeps proportionally more. The clamp limits (`MIN_*`, `MAX_*` at `compaction.py:37-40`) prevent degenerate policies from absurd provider settings.
+`retention_budget_tokens` is the primary signal for turn selection. `recent_raw_turns` / `recent_raw_tool_runs` remain as bounds: `MAX_RECENT_RAW_TURNS=24` caps how many turns the budget can retain, and `_compact_old_tool_runs` uses `recent_raw_tool_runs` to trim completed tool results from inside the retained window.
 
-Why two different knobs: turns and tool runs have very different token shapes. One SQL tool result can easily be 5K tokens while an assistant text turn might be 200. Keeping them on separate scales means the policy doesn't over-prune short chat exchanges or under-prune tool-heavy sessions.
+### Token-weighted selection
 
-Turns-to-summarize = oldest `(total_active - recent_raw_turns)`. If that count is zero, compaction returns `None` — the session is over the window but we can't drop anything without losing the retained tail.
+`_select_source_turns` walks newest→oldest and keeps each turn's full token weight (text + its uncompacted tool results + its tool-call parts — same formula as `estimate_active_tokens`). Stops when either the retention budget is exhausted or `MAX_RECENT_RAW_TURNS` is reached. `HARD_KEEP_FLOOR_TURNS=3` is a coherence minimum: we always keep the last 3 turns raw, even if they individually exceed the budget, so a single huge recent tool result can't orphan the user's last exchange.
 
-Old tool runs (pre-tail, completed) are compacted **separately** in `_compact_old_tool_runs` (`compaction.py:123`) — not tied to turn compaction. This lets the summarizer still see intermediate tool results that landed on retained turns; only the very old ones are dropped from the active prompt.
+This is the fix for the "one 5KB tool result counts the same as a one-line turn" problem. A uniform-dialog session with 150K window keeps up to 24 turns (budget easily absorbs them). A session with a 30K tool result in the last few turns retains only those few turns and compacts everything older — budget-aware, not count-aware.
+
+If the walk selects nothing to compact (session is under the budget even before compacting anything), `compact_if_needed` returns `None` — the session is over the window but we can't drop anything without cutting into the hard floor.
+
+Old tool runs (pre-tail, completed) are compacted **separately** in `_compact_old_tool_runs` — not tied to turn compaction. This lets the summarizer still see intermediate tool results that landed on retained turns; only the very old ones are dropped from the active prompt.
 
 ## The summarizer
 

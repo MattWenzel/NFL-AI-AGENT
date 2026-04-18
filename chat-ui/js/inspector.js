@@ -111,7 +111,8 @@ function renderInspector() {
           <div class="stat"><div class="stat-label">Summary tokens</div><div class="stat-value">${meta.summary_token_count ?? "—"}</div></div>
           <div class="stat"><div class="stat-label">Tokens before</div><div class="stat-value">${meta.active_tokens_before ?? "—"}</div></div>
           <div class="stat"><div class="stat-label">Window</div><div class="stat-value">${meta.context_window ?? "—"}</div></div>
-          <div class="stat"><div class="stat-label">Keep turns</div><div class="stat-value">${meta.recent_raw_turns ?? "—"}</div></div>
+          <div class="stat"><div class="stat-label">Turns kept</div><div class="stat-value">${meta.kept_turn_count ?? "—"}</div></div>
+          <div class="stat"><div class="stat-label">Retention budget</div><div class="stat-value">${meta.retention_budget_tokens ?? "—"}</div></div>
           <div class="stat"><div class="stat-label">Summary from</div><div class="stat-value">${summarySource}</div></div>
         </div>
       </section>`);

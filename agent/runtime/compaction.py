@@ -17,6 +17,7 @@ import logging
 from dataclasses import dataclass
 
 from infra.persistence.runtime_store import (
+    AssistantPartRecord,
     RuntimeStore,
     SessionRecord,
     ToolRunRecord,
@@ -39,6 +40,17 @@ MIN_RECENT_RAW_TOOL_RUNS = 12
 MAX_RECENT_RAW_TURNS = 24
 MAX_RECENT_RAW_TOOL_RUNS = 40
 
+# Retention is primarily token-weighted: walk backward from the most
+# recent turn and keep turns until we've exhausted this budget. A turn's
+# weight is its text tokens + its tool-result tokens + its tool-call
+# tokens (same formula as estimate_active_tokens), so one 20K-token SQL
+# dump costs 20K of budget, not "one turn slot". HARD_KEEP_FLOOR_TURNS
+# is a coherence minimum we never cut below — it takes priority over the
+# budget so a single huge recent turn can't orphan the user's last
+# question mid-exchange.
+HARD_KEEP_FLOOR_TURNS = 3
+MIN_RETENTION_BUDGET_TOKENS = 200
+
 # Rough allowance for the tool-call JSON envelope (tokens) on top of the
 # token estimate for the inner input payload.
 TOOL_CALL_OVERHEAD_TOKENS = 20
@@ -50,15 +62,22 @@ COMPACTION_TOOL_INPUT_PREVIEW_CHARS = 160
 class RetentionPolicy:
     """How much recent raw context to keep, scaled to the session's window.
 
-    Larger windows get larger floors for raw retention because a 150K-token
-    budget can comfortably keep many more turns than a 32K budget before
-    summarization becomes necessary. Values are clamped into the
-    MIN_*/MAX_* constants above so absurd provider settings can't produce
-    degenerate policies.
+    `recent_raw_turns` / `recent_raw_tool_runs` are count-based bounds:
+    the selector never keeps more turns than `recent_raw_turns` capped
+    at MAX_RECENT_RAW_TURNS, and `_compact_old_tool_runs` uses
+    `recent_raw_tool_runs` as its own trim threshold for completed tool
+    runs inside the retained window.
+
+    `retention_budget_tokens` is the primary signal for
+    `_select_source_turns`: the walk keeps recent turns until the
+    cumulative *token weight* of kept turns (text + tool results + tool
+    calls) exceeds this budget. That way a single 20K-token tool result
+    can't fill the "last 6 turns" slot and defeat compaction.
     """
 
     recent_raw_turns: int
     recent_raw_tool_runs: int
+    retention_budget_tokens: int
 
     @classmethod
     def for_context_window(cls, context_window: int | None) -> "RetentionPolicy":
@@ -66,12 +85,18 @@ class RetentionPolicy:
             return cls(
                 recent_raw_turns=MIN_RECENT_RAW_TURNS,
                 recent_raw_tool_runs=MIN_RECENT_RAW_TOOL_RUNS,
+                retention_budget_tokens=MIN_RETENTION_BUDGET_TOKENS,
             )
         # Anchor scaling at 32K: every +16K of window buys one extra
         # raw turn and every +8K buys one extra raw tool run. Below 32K
         # the offset is negative and the clamp floors us at the minimum.
         raw_turns_scaled = MIN_RECENT_RAW_TURNS + (context_window - 32_000) // 16_000
         raw_tool_runs_scaled = MIN_RECENT_RAW_TOOL_RUNS + (context_window - 32_000) // 8_000
+        # Half the window reserved for recent raw context; the other half
+        # absorbs the summary, system prompt, tool-call envelopes, and
+        # response headroom. Floor at MIN_RETENTION_BUDGET_TOKENS so tiny
+        # test windows still make forward progress.
+        retention_budget = max(MIN_RETENTION_BUDGET_TOKENS, context_window // 2)
         return cls(
             recent_raw_turns=max(
                 MIN_RECENT_RAW_TURNS, min(MAX_RECENT_RAW_TURNS, raw_turns_scaled)
@@ -80,20 +105,19 @@ class RetentionPolicy:
                 MIN_RECENT_RAW_TOOL_RUNS,
                 min(MAX_RECENT_RAW_TOOL_RUNS, raw_tool_runs_scaled),
             ),
+            retention_budget_tokens=retention_budget,
         )
 
 
 def _estimate_turn_tokens(turn: TurnRecord) -> int:
-    """Tokens this turn CONTRIBUTES to the active transcript.
+    """Tokens the turn's own text contributes, excluding its tool runs/calls.
 
     For assistant turns, `input_tokens` is the full prompt size Anthropic
     charged for that call — it already includes every earlier message.
     Summing input_tokens across turns double-counts history massively
     (an 11-turn session can read as 150K "transcript tokens" when the
     real transcript is ~15K). We want only what this turn adds, which
-    is its output text, captured in `output_tokens`. Tool calls emitted
-    on the same turn and tool-result messages are counted separately in
-    `estimate_active_tokens`.
+    is its output text, captured in `output_tokens`.
 
     We still fall back to tiktoken-on-text when the provider didn't
     report usage (mid-stream errors, CLI stub clients), so the estimator
@@ -104,20 +128,64 @@ def _estimate_turn_tokens(turn: TurnRecord) -> int:
     return count_text_tokens(turn.text or "")
 
 
+def _turn_keep_cost(
+    turn: TurnRecord,
+    tool_runs_by_turn: dict[str, list[ToolRunRecord]],
+    parts_by_turn: dict[str, list[AssistantPartRecord]],
+) -> int:
+    """Total tokens this turn contributes when kept raw in the active prompt."""
+    cost = _estimate_turn_tokens(turn)
+    for tool_run in tool_runs_by_turn.get(turn.id, []):
+        if not tool_run.compacted and tool_run.result_text:
+            cost += count_text_tokens(tool_run.result_text)
+    for part in parts_by_turn.get(turn.id, []):
+        if part.kind == "tool_call":
+            cost += count_text_tokens(part.content) + TOOL_CALL_OVERHEAD_TOKENS
+    return cost
+
+
 def estimate_active_tokens(store: RuntimeStore, session_id: str) -> int:
     transcript = store.get_transcript(session_id)
-    total = 0
-    for turn in transcript.turns:
-        if turn.compacted:
+    return sum(
+        _turn_keep_cost(turn, transcript.tool_runs_by_turn, transcript.parts_by_turn)
+        for turn in transcript.turns
+        if not turn.compacted
+    )
+
+
+def _select_source_turns(
+    active_turns: list[TurnRecord],
+    tool_runs_by_turn: dict[str, list[ToolRunRecord]],
+    parts_by_turn: dict[str, list[AssistantPartRecord]],
+    policy: RetentionPolicy,
+) -> list[TurnRecord]:
+    """Pick the prefix of active_turns to compact.
+
+    Walks newest→oldest, accumulating the token weight of each turn.
+    Stops when either the retention budget is exhausted or we've already
+    kept MAX_RECENT_RAW_TURNS turns. HARD_KEEP_FLOOR_TURNS recent turns
+    are always kept (even past the budget) so a single huge recent turn
+    can't leave the user's last exchange orphaned.
+    """
+    kept_count = 0
+    kept_tokens = 0
+    # Exclusive index into active_turns: everything before `boundary` is compacted.
+    boundary = len(active_turns)
+    for i in range(len(active_turns) - 1, -1, -1):
+        cost = _turn_keep_cost(active_turns[i], tool_runs_by_turn, parts_by_turn)
+        if kept_count < HARD_KEEP_FLOOR_TURNS:
+            kept_tokens += cost
+            kept_count += 1
+            boundary = i
             continue
-        total += _estimate_turn_tokens(turn)
-        for tool_run in transcript.tool_runs_by_turn.get(turn.id, []):
-            if not tool_run.compacted and tool_run.result_text:
-                total += count_text_tokens(tool_run.result_text)
-        for part in transcript.parts_by_turn.get(turn.id, []):
-            if part.kind == "tool_call":
-                total += count_text_tokens(part.content) + TOOL_CALL_OVERHEAD_TOKENS
-    return total
+        if kept_count >= MAX_RECENT_RAW_TURNS:
+            break
+        if kept_tokens + cost > policy.retention_budget_tokens:
+            break
+        kept_tokens += cost
+        kept_count += 1
+        boundary = i
+    return active_turns[:boundary]
 
 
 def _compact_old_tool_runs(
@@ -183,9 +251,12 @@ async def compact_if_needed(
     policy = RetentionPolicy.for_context_window(session.context_window)
     transcript = store.get_transcript(session.id)
     active_turns = [t for t in transcript.turns if not t.compacted and t.role in {"user", "assistant"}]
-    if len(active_turns) <= policy.recent_raw_turns:
-        return None
-    source_turns = active_turns[: -policy.recent_raw_turns]
+    source_turns = _select_source_turns(
+        active_turns,
+        transcript.tool_runs_by_turn,
+        transcript.parts_by_turn,
+        policy,
+    )
     if not source_turns:
         return None
     summary_text, summary_source = await _build_summary(
@@ -207,7 +278,9 @@ async def compact_if_needed(
         "context_window": session.context_window,
         "recent_raw_turns": policy.recent_raw_turns,
         "recent_raw_tool_runs": policy.recent_raw_tool_runs,
+        "retention_budget_tokens": policy.retention_budget_tokens,
         "source_turn_count": len(source_turns),
+        "kept_turn_count": len(active_turns) - len(source_turns),
         "summary_token_count": count_text_tokens(summary_text),
         "summary_source": summary_source,
     }
