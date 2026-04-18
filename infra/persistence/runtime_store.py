@@ -825,8 +825,16 @@ class RuntimeStore:
         return [self._row_to_tool_run(r) for r in rows]
 
     def record_compaction(self, session_id: str, summary_text: str, source_turn_ids: list[str]) -> CompactionSummaryRecord:
-        summary_turn = self.create_turn(session_id, "summary", text=summary_text, status="completed")
         now = _utcnow()
+        summary_turn = TurnRecord(
+            id=_new_id(),
+            session_id=session_id,
+            role="summary",
+            status="completed",
+            text=summary_text,
+            created_at=now,
+            updated_at=now,
+        )
         summary = CompactionSummaryRecord(
             id=_new_id(),
             session_id=session_id,
@@ -835,7 +843,22 @@ class RuntimeStore:
             created_at=now,
         )
         encoded = json.dumps(source_turn_ids)
+        # All writes share one connection/transaction so a crash mid-compaction
+        # can't leave an orphan summary turn without its compaction_summaries
+        # row (or with source turns still marked active).
         with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO turns (id, session_id, role, status, text, compacted, error, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 0, NULL, ?, ?)
+                """,
+                (
+                    summary_turn.id, summary_turn.session_id, summary_turn.role,
+                    summary_turn.status, summary_turn.text,
+                    summary_turn.created_at, summary_turn.updated_at,
+                ),
+            )
+            conn.execute("UPDATE sessions SET updated_at = ? WHERE id = ?", (now, session_id))
             conn.execute(
                 """
                 INSERT INTO compaction_summaries (id, session_id, summary_turn_id, source_turn_ids, created_at)
