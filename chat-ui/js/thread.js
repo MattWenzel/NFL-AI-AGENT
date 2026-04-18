@@ -370,6 +370,17 @@ function renderLiveUserCard() {
     </article>`;
 }
 
+function renderCompactionBanner(meta) {
+  const turnCount = meta.source_turn_count ?? meta.source_turn_ids?.length;
+  const turnLabel = turnCount != null ? `${turnCount} earlier turn${turnCount === 1 ? "" : "s"}` : "earlier turns";
+  const summaryTokens = meta.summary_token_count;
+  const summaryLabel = summaryTokens ? `${summaryTokens}-token summary` : "summary";
+  const sourceTag = meta.summary_source === "heuristic"
+    ? ` <span class="muted">(heuristic fallback)</span>`
+    : "";
+  return `<div class="inline-status">Compacted ${turnLabel} into a ${summaryLabel}${sourceTag} · ${meta.active_tokens_before} tok used / ${meta.context_window} budget</div>`;
+}
+
 function renderLiveTurnCard() {
   const live = state.liveTurn;
   const selected = !state.selectedTurnId ? " selected" : "";
@@ -381,7 +392,7 @@ function renderLiveTurnCard() {
       <div class="turn-text" data-live-text="true">${live.assistantText ? renderMarkdown(live.assistantText) : ""}</div>
       ${isTyping ? `<div class="typing-dots"><span></span><span></span><span></span></div>` : ""}
       ${showTypingStatus ? `<div class="inline-status"><span class="spinner"></span>${escapeHtml(statusLabel(live.status))}</div>` : ""}
-      ${live.compaction ? `<div class="inline-status">Compaction triggered before this turn (${live.compaction.active_tokens_before} active tokens / ${live.compaction.context_window} budget)</div>` : ""}
+      ${live.compaction ? renderCompactionBanner(live.compaction) : ""}
       ${live.errors.map(error => `<div class="inline-status" style="background:var(--red-soft);color:var(--red)">${escapeHtml(error)}</div>`).join("")}
     </article>`;
 }

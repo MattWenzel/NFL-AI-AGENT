@@ -414,6 +414,10 @@
   gap: 10px;
 }
 
+.inline-status .muted {
+  color: var(--muted);
+}
+
 .summary-card {
   background: var(--amber-soft);
 }

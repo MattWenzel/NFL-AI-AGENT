@@ -109,7 +109,9 @@ class ChatRuntime:
             try:
                 for _ in range(MAX_TOOL_ITERATIONS):
                     iterations += 1
-                    compaction_info = compact_if_needed(self.store, session)
+                    compaction_info = await compact_if_needed(
+                        self.store, session, client, provider_name=provider_name
+                    )
                     if compaction_info is not None:
                         yield RuntimeEvent(
                             type="compaction_started",

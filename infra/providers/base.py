@@ -108,8 +108,15 @@ class BaseLLMClient(ABC):
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
         system: str | None = None,
+        model: str | None = None,
     ) -> MessageResponse:
-        """Send a message and get a complete response."""
+        """Send a message and get a complete response.
+
+        `model` overrides `self.model` for this single call (e.g. so the
+        compaction summarizer can fire a cheap sibling model without
+        mutating the long-lived client). When None, the client's default
+        model is used.
+        """
 
     @abstractmethod
     async def stream_message(

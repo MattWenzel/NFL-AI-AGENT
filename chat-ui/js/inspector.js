@@ -80,25 +80,40 @@ function renderInspector() {
   }
 
   if (transcript?.summaries?.length) {
+    const turnsById = new Map(transcript.turns.map(t => [t.id, t]));
     cards.push(`
       <section class="panel-card">
         <h4>Compaction</h4>
         <div class="summary-list">
-          ${transcript.summaries.map(summary => `
-            <div class="summary-entry">
-              <strong>${summary.source_turn_ids.length} turns compacted</strong><br>
-              ${escapeHtml(formatTime(summary.created_at))}
-            </div>
-          `).join("")}
+          ${transcript.summaries.map(summary => {
+            const summaryTurn = turnsById.get(summary.summary_turn_id);
+            const preview = summaryTurn?.text ? summaryTurn.text.slice(0, 140) : "";
+            return `
+              <div class="summary-entry" data-summary-turn-id="${escapeHtml(summary.summary_turn_id)}">
+                <strong>${summary.source_turn_ids.length} turns compacted</strong>
+                <span class="muted"> · ${escapeHtml(formatTime(summary.created_at))}</span>
+                ${preview ? `<div class="summary-preview">${escapeHtml(preview)}${summaryTurn.text.length > 140 ? "…" : ""}</div>` : ""}
+              </div>`;
+          }).join("")}
         </div>
       </section>`);
   }
 
   if (live?.compaction) {
+    const meta = live.compaction;
+    const turnCount = meta.source_turn_count ?? meta.source_turn_ids?.length ?? 0;
+    const summarySource = meta.summary_source === "llm" ? "LLM" : "heuristic";
     cards.push(`
       <section class="panel-card">
         <h4>Live Compaction</h4>
-        <div class="detail-text">${escapeHtml(JSON.stringify(live.compaction, null, 2))}</div>
+        <div class="stats-grid">
+          <div class="stat"><div class="stat-label">Turns compacted</div><div class="stat-value">${turnCount}</div></div>
+          <div class="stat"><div class="stat-label">Summary tokens</div><div class="stat-value">${meta.summary_token_count ?? "—"}</div></div>
+          <div class="stat"><div class="stat-label">Tokens before</div><div class="stat-value">${meta.active_tokens_before ?? "—"}</div></div>
+          <div class="stat"><div class="stat-label">Window</div><div class="stat-value">${meta.context_window ?? "—"}</div></div>
+          <div class="stat"><div class="stat-label">Keep turns</div><div class="stat-value">${meta.recent_raw_turns ?? "—"}</div></div>
+          <div class="stat"><div class="stat-label">Summary from</div><div class="stat-value">${summarySource}</div></div>
+        </div>
       </section>`);
   }
 

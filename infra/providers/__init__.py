@@ -19,6 +19,11 @@ class ProviderInfo:
     display_name: str
     env_key: str
     default_model: str
+    # Cheap/fast sibling model used for one-shot compaction summaries. When
+    # None, the session's active model is reused. Compaction runs once per
+    # long conversation, so picking a smaller model here keeps the per-
+    # session cost of summarization in the noise.
+    summarizer_model: str | None = None
     models: list[str] = field(default_factory=list)
     context_window: int = 128_000
     max_output_tokens: int = 16384
@@ -98,6 +103,7 @@ register_provider(ProviderInfo(
     display_name="Anthropic",
     env_key="ANTHROPIC_API_KEY",
     default_model="claude-sonnet-4-6",
+    summarizer_model="claude-haiku-4-5-20251001",
     models=[
         "claude-opus-4-7",
         "claude-opus-4-6",
@@ -119,6 +125,7 @@ try:
         display_name="OpenAI",
         env_key="OPENAI_API_KEY",
         default_model="gpt-5",
+        summarizer_model="gpt-5-mini",
         models=[
             "gpt-5",
             "gpt-5-mini",

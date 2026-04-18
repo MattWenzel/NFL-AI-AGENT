@@ -221,6 +221,19 @@
   font-size: 0.8rem;
 }
 
+.summary-entry .muted {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.summary-preview {
+  margin-top: 6px;
+  color: var(--muted-strong);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  white-space: pre-wrap;
+}
+
 .download-btn {
   display: inline-flex;
   align-items: center;

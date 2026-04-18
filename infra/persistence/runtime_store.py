@@ -24,6 +24,33 @@ def _new_id() -> str:
     return str(uuid.uuid4())
 
 
+def _wrap_summaries_for_prompt(summary_turns: list["TurnRecord"]) -> str:
+    """Render one or more compaction summaries as a single assistant-role prefix.
+
+    Multiple summaries are concatenated with a separator so a long session
+    with several compaction events reads as layered context, oldest first.
+    Wrapped in <prior_conversation_summary> and followed by an anti-mimic
+    note so the model treats it as reference, not a template to echo.
+    """
+    parts: list[str] = []
+    for turn in summary_turns:
+        text = (turn.text or "").strip()
+        if text:
+            parts.append(text)
+    body = "\n\n---\n\n".join(parts)
+    return (
+        "<prior_conversation_summary>\n"
+        + body
+        + "\n</prior_conversation_summary>\n\n"
+        "The block above is a compressed memo of earlier "
+        "turns, provided for context only. I will answer the "
+        "user's next message naturally in plain prose and "
+        "will NOT reproduce the summary, its bullet-list "
+        "formatting, or any 'tool X (completed): input=…' "
+        "lines in my reply."
+    )
+
+
 def safe_load_tool_input(raw: str | None, *, tool_run_id: str | None = None) -> dict:
     """Parse a persisted tool_run.input_json, returning {} on malformed content.
 
@@ -876,15 +903,37 @@ class RuntimeStore:
         )
 
     def build_model_messages(self, session_id: str) -> list[Message]:
+        """Build the wire message sequence for the next model call.
+
+        Summary turns are always emitted FIRST, regardless of when they
+        were created. A compaction summary represents compacted *prior*
+        turns, so it belongs at the top of the active window as context
+        — not wherever the summary turn happens to fall in created_at
+        order. Emitting it chronologically would leave an assistant-role
+        message after the most recent user turn on any iteration where
+        compaction fires mid-session, which Anthropic rejects with
+        "conversation must end with a user message".
+        """
         transcript = self.get_transcript(session_id)
         messages: list[Message] = []
+
+        summary_turns = [
+            t for t in transcript.turns
+            if not t.compacted and t.role == "summary"
+        ]
+        if summary_turns:
+            messages.append(Message(
+                role="assistant",
+                text=_wrap_summaries_for_prompt(summary_turns),
+            ))
+
         for turn in transcript.turns:
-            if turn.compacted:
+            if turn.compacted or turn.role == "summary":
                 continue
             if turn.role == "user":
                 messages.append(Message(role="user", text=turn.text))
                 continue
-            if turn.role in {"assistant", "summary"}:
+            if turn.role == "assistant":
                 parts = transcript.parts_by_turn.get(turn.id, [])
                 text = turn.text
                 if not text:
@@ -905,26 +954,7 @@ class RuntimeStore:
                             input=safe_load_tool_input(tool_run.input_json, tool_run_id=tool_run.id),
                         )
                     )
-                if turn.role == "summary":
-                    # Wrap the summary in an XML tag and end with a self-note
-                    # so the model treats it as a reference, not as its own
-                    # past content to mimic. Without this framing the model
-                    # sees a bullet-list "assistant" message and starts
-                    # echoing that exact format ("- user: …", "- tool
-                    # execute_sql (completed): input=…") in its next reply.
-                    summary_text = (
-                        "<prior_conversation_summary>\n"
-                        + text
-                        + "\n</prior_conversation_summary>\n\n"
-                        "The block above is a compressed memo of earlier "
-                        "turns, provided for context only. I will answer the "
-                        "user's next message naturally in plain prose and "
-                        "will NOT reproduce the summary, its bullet-list "
-                        "formatting, or any 'tool X (completed): input=…' "
-                        "lines in my reply."
-                    )
-                    messages.append(Message(role="assistant", text=summary_text))
-                elif text or tool_calls:
+                if text or tool_calls:
                     messages.append(
                         Message(
                             role="assistant",

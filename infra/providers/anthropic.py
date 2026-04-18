@@ -49,10 +49,13 @@ class AnthropicClient(BaseLLMClient):
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
         system: str | None = None,
+        model: str | None = None,
     ) -> MessageResponse:
         kwargs = self._build_kwargs(
             self._convert_messages(messages), tools, system,
         )
+        if model:
+            kwargs["model"] = model
         t0 = time.monotonic()
         async with self._wrap_api_errors():
             response = await self._client.messages.create(**kwargs)
@@ -62,7 +65,7 @@ class AnthropicClient(BaseLLMClient):
         self._set_last_stop_reason(parsed.stop_reason)
         logger.debug(
             "LLM create  model=%s  in=%d out=%d  stop=%s  %.1fs",
-            self.model, parsed.usage.input_tokens,
+            kwargs["model"], parsed.usage.input_tokens,
             parsed.usage.output_tokens, parsed.stop_reason, duration,
         )
         return parsed
