@@ -421,3 +421,36 @@
 .summary-card {
   background: var(--amber-soft);
 }
+
+@media (max-width: 900px) {
+  .thread {
+    padding: 16px 14px 20px;
+  }
+
+  .welcome-card {
+    padding: 22px;
+    border-radius: 12px;
+  }
+
+  .welcome-card h2 {
+    font-size: 1.6rem;
+  }
+
+  .welcome-card p {
+    font-size: 0.92rem;
+    margin-bottom: 18px;
+  }
+
+  /* Single-column suggestions so the cards aren't narrow 4-line columns.
+     Wins over the base `.suggestions { grid-template-columns: repeat(2, ...) }`
+     because this rule is inside a media query declared later in this file. */
+  .suggestions {
+    grid-template-columns: 1fr;
+  }
+
+  .turn-card.user > div {
+    max-width: 88%;
+  }
+
+  .turn-text { font-size: 0.94rem; }
+}

@@ -133,3 +133,44 @@
   color: var(--muted);
   text-align: right;
 }
+
+@media (max-width: 900px) {
+  .input-shell {
+    /* env(safe-area-inset-bottom) accounts for the iOS home-indicator gap so
+       the composer doesn't sit underneath it. */
+    padding: 6px 10px calc(8px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .composer {
+    border-radius: 20px;
+    padding: 8px 10px 6px;
+  }
+
+  .composer textarea {
+    font-size: 1rem;
+    min-height: 32px;
+    padding: 4px 4px;
+  }
+
+  .composer-meta {
+    gap: 6px;
+    margin-top: 4px;
+  }
+
+  .composer-select {
+    font-size: 0.72rem;
+    padding: 3px 20px 3px 9px;
+  }
+
+  .composer #sendBtn {
+    width: 30px;
+    height: 30px;
+    border-radius: 999px;
+  }
+
+  /* The "Enter to send · Shift+Enter" hint is mouse/keyboard guidance —
+     hide it on touch devices where it's meaningless and eats space. */
+  .composer-hint {
+    display: none;
+  }
+}

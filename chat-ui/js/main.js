@@ -4,11 +4,40 @@ document.getElementById("themeToggle").addEventListener("click", () => {
   localStorage.setItem("nfl_theme", next);
 });
 
-document.getElementById("newChatBtn").addEventListener("click", startNewSession);
+// --- Mobile sidebar drawer ---
+const sidebarEl = document.querySelector(".sidebar");
+const sidebarBackdrop = document.getElementById("sidebarBackdrop");
+
+function setSidebarOpen(open) {
+  sidebarEl.classList.toggle("open", open);
+  sidebarBackdrop.classList.toggle("open", open);
+}
+
+function closeSidebarIfMobile() {
+  if (window.matchMedia("(max-width: 900px)").matches) setSidebarOpen(false);
+}
+
+document.getElementById("mobileMenuBtn").addEventListener("click", () => setSidebarOpen(true));
+sidebarBackdrop.addEventListener("click", () => setSidebarOpen(false));
+
+document.getElementById("newChatBtn").addEventListener("click", () => {
+  startNewSession();
+  closeSidebarIfMobile();
+});
 
 document.getElementById("inspectorCollapse").addEventListener("click", () => setInspectorOpen(false));
 document.getElementById("inspectorToggle").addEventListener("click", () => setInspectorOpen(true));
 document.getElementById("inspectorBackdrop").addEventListener("click", () => setInspectorOpen(false));
+document.getElementById("mobileInspectorBtn").addEventListener("click", () => setInspectorOpen(true));
+
+// Tapping a conversation or CSV item dismisses the drawer on mobile so the
+// reader immediately sees the selected content.
+document.getElementById("conversationList").addEventListener("click", (e) => {
+  if (e.target.closest(".conversation-item")) closeSidebarIfMobile();
+});
+document.getElementById("csvList").addEventListener("click", (e) => {
+  if (e.target.closest(".csv-item, .csv-card")) closeSidebarIfMobile();
+});
 document.getElementById("providerSelect").addEventListener("change", onProviderChange);
 document.getElementById("modelSelect").addEventListener("change", onModelChange);
 document.getElementById("sendBtn").addEventListener("click", sendMessage);
@@ -59,6 +88,7 @@ document.addEventListener("click", (event) => {
 
 document.getElementById("openSettingsBtn").addEventListener("click", () => {
   toggleUserMenu(false);
+  closeSidebarIfMobile();
   openSettingsModal();
 });
 
