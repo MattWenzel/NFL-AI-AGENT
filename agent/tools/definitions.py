@@ -53,6 +53,28 @@ TOOL_DEFINITIONS = [
         },
     },
     {
+        "name": "get_guide",
+        "description": (
+            "Load a topic-specific guide for writing database queries. Each guide has "
+            "column references, gotchas, and ready-to-copy SQL templates. Call BEFORE "
+            "writing SQL for the topic. Topics: fantasy (scoring rules + kicker formula), "
+            "player_stats (season/game stats + snap_counts + NGS + PFR), play_by_play "
+            "(372-col PBP reference + query patterns), player_profile (IDs, draft, combine, "
+            "depth charts), games (schedules + game-level joins)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "topic": {
+                    "type": "string",
+                    "enum": ["fantasy", "player_stats", "play_by_play", "player_profile", "games"],
+                    "description": "Which guide to load.",
+                },
+            },
+            "required": ["topic"],
+        },
+    },
+    {
         "name": "get_schema",
         "description": (
             "Get the schema (columns, types, join edges) for a specific table. "

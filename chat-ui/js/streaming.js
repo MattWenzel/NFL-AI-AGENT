@@ -123,7 +123,9 @@ function handleStreamEvent(event) {
       tool.status = "error";
       tool.error = event.message;
     }
-    state.liveTurn.errors.push(event.message);
+    // Don't push the tool error into liveTurn.errors — the failed chip in the
+    // Thinking block already surfaces it. Duplicating it as a bottom bubble
+    // makes the turn look broken even when the model retries and recovers.
   } else if (event.type === "compaction") {
     state.liveTurn.compaction = event.meta;
   } else if (event.type === "error") {

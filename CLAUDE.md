@@ -75,8 +75,13 @@ agent/                      # Domain — runtime + tools + prompts
 │   ├── compaction.py       #   estimate_active_tokens, compact_if_needed
 │   └── loop_detector.py    #   raise_if_doom_loop
 ├── prompts/
-│   ├── system.py           #   base prompt (~5K tokens of DB knowledge)
-│   └── hints.py            #   per-provider supplemental hints + get_system_prompt
+│   ├── system.py           #   slim base prompt (~2.3K tokens: rules + guide index)
+│   └── guides/             #   topic-specific guides loaded via get_guide tool
+│       ├── fantasy.md
+│       ├── player_stats.md
+│       ├── play_by_play.md
+│       ├── player_profile.md
+│       └── games.md
 └── tools/
     ├── __init__.py         #   re-exports TOOL_DEFINITIONS, TOOLS, execute_tool*
     ├── definitions.py      #   tool schemas + TOOLS typed list
@@ -87,6 +92,8 @@ agent/                      # Domain — runtime + tools + prompts
         ├── execute_sql.py
         ├── player_lookup.py
         ├── get_schema.py
+        ├── get_guide.py
+        ├── create_chart.py
         └── create_csv_export.py
 
 infra/                      # External adapters

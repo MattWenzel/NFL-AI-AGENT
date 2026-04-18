@@ -33,7 +33,7 @@ from infra.providers import (
     get_provider,
 )
 
-from agent.prompts.hints import get_system_prompt
+from agent.prompts.system import get_base_prompt
 from agent.runtime.compaction import compact_if_needed
 from agent.runtime.events import RuntimeEvent, RuntimeLoopError
 from agent.runtime.loop_detector import raise_if_doom_loop
@@ -130,7 +130,7 @@ class ChatRuntime:
                         async for event in client.stream_message(
                             messages=self.store.build_model_messages(session.id),
                             tools=tools,
-                            system=get_system_prompt(provider_name),
+                            system=get_base_prompt(),
                         ):
                             if isinstance(event, TextEvent):
                                 self.store.append_turn_text(assistant_turn.id, event.text)

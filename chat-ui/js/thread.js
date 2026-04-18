@@ -291,7 +291,7 @@ function renderTurnCard(turn, toolRuns, parts) {
       ${thinkingHtml}
       ${body}
       ${chartsHtml}
-      ${turn.error ? `<div class="inline-status" style="background:var(--red-soft);color:var(--red)">${escapeHtml(turn.error)}</div>` : ""}
+      ${turn.status === "error" && turn.error ? `<div class="inline-status" style="background:var(--red-soft);color:var(--red)">${escapeHtml(turn.error)}</div>` : ""}
       ${toolRuns.some(run => run.status === "running") ? `<div class="inline-status"><span class="spinner"></span>Tool execution persisted in transcript</div>` : ""}
     </article>`;
 }
@@ -325,7 +325,11 @@ function renderAssistantGroupCard(iterations, toolRunsByTurn, partsByTurn) {
 
   const totalInput = iterations.reduce((sum, t) => sum + (t.input_tokens || 0), 0);
   const totalOutput = iterations.reduce((sum, t) => sum + (t.output_tokens || 0), 0);
-  const firstError = iterations.map(t => t.error).find(Boolean);
+  // Only surface a turn-level error bubble when the final iteration ended in error.
+  // If an earlier iteration failed but a later one recovered (typical tool-retry flow),
+  // the failure is already visible as a red chip in the Thinking block — duplicating
+  // it as a bottom bubble looks like the whole turn failed when it didn't.
+  const lastError = last.status === "error" ? (last.error || iterations.map(t => t.error).find(Boolean)) : null;
 
   const metaBits = [
     last.status,
@@ -350,7 +354,7 @@ function renderAssistantGroupCard(iterations, toolRunsByTurn, partsByTurn) {
       ${thinkingHtml}
       ${body}
       ${chartsHtml}
-      ${firstError ? `<div class="inline-status" style="background:var(--red-soft);color:var(--red)">${escapeHtml(firstError)}</div>` : ""}
+      ${lastError ? `<div class="inline-status" style="background:var(--red-soft);color:var(--red)">${escapeHtml(lastError)}</div>` : ""}
       ${allToolRuns.some(run => run.status === "running") ? `<div class="inline-status"><span class="spinner"></span>Tool execution persisted in transcript</div>` : ""}
     </article>`;
 }

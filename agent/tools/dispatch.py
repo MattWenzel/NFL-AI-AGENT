@@ -15,6 +15,7 @@ from agent.tools.definitions import TOOL_DEFINITIONS
 from agent.tools.handlers.create_chart import _create_chart
 from agent.tools.handlers.create_csv_export import _create_csv_export
 from agent.tools.handlers.execute_sql import _execute_sql
+from agent.tools.handlers.get_guide import _load_guide
 from agent.tools.handlers.get_schema import _get_schema
 from agent.tools.handlers.player_lookup import _get_player_info, _search_players
 from agent.tools.sql_sandbox import SQLValidationError
@@ -26,6 +27,7 @@ logger = logging.getLogger(__name__)
 _TOOL_DISPATCH = {
     "search_players": _search_players,
     "execute_sql": _execute_sql,
+    "get_guide": _load_guide,
     "get_schema": _get_schema,
     "get_player_info": _get_player_info,
     "create_csv_export": _create_csv_export,
