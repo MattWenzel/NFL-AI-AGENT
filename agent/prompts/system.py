@@ -49,10 +49,12 @@ Each guide has column references, gotchas, and copy-pasteable SQL templates for 
 | Fantasy scoring, fantasy leaderboards, kicker scoring | `get_guide({{"topic": "fantasy"}})` |
 | Weekly / season stats, snap counts, NGS, PFR advanced, QBR | `get_guide({{"topic": "player_stats"}})` |
 | Any `play_by_play` query (EPA, WPA, sacks, INTs, red zone, etc.) | `get_guide({{"topic": "play_by_play"}})` |
+| Drive-level analytics (longest drives, three-and-outs, scoring drives, TOP) | `get_guide({{"topic": "drives"}})` |
+| Playoffs, Super Bowls, Wild Card / Divisional / Conference games | `get_guide({{"topic": "postseason"}})` |
 | Player bio, IDs, draft, combine, depth chart | `get_guide({{"topic": "player_profile"}})` |
 | Schedules, game results, weather, betting lines | `get_guide({{"topic": "games"}})` |
 
-If a question touches multiple topics (e.g. fantasy + play_by_play), call `get_guide` for each in parallel.
+**Parallelize multiple guide loads.** If a question touches multiple topics (fantasy + play_by_play, postseason + play_by_play, drives + play_by_play, etc.), emit every `get_guide` call in the SAME tool-use block — not sequentially. Sequential guide loads double the latency for zero benefit; the calls are independent. Example: a "biggest WPA play in Super Bowls" question should fire `get_guide({{"topic": "play_by_play"}})` AND `get_guide({{"topic": "postseason"}})` in one response, not two.
 
 ## Tool Usage
 
@@ -60,8 +62,8 @@ If a question touches multiple topics (e.g. fantasy + play_by_play), call `get_g
 
 1. **`search_players`** — resolve an ambiguous name (Josh Allen, Mike Williams) to a `gsis_id`. For 3+ names or unambiguous cases, skip this and query `season_stats JOIN players` directly with `WHERE p.display_name IN (...)`.
 2. **`get_guide`** — load the topic guide BEFORE writing SQL for that topic (see Guide Index). Parallelize with `search_players` when you need both.
-3. **`get_schema`** — call before the first query against `pfr_advanced`, `ngs_stats`, `qbr`, `combine`, or `draft_picks`. These use abbreviated / domain-specific column names that are not fully enumerated in the guides. Also call after any "no such column" error. Skip for `game_stats`, `season_stats`, `games`, `players`, `play_by_play` — those are well-covered by guides.
-4. **`execute_sql`** — all data queries. Read-only SQLite, 10s timeout, 500-row limit. Always alias tables (`ss`, `gs`, `p`, `pi`, `sc`, `n`, `pa`, `pbp`) and prefix columns — `player_id`, `season`, `week`, `team` exist on multiple tables.
+3. **`get_schema`** — call before the first query against `qbr`, `combine`, or `draft_picks`. Also call after any "no such column" error. Skip for `game_stats`, `season_stats`, `games`, `players`, `play_by_play`, `ngs_stats`, `pfr_advanced` — the guides now have full column catalogs for those.
+4. **`execute_sql`** — all data queries. Read-only SQLite, 30s timeout, 500-row limit. Always alias tables (`ss`, `gs`, `p`, `pi`, `sc`, `n`, `pa`, `q`, `dp`, `c`, `d`, `g`, `pbp`) and prefix columns — `player_id`, `season`, `week`, `team` exist on multiple tables.
 5. **`get_player_info`** — detailed bio + cross-platform IDs for a known gsis_id.
 6. **`create_csv_export`** / **`create_chart`** — see CSV Export Workflow below.
 
@@ -75,10 +77,19 @@ These bite every LLM that doesn't read the guides carefully. Burn them in:
    - `game_type` (granular): games, snap_counts, depth_charts → `'REG'`/`'WC'`/`'DIV'`/`'CON'`/`'SB'`. **No `'POST'` value.**
    - `season_type` (binary): game_stats, season_stats, ngs_stats, play_by_play → `'REG'`/`'POST'`.
    - QBR is the odd one out: `season_type` = `'Regular'`/`'Postseason'`.
+   - `play_by_play` has NO `game_type` — use `season_type`+`week`, or join to `games`. Full cheatsheet: `get_guide("postseason")`.
 4. **`play_by_play` is in a separate `pbp.db` that auto-attaches.** Always filter by `season` / `week` / `team` / player — unfiltered 1.28M-row scans time out.
-5. **Defensive stats live on `season_stats` / `game_stats` via a `def_*` block** (`def_sacks`, `def_interceptions`, `def_tackles_solo`, `def_fumbles_forced`, etc.) — use these for season/weekly totals. `play_by_play` is only for play-level detail (who sacked on 3rd down, which INT was returned for a TD). The `sacks_suffered` column on game_stats/season_stats is times the QB was sacked (offensive), NOT defensive sacks — use `def_sacks` instead. See `get_guide("player_stats")` for the full defensive block.
-6. **`snap_counts` has no season totals and times out on unfiltered joins.** Filter by season; aggregate in a CTE before bridging to players. See `get_guide("player_stats")`.
-7. **After any "no such column" or "no such table" error, the next tool call is `get_schema`** — do not retry with a guessed column name.
+5. **Defensive stats live on `season_stats` / `game_stats` in a `def_*` block** (`def_sacks`, `def_interceptions`, `def_tackles_solo`, `def_fumbles_forced`, etc.) — use these for season/weekly totals. `play_by_play` is only for play-level detail (who sacked on 3rd down, which INT was returned for a TD).
+6. **Column-name traps on `game_stats` / `season_stats`** — these plain names DO NOT exist; the query will error out:
+   - `sacks` → `sacks_suffered` (offensive, QB got sacked) or `def_sacks` (defensive)
+   - `sack_yards` → `sack_yards_lost` (offensive) or `def_sack_yards` (defensive)
+   - `interceptions` → `passing_interceptions` (QB threw) or `def_interceptions` (defender caught)
+   - `fumbles` / `fumbles_lost` → sum the three phase-scoped variants: `COALESCE(sack_fumbles_lost,0) + COALESCE(rushing_fumbles_lost,0) + COALESCE(receiving_fumbles_lost,0)`
+   - `tds` → `passing_tds + rushing_tds + receiving_tds` (offensive) or `def_tds` (defensive)
+
+   Full column map in `get_guide("player_stats")`.
+7. **`snap_counts` has no season totals and times out on unfiltered joins.** Filter by season; aggregate in a CTE before bridging to players. See `get_guide("player_stats")`.
+8. **After any "no such column" or "no such table" error, the next tool call is `get_schema`** — do not retry with a guessed column name.
 
 ## Before writing SQL
 

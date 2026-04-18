@@ -10,7 +10,32 @@ Use this guide for any fantasy-scoring query: leaderboards, weekly points, custo
 
 Both include fumble and INT penalties. Use them for leaderboards and ranking offensive players.
 
-Half-PPR (industry default) is not stored — compute as `fantasy_points + 0.5 * receptions` or build a custom sum.
+Half-PPR (industry default) is not stored — compute as `fantasy_points + 0.5 * receptions` or use the manual formula below.
+
+### Manual Half-PPR calculation (verify or custom-scoring)
+
+When a user wants to see the scoring broken out or verify `fantasy_points_ppr`, use this formula. Matches `fantasy_points_ppr` minus the half-reception adjustment, and keeps every negative category visible:
+
+```sql
+ROUND(
+    (COALESCE(gs.passing_yards, 0)         * 0.04)    -- 1 pt / 25 pass yds
+  + (COALESCE(gs.passing_tds, 0)           * 4)
+  + (COALESCE(gs.passing_interceptions, 0) * -1)
+  + (COALESCE(gs.rushing_yards, 0)         * 0.1)
+  + (COALESCE(gs.rushing_tds, 0)           * 6)
+  + (COALESCE(gs.receiving_yards, 0)       * 0.1)
+  + (COALESCE(gs.receiving_tds, 0)         * 6)
+  + (COALESCE(gs.receptions, 0)            * 0.5)     -- half-PPR
+  + (COALESCE(gs.passing_2pt_conversions, 0)  * 2)
+  + (COALESCE(gs.rushing_2pt_conversions, 0)  * 2)
+  + (COALESCE(gs.receiving_2pt_conversions, 0) * 2)
+  - ((COALESCE(gs.sack_fumbles_lost, 0)
+      + COALESCE(gs.rushing_fumbles_lost, 0)
+      + COALESCE(gs.receiving_fumbles_lost, 0)) * 2)   -- −2 per fumble lost
+, 2) AS half_ppr
+```
+
+Works the same swapping `gs` → `ss` for season totals. Every column is wrapped in `COALESCE(…, 0)` — one NULL in the sum will zero out the whole expression otherwise.
 
 ## Scoring reference (half-PPR, industry standard)
 
@@ -74,7 +99,7 @@ SELECT p.display_name, ss.season, ss.recent_team AS team,
 FROM season_stats ss JOIN players p ON p.gsis_id = ss.player_id
 WHERE p.position = 'K'
   AND ss.season_type = 'REG'
-  AND ss.season BETWEEN 2021 AND 2025
+  AND ss.season BETWEEN <START_SEASON> AND <END_SEASON>   -- fill in user's range; leave both out for all-time
   AND ss.fg_att > 0
 ORDER BY fantasy_points DESC LIMIT 20
 ```

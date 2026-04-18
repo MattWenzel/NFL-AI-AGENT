@@ -6,7 +6,15 @@ from pathlib import Path
 
 _GUIDES_DIR = Path(__file__).resolve().parent.parent.parent / "prompts" / "guides"
 
-_TOPICS = ["fantasy", "player_stats", "play_by_play", "player_profile", "games"]
+_TOPICS = [
+    "fantasy",
+    "player_stats",
+    "play_by_play",
+    "drives",
+    "postseason",
+    "player_profile",
+    "games",
+]
 
 
 def _load_all() -> dict[str, str]:

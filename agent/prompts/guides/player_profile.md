@@ -57,9 +57,24 @@ Two tables — check which season range you need.
 
 ### `depth_charts_2025` (477K rows, 2025 only)
 
-- **ID: `gsis_id`** — direct join.
-- **Different schema**: uses `dt` (DATETIME) instead of `season` / `week`. Same other columns (`club_code`, `position`, `depth_team`, `full_name`).
-- Use this table for 2025 depth charts; use `depth_charts` for historical (2001–2024).
+- **ID: `gsis_id`** — direct join. Also carries `espn_id`.
+- **Completely different schema from `depth_charts`.** Actual columns:
+  `dt` (TEXT, ISO datetime `'2026-02-13T...'`), `team` (NOT `club_code`), `player_name`, `gsis_id`, `espn_id`, `pos_grp_id`, `pos_grp`, `pos_id`, `pos_name`, `pos_abb`, `pos_slot`, `pos_rank` (1 = starter).
+- **No `season` / `week` / `game_type` / `depth_team` columns.** Use `dt` for time filtering and `pos_rank = 1` for starters.
+
+```sql
+-- current starting QBs (latest snapshot per team)
+WITH latest AS (
+  SELECT team, MAX(dt) AS most_recent
+  FROM depth_charts_2025
+  GROUP BY team
+)
+SELECT d.team, d.player_name, d.pos_abb, d.pos_rank, d.dt
+FROM depth_charts_2025 d
+JOIN latest l ON l.team = d.team AND l.most_recent = d.dt
+WHERE d.pos_abb = 'QB' AND d.pos_rank = 1
+ORDER BY d.team;
+```
 
 ## Templates
 
@@ -84,6 +99,21 @@ FROM combine
 WHERE season = 2024 AND pos = 'WR' AND forty IS NOT NULL
 ORDER BY forty ASC LIMIT 20;
 ```
+
+**Combine → players cross-reference (no FK — fuzzy name match)**
+
+`combine` has no ID edges. To attach a player's combine results to their GSIS profile, match on `player_name` + `draft_year` + `pos`:
+```sql
+SELECT c.player_name, c.pos, c.school, c.forty, c.vertical, c.broad_jump,
+       p.gsis_id, p.display_name, p.latest_team
+FROM combine c
+LEFT JOIN players p
+  ON p.display_name = c.player_name
+ AND p.draft_year   = c.draft_year
+WHERE c.player_name LIKE '%Mahomes%'
+  AND c.pos = 'QB';
+```
+Fallback when `display_name` doesn't match exactly: add `OR p.display_name LIKE c.player_name`. Watch for suffix drift (`"Patrick Mahomes II"` vs `"Patrick Mahomes"`), nickname differences, and apostrophes.
 
 **Current starters (2024) at a position**
 ```sql

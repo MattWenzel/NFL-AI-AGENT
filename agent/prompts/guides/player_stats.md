@@ -118,26 +118,54 @@ ORDER BY t.total DESC LIMIT 20;
 ### `ngs_stats` — Next Gen Stats (27K rows, 2016–2025)
 
 - **IDs are DIFFERENT.** `player_gsis_id` (NOT `gsis_id`), `player_display_name` (NOT `display_name`), `team_abbr` (NOT `team`).
-- **Passing columns use different names**: `pass_yards` / `pass_touchdowns` (NOT `passing_yards` / `passing_tds`).
-- **Receiving**: `yards` / `rec_touchdowns`.
-- **Rushing**: `rush_attempts` / `rush_yards` / `rush_touchdowns`.
-- **`stat_type`**: `'passing'` / `'rushing'` / `'receiving'` (full words — different from pfr_advanced).
-- **`week = 0` means season totals.**
-- **Always `get_schema('ngs_stats')` before first query** — column set varies by stat_type.
-- **"Attempts" in a receiving context means `targets`.** When a user asks about WR/TE route stats, separation, cushion, etc. and mentions "attempts", translate to `targets`. The `attempts` column exists on `ngs_stats` but is populated only for passing/rushing rows — it is NULL for receiving. Never filter `WHERE attempts > N` on a receiving query.
-- **Multi-season thresholds go in `HAVING`, not `WHERE`.** For "over the past N years with a minimum of X targets/carries", aggregate first then threshold the total:
-  ```sql
-  GROUP BY player_gsis_id, player_display_name
-  HAVING SUM(targets) >= 200   -- applies to the TOTAL, not per-row
-  ```
-  `WHERE targets >= 200` would filter individual season rows, not career totals.
+- **`stat_type`**: `'passing'` / `'rushing'` / `'receiving'` (full words — different from `pfr_advanced`).
+- **`week = 0` means season totals.** Weekly rows are week=1, 2, …
+
+**Column catalog by stat_type** (columns are sparse; only the matching `stat_type` rows have them populated):
+
+*Shared:* `season`, `season_type`, `week`, `player_gsis_id`, `player_display_name`, `player_position`, `team_abbr`, `stat_type`, `player_first_name`, `player_last_name`, `player_jersey_number`, `player_short_name`.
+
+*`stat_type = 'passing'`* — 18 cols:
+`attempts`, `completions`, `completion_percentage`, `expected_completion_percentage`, `completion_percentage_above_expectation` (CPOE — 0–100 scale), `pass_yards`, `pass_touchdowns`, `interceptions`, `passer_rating`, `avg_time_to_throw`, `avg_completed_air_yards`, `avg_intended_air_yards`, `avg_air_yards_differential`, `aggressiveness`, `max_completed_air_distance`, `avg_air_yards_to_sticks`, `avg_air_distance`, `max_air_distance`.
+
+*`stat_type = 'rushing'`* — 11 cols:
+`rush_attempts`, `rush_yards`, `avg_rush_yards`, `rush_touchdowns`, `efficiency`, `percent_attempts_gte_eight_defenders`, `avg_time_to_los`, `expected_rush_yards`, `rush_yards_over_expected` (RYOE), `rush_yards_over_expected_per_att`, `rush_pct_over_expected`.
+
+*`stat_type = 'receiving'`* — 11 cols:
+`targets`, `receptions`, `catch_percentage`, `yards` (NOT `receiving_yards`), `rec_touchdowns`, `avg_cushion`, `avg_separation`, `percent_share_of_intended_air_yards`, `avg_yac`, `avg_expected_yac`, `avg_yac_above_expectation`.
+
+**Common translations:**
+- passing `pass_yards` / `pass_touchdowns` ≠ season_stats `passing_yards` / `passing_tds`. Same stat, different names.
+- receiving: yards column is `yards` (not `receiving_yards`).
+- "Attempts" in a receiving context means `targets`. The `attempts` column exists but is NULL for receiving rows.
+
+**Multi-season thresholds go in `HAVING`, not `WHERE`.** For "past N years with ≥ X targets":
+```sql
+GROUP BY player_gsis_id, player_display_name
+HAVING SUM(targets) >= 200   -- applies to the total, not per-row
+```
+`WHERE targets >= 200` would filter individual season rows, not career totals.
 
 ### `pfr_advanced` — PFR advanced stats (7.8K rows, 2018–2025)
 
 - **ID**: `pfr_id` — bridges via `player_ids.pfr_id`.
-- **`stat_type`**: `'pass'` / `'rush'` / `'rec'` (abbreviated — different from NGS).
-- **Rush/rec stat_types use SHORT column names**: `att`, `yds`, `ybc`, `yac`, `brk_tkl` (NOT `rushing_attempts`, `yards_before_contact`, etc.). Pass stat_type uses longer names.
-- **Always `get_schema('pfr_advanced')` before first query.**
+- **`stat_type`**: `'pass'` / `'rush'` / `'rec'` (abbreviated — different from NGS which uses full words).
+- **Player-name column is `player`** (not `display_name`). **Team is `team`** (plus `tm` on some rows).
+
+**Column catalog by stat_type** — columns are sparse, populated only when they apply to the row's `stat_type`:
+
+*Shared (always populated):* `season`, `pfr_id`, `player`, `team`, `tm`, `age`, `pos`, `g` (games), `gs` (games started), `stat_type`, `loaded`.
+
+*`stat_type = 'pass'`* — 31 pass-specific columns:
+`pass_attempts`, `throwaways`, `spikes`, `drops`, `drop_pct`, `bad_throws`, `bad_throw_pct`, `pocket_time`, `times_blitzed`, `times_hurried`, `times_hit`, `times_pressured`, `pressure_pct`, `batted_balls`, `on_tgt_throws`, `on_tgt_pct`, `rpo_plays`, `rpo_yards`, `rpo_pass_att`, `rpo_pass_yards`, `rpo_rush_att`, `rpo_rush_yards`, `pa_pass_att`, `pa_pass_yards`, `intended_air_yards`, `intended_air_yards_per_pass_attempt`, `completed_air_yards`, `completed_air_yards_per_completion`, `completed_air_yards_per_pass_attempt`, `pass_yards_after_catch`, `pass_yards_after_catch_per_completion`, `scrambles`, `scramble_yards_per_attempt`.
+
+*`stat_type = 'rush'`* — 10 short-name columns:
+`att` (attempts), `yds` (yards), `td`, `x1d` (first downs), `ybc` (yards before contact), `ybc_att` (YBC per attempt), `yac` (yards after contact), `yac_att`, `brk_tkl` (broken tackles), `att_br` (attempts per broken tackle).
+
+*`stat_type = 'rec'`* — 13 short-name columns:
+`tgt` (targets), `rec` (receptions), `yds`, `td`, `x1d`, `ybc_r`, `yac_r`, `adot` (average depth of target), `rec_br` (receptions per broken tackle), `drop`, `drop_percent`, `int` (interceptions thrown at), `rat` (QB passer rating when targeted).
+
+**Columns NOT in `pfr_advanced`:** yards per route run (`yprr`), routes run, target separation (those live in `ngs_stats`: `avg_separation`, `avg_cushion`). Don't guess `yprr`/`ypc`/`ypr` — the table doesn't have them.
 
 ### `qbr` — ESPN QBR (9.6K rows, 2006–2023)
 
@@ -147,6 +175,7 @@ ORDER BY t.total DESC LIMIT 20;
 - **`season_type`**: `'Regular'` / `'Postseason'` (NOT `REG`/`POST` — different from every other table).
 - **Includes trick-play non-QBs** (WRs, RBs) with tiny samples and inflated QBR. Filter `qualified = 1` or `qb_plays >= 200`.
 - **`name_display`** (NOT `player_name`).
+- **Coverage ends 2023.** No 2024–2025 QBR data. For recent QB efficiency, use `passing_epa` / `passing_cpoe` on `season_stats` or `completion_percentage_above_expectation` on `ngs_stats` instead.
 
 ## Bridge joins — exact SQL
 

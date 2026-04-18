@@ -100,6 +100,36 @@ WHERE pbp.game_id = '2024_22_KC_PHI'
 ORDER BY pbp.play_id;
 ```
 
+**Moneyline value — biggest +ML cashes**
+```sql
+-- away dogs that won outright
+SELECT gameday, away_team, home_team, away_score, home_score,
+       away_moneyline, spread_line
+FROM games
+WHERE season = 2024
+  AND away_moneyline > 0          -- away team was the underdog
+  AND away_score > home_score     -- …and won
+ORDER BY away_moneyline DESC
+LIMIT 20;
+```
+Moneyline convention: positive = underdog payout odds (e.g. `+250` pays $250 on $100 risked). Negative = favorite price (e.g. `-160` requires $160 to win $100). The favored side has the negative moneyline; the dog has the positive.
+
+## Playoff-round cheatsheet
+
+Use `games.game_type` for round granularity:
+
+| Round | `game_type` |
+|---|---|
+| Regular season | `'REG'` |
+| Wild Card | `'WC'` |
+| Divisional | `'DIV'` |
+| Conference Championship | `'CON'` |
+| Super Bowl | `'SB'` |
+
+**There is no `'POST'` value in `games`.** All playoffs: `game_type IN ('WC','DIV','CON','SB')`. The same `game_type` values appear on `snap_counts` and `depth_charts`.
+
+`play_by_play` is the odd one out — it has **`season_type`** (`'REG'`/`'POST'`) plus a `week` number for round identification (week numbers shift by era). Prefer `JOIN games g ON g.game_id = pbp.game_id WHERE g.game_type = 'SB'` over hardcoded week numbers. Full playoff encoding cheat sheet: `get_guide({"topic": "postseason"})`.
+
 ## Gotchas
 
 - `gameday` ≠ `game_date` (games uses the first, play_by_play uses the second).

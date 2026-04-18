@@ -9,9 +9,9 @@ from config import DB_PATH, PBP_DB_PATH
 
 logger = logging.getLogger(__name__)
 
-# Abort query after this many SQLite VM instructions (~10 seconds)
-QUERY_TIMEOUT_OPS = 100_000_000
-EXPORT_TIMEOUT_OPS = 300_000_000  # ~30 seconds for exports
+# Abort query after this many SQLite VM instructions (~30 seconds)
+QUERY_TIMEOUT_OPS = 300_000_000
+EXPORT_TIMEOUT_OPS = 600_000_000  # ~60 seconds for exports
 MAX_ROWS = 500
 EXPORT_MAX_ROWS = 10_000
 
@@ -137,12 +137,12 @@ def _run_sql(sql: str, max_rows: int, timeout_ops: int, params: tuple = ()) -> S
 
 
 def execute_safe_sql(sql: str, params: tuple = ()) -> SQLResult:
-    """Execute a read-only SQL query with standard limits (500 rows, ~10s timeout)."""
+    """Execute a read-only SQL query with standard limits (500 rows, ~30s timeout)."""
     return _run_sql(sql, MAX_ROWS, QUERY_TIMEOUT_OPS, params)
 
 
 def execute_export_sql(sql: str) -> SQLResult:
-    """Execute a read-only SQL query with export limits (10,000 rows, ~30s timeout)."""
+    """Execute a read-only SQL query with export limits (10,000 rows, ~60s timeout)."""
     return _run_sql(sql, EXPORT_MAX_ROWS, EXPORT_TIMEOUT_OPS)
 
 

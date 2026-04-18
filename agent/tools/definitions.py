@@ -38,7 +38,7 @@ TOOL_DEFINITIONS = [
             "BEFORE querying pfr_advanced, ngs_stats, qbr, combine, or draft_picks for the first time in a conversation, "
             "call get_schema to see the exact column names — these tables use abbreviated or domain-specific naming "
             "that is not reliably memorized in the system prompt, and guessing produces 'no such column' errors. "
-            "The query runs in a sandboxed read-only connection with a 10-second timeout and 500-row limit. "
+            "The query runs in a sandboxed read-only connection with a 30-second timeout and 500-row limit. "
             "For play-by-play data, reference the table as play_by_play (it auto-attaches pbp.db)."
         ),
         "input_schema": {
@@ -58,16 +58,27 @@ TOOL_DEFINITIONS = [
             "Load a topic-specific guide for writing database queries. Each guide has "
             "column references, gotchas, and ready-to-copy SQL templates. Call BEFORE "
             "writing SQL for the topic. Topics: fantasy (scoring rules + kicker formula), "
-            "player_stats (season/game stats + snap_counts + NGS + PFR), play_by_play "
-            "(372-col PBP reference + query patterns), player_profile (IDs, draft, combine, "
-            "depth charts), games (schedules + game-level joins)."
+            "player_stats (season/game stats + snap_counts + NGS + PFR + QBR column catalogs), "
+            "play_by_play (372-col PBP reference + query patterns), "
+            "drives (drive-level aggregations, TOP parsing, scoring-drive rates), "
+            "postseason (playoff encoding across tables, Super Bowl/WC/DIV/CON queries), "
+            "player_profile (IDs, draft, combine, depth charts), "
+            "games (schedules + game-level joins + betting lines)."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "topic": {
                     "type": "string",
-                    "enum": ["fantasy", "player_stats", "play_by_play", "player_profile", "games"],
+                    "enum": [
+                        "fantasy",
+                        "player_stats",
+                        "play_by_play",
+                        "drives",
+                        "postseason",
+                        "player_profile",
+                        "games",
+                    ],
                     "description": "Which guide to load.",
                 },
             },

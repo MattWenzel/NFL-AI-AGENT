@@ -14,6 +14,22 @@ The `play_by_play` table has 1,279,628 rows × 372 columns (1999–2025). It liv
 
 `DISTINCT` on the full SELECT tuple appears to work but silently collapses different drives that happened to share the same time-of-possession + play_count + result, which is common enough (e.g. two 3-play field-goal drives at 1:30). Use the filter.
 
+For deeper drive analytics (TOP parsing, three-and-out rates, scoring-drive rates, longest-drive leaderboards), load `get_guide({"topic": "drives"})` — there's a dedicated guide.
+
+## `play_by_play` has NO `game_type` column
+
+Filtering `WHERE game_type = 'SB'` on PBP errors out. `play_by_play` uses **`season_type`** (`'REG'` / `'POST'` — binary) plus `week` for postseason round granularity. **Week numbers for playoff rounds shift by era:**
+
+- 1999–2020 (16-game reg season): WC=18, DIV=19, CONF=20, SB=21
+- 2021–present (17-game reg season): WC=19, DIV=20, CONF=21, SB=22
+
+**The safer approach is to join to `games`** and filter on `game_type`:
+```sql
+FROM play_by_play pbp JOIN games g ON g.game_id = pbp.game_id
+WHERE g.game_type = 'SB'   -- or 'WC' / 'DIV' / 'CON'
+```
+See `get_guide({"topic": "postseason"})` for the full playoff-encoding cheatsheet across every table.
+
 ## Topic → columns
 
 | Question type | Columns you need |
@@ -122,20 +138,46 @@ WHERE season = 2024 AND drive_play_id_started = play_id
 GROUP BY posteam, fixed_drive_result ORDER BY posteam, drives DESC;
 ```
 
-**Longest drives leaderboard** — ALWAYS use `drive_play_id_started = play_id` (see Drive-level callout above)
+For longest-drive leaderboards, three-and-out rates, scoring-drive rates, and the canonical MM:SS → seconds parser, load `get_guide({"topic": "drives"})`.
+
+**Penalty leaders (season)**
 ```sql
-SELECT season, week, posteam, defteam,
-       drive_time_of_possession, drive_play_count, drive_first_downs,
-       fixed_drive_result
-FROM play_by_play
-WHERE season BETWEEN 2016 AND 2025
-  AND drive_play_id_started = play_id
-  AND drive_time_of_possession IS NOT NULL
-ORDER BY
-  -- drive_time_of_possession is TEXT in 'M:SS' / 'MM:SS' form — cast to seconds
-  (CAST(substr(drive_time_of_possession, 1, instr(drive_time_of_possession, ':') - 1) AS INTEGER) * 60
-   + CAST(substr(drive_time_of_possession, instr(drive_time_of_possession, ':') + 1) AS INTEGER)) DESC
-LIMIT 100;
+SELECT p.display_name, pbp.penalty_team AS team,
+       COUNT(*) AS flags,
+       SUM(pbp.penalty_yards) AS yards
+FROM play_by_play pbp JOIN players p ON p.gsis_id = pbp.penalty_player_id
+WHERE pbp.season = 2024 AND pbp.penalty = 1 AND pbp.penalty_player_id IS NOT NULL
+GROUP BY p.gsis_id, p.display_name, pbp.penalty_team
+ORDER BY flags DESC LIMIT 20;
+```
+Filter by `pbp.penalty_type` (e.g. `'Holding'`, `'False Start'`, `'Defensive Pass Interference'`) to narrow. Team-level: group by `pbp.penalty_team` instead of `penalty_player_id`.
+
+**Multi-season PBP aggregation — avoid timeouts**
+
+Multi-season joins to `players` on unfiltered `passer_player_id` can time out (30s limit). Patterns that work:
+
+- Narrow the season window (`BETWEEN 2015 AND 2024`, not `>= 1999`).
+- Always filter on an outcome flag (`pbp.touchdown = 1`, `pbp.sack = 1`, `pbp.complete_pass = 1`, `pbp.pass_attempt = 1`).
+- Add a `HAVING COUNT(*) >= N` threshold to drop tiny samples.
+- Filter the driver column `IS NOT NULL` before GROUP BY.
+- **Keep the first SELECT narrow.** Stick to `COUNT(*)` + 1–2 AVG/SUM aggregates. Do NOT add `COUNT(DISTINCT season)`, `MIN(season)`, `MAX(season)`, or other metadata on the first pass — each extra aggregate is a full secondary pass over the filtered rows and can push a borderline query over the 30s limit. If the user wants "seasons active" or similar metadata, run a second smaller query scoped to the top-N players from the first result.
+
+```sql
+-- clutch 4th-quarter passing TDs by QB, multi-season
+SELECT p.display_name,
+       COUNT(*) AS clutch_tds,
+       ROUND(AVG(pbp.epa), 2) AS avg_epa
+FROM play_by_play pbp
+JOIN players p ON p.gsis_id = pbp.passer_player_id
+WHERE pbp.season BETWEEN 2015 AND 2024     -- narrow window
+  AND pbp.qtr >= 4
+  AND pbp.score_differential < 0            -- trailing
+  AND pbp.touchdown = 1
+  AND pbp.pass_attempt = 1                  -- excludes sacks
+  AND pbp.passer_player_id IS NOT NULL
+GROUP BY p.gsis_id, p.display_name
+HAVING COUNT(*) >= 5
+ORDER BY clutch_tds DESC LIMIT 20;
 ```
 
 ## Multi-role unions (all-purpose TDs, all-purpose yards)
@@ -164,6 +206,8 @@ GROUP BY p.gsis_id, p.display_name ORDER BY total_tds DESC LIMIT 20;
 
 ## Performance & SQLite quirks
 
+- **Filter PBP on its OWN columns, not via JOIN predicates.** `pbp.db` has NO indexes — not on `game_id`, not on `season`, not on any player_id. A query like `JOIN games g ON g.game_id = pbp.game_id WHERE g.game_type='SB'` makes SQLite build a temporary covering index on `pbp.game_id` before it can filter — ~28s / 626M ops to find the ~25 best Super Bowl plays. Filtering PBP by `WHERE pbp.season_type='POST' AND pbp.week IN (21,22)` runs the same query in ~1s.
+- **Pattern:** reduce PBP rows with `season`, `season_type`, `week`, `posteam`, or a player_id column FIRST. Any JOIN to `games` or `players` should come after — it runs against the already-small result set.
 - Filter before joining. `SELECT … FROM play_by_play JOIN players …` on an unfiltered PBP scan will time out.
 - SQLite does **NOT** support `RIGHT JOIN`, `FULL OUTER JOIN`, or `STRING_AGG`. Use `LEFT JOIN` / `UNION ALL` / `GROUP_CONCAT(col, ', ')`.
 - Break complex PBP queries into parts (passing TDs, rushing TDs, receiving TDs each in a separate CTE) rather than one giant join.
