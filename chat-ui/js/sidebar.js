@@ -148,7 +148,7 @@ function buildConversationItem(session) {
         <div class="conversation-title">${escapeHtml(session.title || "New session")}</div>
         <div class="conversation-meta">
           <span>${session.message_count} turns</span>
-          ${session.provider ? `<span>${escapeHtml(session.provider)}</span>` : ""}
+          ${session.model || session.provider ? `<span>${escapeHtml(session.model || session.provider)}</span>` : ""}
           ${session.updated_at ? `<span>${escapeHtml(formatTime(session.updated_at))}</span>` : ""}
         </div>
       </div>

@@ -21,7 +21,7 @@ function renderInspector() {
         <div class="stats-grid">
           <div class="stat"><div class="stat-label">Title</div><div class="stat-value">${escapeHtml(transcript.title || "Untitled")}</div></div>
           <div class="stat"><div class="stat-label">Turns</div><div class="stat-value">${transcript.turns.length}</div></div>
-          <div class="stat"><div class="stat-label">Provider</div><div class="stat-value">${escapeHtml(transcript.provider || "n/a")}</div></div>
+          <div class="stat"><div class="stat-label">Model</div><div class="stat-value">${escapeHtml(transcript.model || transcript.provider || "n/a")}</div></div>
           <div class="stat"><div class="stat-label">Compacted</div><div class="stat-value">${compactedTurns}</div></div>
         </div>
       </section>`);
