@@ -220,25 +220,12 @@ class OpenAICodexClient(BaseLLMClient):
                                     yield self._assemble_tool_event(call_id, slot)
 
                     elif etype in ("response.done", "response.completed"):
+                        # `response.output` is empirically always [] on this endpoint —
+                        # streaming events (output_item.added / function_call_arguments.done /
+                        # output_item.done) are the sole source of truth for tool calls.
                         response = raw_event.get("response") or {}
                         usage = self._parse_usage(response.get("usage"))
-                        stop_reason = self._derive_stop_reason(response.get("output") or [], calls)
-                        # Fallback: emit any function_call items present in the final output
-                        # that we didn't already emit from streaming events.
-                        for item in response.get("output") or []:
-                            if item.get("type") != "function_call":
-                                continue
-                            call_id = item.get("call_id") or item.get("id")
-                            if not call_id:
-                                continue
-                            slot = calls.setdefault(call_id, {"name": "", "arguments": "", "emitted": False})
-                            if item.get("name"):
-                                slot["name"] = item["name"]
-                            if item.get("arguments") is not None:
-                                slot["arguments"] = item["arguments"]
-                            if slot["name"] and not slot["emitted"]:
-                                slot["emitted"] = True
-                                yield self._assemble_tool_event(call_id, slot)
+                        stop_reason = self._derive_stop_reason(calls)
         except LLMError:
             raise
         except httpx.HTTPStatusError as exc:
@@ -284,13 +271,10 @@ class OpenAICodexClient(BaseLLMClient):
         return Usage(input_tokens=int(input_tokens), output_tokens=int(output_tokens))
 
     @staticmethod
-    def _derive_stop_reason(output: list, calls: dict) -> StopReason:
-        """Codex doesn't return a finish_reason field; infer from output items.
-        If any function_call items exist in final output, the runtime needs to
-        execute them — surface as TOOL_USE so the agent loop keeps going."""
-        for item in output:
-            if item.get("type") == "function_call":
-                return StopReason.TOOL_USE
+    def _derive_stop_reason(calls: dict) -> StopReason:
+        """Codex omits a finish_reason field. If the stream emitted any
+        function_call, the runtime needs to execute it — surface TOOL_USE so
+        the agent loop keeps going."""
         if any(slot.get("emitted") for slot in calls.values()):
             return StopReason.TOOL_USE
         return StopReason.END_TURN

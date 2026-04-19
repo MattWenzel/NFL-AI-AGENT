@@ -5,7 +5,7 @@ from infra.providers.base import ToolDefinition
 TOOL_DEFINITIONS = [
     {
         "name": "search_players",
-        "description": "Search for NFL players by name, position, or team. Use this FIRST whenever a user mentions a player name to resolve their gsis_id for subsequent queries.",
+        "description": "Search for NFL players by name. Use this FIRST whenever a user mentions a player name to resolve their gsis_id for subsequent queries. For position/team filtering, use execute_sql against the players table.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -13,21 +13,8 @@ TOOL_DEFINITIONS = [
                     "type": "string",
                     "description": "Player name to search (partial match supported, e.g. 'Mahomes', 'Patrick Mahomes')",
                 },
-                "position": {
-                    "type": "string",
-                    "description": "Filter by position (QB, RB, WR, TE, etc.)",
-                },
-                "team": {
-                    "type": "string",
-                    "description": "Filter by current team abbreviation (KC, BUF, etc.)",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Max results to return (default 10)",
-                    "default": 10,
-                },
             },
-            "required": [],
+            "required": ["name"],
         },
     },
     {

@@ -39,6 +39,9 @@ def validate_tool_input(name: str, input_data: dict) -> str | None:
     for key, value in input_data.items():
         if key not in properties:
             continue
+        if value is None:
+            # Codex strict mode emits null for unused optionals; handlers use `.get()` + falsy checks.
+            continue
         expected = properties[key].get("type")
         py_type = type_map.get(expected)
         if py_type and not isinstance(value, py_type):

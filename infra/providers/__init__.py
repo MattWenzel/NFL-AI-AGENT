@@ -164,9 +164,9 @@ register_provider(ProviderInfo(
     name="openai-codex",
     display_name="OpenAI Codex (ChatGPT)",
     env_key="",  # OAuth only — no env-var fallback
-    default_model="gpt-5.1-codex",
-    summarizer_model="gpt-5.1-codex",
-    models=["gpt-5.1-codex", "gpt-5.3-codex"],
+    default_model="gpt-5.3-codex",
+    summarizer_model="gpt-5.3-codex",
+    models=["gpt-5.3-codex"],
     context_window=200_000,
     max_output_tokens=16384,
     supports_streaming=True,
