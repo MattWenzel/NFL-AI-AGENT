@@ -33,5 +33,8 @@ NFLVERSE/
 tests/
 .pytest_cache/
 
+# Ad-hoc experiments (local research notebooks + raw SSE captures)
+experiments/
+
 # Claude Code local config
 .claude/
