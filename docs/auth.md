@@ -150,9 +150,10 @@ The Fernet instance is lazily loaded (`encryption.py:42`) so CLI contexts withou
 
 Flow at request time:
 
-1. `_resolve_user_api_key` in `api/routers/chat.py:45` calls `store.get_api_key(user_id, provider)`.
+1. `resolve_user_credential` in `api/dependencies.py` calls `store.get_api_key(user_id, provider)`.
 2. If a row exists, `encryption.decrypt(rec.encrypted_key)`. On `ValueError` (tampered / key-era mismatch), log and return `None`.
 3. The plain key is passed to `create_client_for_request` as `api_key=...`, which short-circuits the env-var lookup.
+4. For OAuth providers (`credential_shape="codex_oauth"`) the decrypted payload is a JSON bundle; `resolve_user_credential` refreshes the access token when near expiry, re-encrypts, and upserts before returning the bearer string. See `infra/codex_oauth.py` and `api/routers/oauth_codex.py` for the device-code flow.
 
 ### Key rotation pitfall
 

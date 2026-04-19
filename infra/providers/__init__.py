@@ -5,8 +5,8 @@ import logging
 from dataclasses import dataclass, field
 
 from infra.providers.base import (
-    BaseLLMClient, LLMError, Message, MessageResponse, TextEvent, ToolUseEvent,
-    StopReason, Usage, ToolDefinition,
+    BaseLLMClient, CredentialShape, LLMError, Message, MessageResponse,
+    TextEvent, ToolUseEvent, StopReason, Usage, ToolDefinition,
 )
 
 logger = logging.getLogger(__name__)
@@ -30,6 +30,10 @@ class ProviderInfo:
     supports_streaming: bool = True
     supports_tools: bool = True
     client_class: type[BaseLLMClient] | None = None
+    # How the user supplies this provider's credential. "api_key" is the
+    # default (paste a string in Settings); "codex_oauth" replaces the
+    # paste field with a "Connect ChatGPT" device-code flow.
+    credential_shape: CredentialShape = "api_key"
 
     @property
     def effective_context_window(self) -> int:
@@ -77,8 +81,13 @@ def create_client(
         raise LLMError(f"Provider '{provider_name}' has no client class registered")
 
     resolved_model = model or info.default_model
-    resolved_key = api_key or os.environ.get(info.env_key)
+    env_value = os.environ.get(info.env_key) if info.env_key else None
+    resolved_key = api_key or env_value
     if not resolved_key:
+        if info.credential_shape == "codex_oauth":
+            raise LLMError(
+                f"{info.display_name} not connected — click Connect ChatGPT in Settings."
+            )
         raise LLMError(
             f"{info.display_name} API key not set. "
             f"Set {info.env_key} environment variable or pass api_key parameter."
@@ -91,8 +100,12 @@ def create_client(
 
 
 def provider_is_available(info: "ProviderInfo") -> bool:
-    """Whether the provider's API key is set."""
-    return bool(os.environ.get(info.env_key))
+    """Whether the provider's default credential source is set in the
+    process environment. OAuth-only providers always return False — they
+    require per-user credentials regardless of env configuration."""
+    if info.credential_shape == "codex_oauth":
+        return False
+    return bool(info.env_key and os.environ.get(info.env_key))
 
 
 # Register providers on import
@@ -145,8 +158,25 @@ try:
 except ImportError:
     logger.debug("OpenAI SDK not installed — openai provider unavailable")
 
+from infra.providers.openai_codex import OpenAICodexClient  # noqa: E402
+
+register_provider(ProviderInfo(
+    name="openai-codex",
+    display_name="OpenAI Codex (ChatGPT)",
+    env_key="",  # OAuth only — no env-var fallback
+    default_model="gpt-5.1-codex",
+    summarizer_model="gpt-5.1-codex",
+    models=["gpt-5.1-codex", "gpt-5.3-codex"],
+    context_window=200_000,
+    max_output_tokens=16384,
+    supports_streaming=True,
+    supports_tools=True,
+    client_class=OpenAICodexClient,
+    credential_shape="codex_oauth",
+))
+
 __all__ = [
-    "BaseLLMClient", "LLMError", "Message", "MessageResponse",
+    "BaseLLMClient", "CredentialShape", "LLMError", "Message", "MessageResponse",
     "TextEvent", "ToolUseEvent", "ProviderInfo",
     "StopReason", "Usage", "ToolDefinition",
     "register_provider", "get_provider", "list_providers",

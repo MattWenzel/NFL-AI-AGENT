@@ -456,6 +456,64 @@
   pointer-events: none;
 }
 
+/* ---- Codex (ChatGPT) OAuth section ---- */
+.codex-identity {
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.codex-sub {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 0 0 8px;
+}
+
+.codex-flow-panel {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.codex-steps {
+  margin: 0 0 10px;
+  padding-left: 20px;
+  font-size: 13px;
+  color: var(--muted-strong);
+  line-height: 1.7;
+}
+
+.codex-steps a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.codex-steps a:hover {
+  text-decoration: underline;
+}
+
+.codex-code {
+  display: inline-block;
+  padding: 2px 8px;
+  background: var(--panel-strong);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.08em;
+}
+
+.codex-status {
+  font-size: 12px;
+  color: var(--muted);
+}
+
 /* ---- Account section ---- */
 .settings-account-identity {
   margin: 4px 0 14px;

@@ -200,7 +200,28 @@ class ApiKeyStatus(BaseModel):
     display_name: str
     has_key: bool
     updated_at: str | None = None
+    # OAuth-only fields — populated for providers with credential_shape="codex_oauth".
+    # `email` surfaces which ChatGPT account is linked; `credential_shape` lets the
+    # Settings UI pick the right input type without hard-coding provider names.
+    credential_shape: str = "api_key"
+    email: str | None = None
+    expires_at: int | None = Field(None, description="Epoch ms; OAuth tokens only")
 
 
 class ApiKeyUpdate(BaseModel):
     api_key: str | None = Field(None, description="Plaintext key to store (null to delete)")
+
+
+# ---------------- Codex OAuth device-code flow ----------------
+
+class CodexOAuthStartResponse(BaseModel):
+    pending_id: str
+    user_code: str
+    verification_url: str
+    expires_in: int = Field(900, description="Seconds until the user_code expires")
+
+
+class CodexOAuthStatusResponse(BaseModel):
+    status: str = Field(..., description="pending | complete | expired | error")
+    email: str | None = None
+    error: str | None = None

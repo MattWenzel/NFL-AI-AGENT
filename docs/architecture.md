@@ -109,7 +109,7 @@ Common "where does X happen" questions:
 |----------|-------|
 | User message arrives → HTTP | `api/routers/chat.py:166` ([transport.md](transport.md)) |
 | Who owns this conversation? | IDOR guard in `_prepare_chat`, `chat.py:78` ([transport.md](transport.md#idor-protection)) |
-| Which API key to use? | `_resolve_user_api_key` → `encryption.decrypt` ([auth.md](auth.md#api-keys)) |
+| Which API key to use? | `resolve_user_credential` → `encryption.decrypt` ([auth.md](auth.md#api-keys)) |
 | Model selects a tool | Streamed `ToolUseEvent` from the provider adapter ([providers.md](providers.md#streaming)) |
 | Tool call actually runs | `ChatRuntime._execute_tool` → `execute_tool_structured` ([tools.md](tools.md#data-flow-for-one-tool-call)) |
 | SQL query limits | `sql_sandbox.py` — 500 rows, ~30s, PBP auto-attach ([tools.md](tools.md#the-sql-sandbox)) |

@@ -25,10 +25,10 @@ from api.dependencies import (
     create_client_for_request,
     get_runtime,
     get_store,
+    resolve_user_credential,
 )
 from api.schemas import ChatRequest, ChatResponse
 from api.sse import event_to_sse_payload
-from infra import encryption
 from infra.persistence.runtime_store import RuntimeStore
 from infra.providers import BaseLLMClient, LLMError, get_default_provider
 
@@ -42,23 +42,7 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 SSE_HEARTBEAT_SECONDS = 15
 
 
-def _resolve_user_api_key(
-    store: RuntimeStore, user_id: int, provider_name: str
-) -> str | None:
-    """Look up and decrypt the user's stored key for the given provider, or None."""
-    rec = store.get_api_key(user_id=user_id, provider=provider_name)
-    if rec is None:
-        return None
-    try:
-        return encryption.decrypt(rec.encrypted_key)
-    except ValueError:
-        # Tampered/wrong-key-era ciphertext. Treat as missing so the caller can fall back
-        # to env var or surface the configure-a-key error.
-        logger.error("Failed to decrypt stored API key for user=%d provider=%s", user_id, provider_name)
-        return None
-
-
-def _prepare_chat(
+async def _prepare_chat(
     body: ChatRequest,
     runtime: ChatRuntime,
     store: RuntimeStore,
@@ -79,7 +63,7 @@ def _prepare_chat(
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     provider_name = body.provider or get_default_provider()
-    user_key = _resolve_user_api_key(store, user.id, provider_name)
+    user_key = await resolve_user_credential(store, user.id, provider_name)
     client = create_client_for_request(body.provider, body.model, api_key=user_key)
     session = runtime.prepare_session(
         client, provider_name, body.conversation_id, user_id=user.id
@@ -95,7 +79,7 @@ async def chat_message(
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     """Send a message and get a complete response."""
-    client, provider_name, session = _prepare_chat(body, runtime, store, user)
+    client, provider_name, session = await _prepare_chat(body, runtime, store, user)
 
     logger.debug("chat/message  session=%s  msg=%s", session.id, body.message[:100])
 
@@ -172,7 +156,7 @@ async def chat_stream(
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     """Send a message and stream the response via SSE."""
-    client, provider_name, session = _prepare_chat(body, runtime, store, user)
+    client, provider_name, session = await _prepare_chat(body, runtime, store, user)
 
     async def event_generator():
         logger.debug("chat/stream  session=%s  msg=%s", session.id, body.message[:100])

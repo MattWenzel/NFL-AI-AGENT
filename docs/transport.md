@@ -80,7 +80,7 @@ Both live in `api/routers/chat.py`. They share `_prepare_chat` (`chat.py:61`) to
 ### `_prepare_chat`
 
 1. **IDOR guard.** If `conversation_id` is supplied, it must belong to the caller. `store.get_session(conversation_id, user_id=user.id)` returns `None` on both "unknown id" and "owned by someone else", so the 404 response shape is identical either way — no existence leak.
-2. **Resolve user key.** `_resolve_user_api_key` (`chat.py:45`) pulls the user's stored key and decrypts it. `ValueError` on decrypt (tampered ciphertext, key rotation) is logged and treated as "no key" so the env fallback kicks in cleanly.
+2. **Resolve user key.** `resolve_user_credential` (`dependencies.py`) pulls the user's stored credential and returns the bearer-ready string. For classic providers it decrypts the stored API key; for OAuth providers (credential_shape="codex_oauth") it decrypts the token bundle and refreshes the access token if it's within 30s of expiring. `ValueError` on decrypt is logged and treated as "no key" so the env fallback kicks in cleanly.
 3. **Create client.** `create_client_for_request(provider, model, api_key=user_key)`.
 4. **Prepare session.** `runtime.prepare_session(client, provider_name, conversation_id, user_id=user.id)` — creates a new session or resolves an existing one, scoped to the user.
 

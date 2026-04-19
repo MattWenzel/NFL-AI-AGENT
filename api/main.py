@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from api.routers import auth, chat, conversations, csvs, exports, providers, settings
+from api.routers import auth, chat, conversations, csvs, exports, oauth_codex, providers, settings
 from agent.runtime import ChatRuntime
 from infra import encryption
 from infra.persistence.runtime_store import RuntimeStore
@@ -135,6 +135,7 @@ def create_app() -> FastAPI:
     # Include routers
     app.include_router(auth.router)
     app.include_router(settings.router)
+    app.include_router(oauth_codex.router)
     app.include_router(chat.router)
     app.include_router(conversations.router)
     app.include_router(providers.router)

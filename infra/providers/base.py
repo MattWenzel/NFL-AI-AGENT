@@ -4,7 +4,14 @@ from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import AsyncIterator
+from typing import AsyncIterator, Literal
+
+
+# How a provider's credential is sourced. "api_key" is a raw string a user
+# pastes into Settings; "codex_oauth" is an OAuth token bundle obtained via
+# the device-code flow (see api/routers/oauth_codex.py). The Settings UI
+# uses this to decide which input to render.
+CredentialShape = Literal["api_key", "codex_oauth"]
 
 
 class LLMError(Exception):
