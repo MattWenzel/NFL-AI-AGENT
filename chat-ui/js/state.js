@@ -10,6 +10,8 @@ const state = {
   providers: [],
   selectedProvider: localStorage.getItem("nfl_chat_provider") || "anthropic",
   selectedModel: localStorage.getItem("nfl_chat_model") || "",
+  // Sticky global preference (like selectedProvider/selectedModel) — persists
+  // across sessions; startNewSession intentionally doesn't reset it.
   toolChoice: localStorage.getItem("nfl_chat_tool_choice") || "auto",
   sidebarSearch: "",
   inspectorOpen: false,
