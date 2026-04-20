@@ -100,6 +100,11 @@ class ChatRuntime:
         async with lock:
             assistant_turn: TurnRecord | None = None
             tool_runs = []
+            # Doom-loop scope: this list accumulates every tool_run emitted
+            # across the inner iterations of THIS user message only. Legit
+            # follow-ups that re-run the same query ("try again") must not
+            # inherit the prior turn's history, so we rebuild from empty.
+            user_turn_tool_runs: list = []
             user_turn = self.store.create_turn(session.id, "user", text=user_text, status="completed")
             if not session.title:
                 session.title = user_text[:TITLE_PREVIEW_CHARS]
@@ -167,6 +172,7 @@ class ChatRuntime:
                                     tool_run_id=tool_run.id,
                                 )
                                 tool_runs.append(tool_run)
+                                user_turn_tool_runs.append(tool_run)
                                 yield RuntimeEvent(
                                     type="tool_pending",
                                     session_id=session.id,
@@ -194,7 +200,7 @@ class ChatRuntime:
                             assistant_turn = None
                             return
 
-                        raise_if_doom_loop(self.store, session.id, tool_runs)
+                        raise_if_doom_loop(user_turn_tool_runs)
 
                         results = await asyncio.gather(*(self._execute_tool(session.id, assistant_turn, tool_run) for tool_run in tool_runs))
                         for tool_run, result in zip(tool_runs, results):
