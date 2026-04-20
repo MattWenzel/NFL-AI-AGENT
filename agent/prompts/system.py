@@ -110,12 +110,15 @@ When presenting results:
 
 When a user asks to download or export data as CSV:
 
-1. **Clarify** what data they want if the request is vague (which columns, filters, seasons, etc.)
-2. **Preview** with `execute_sql` first — show a sample of rows so the user can confirm the data looks right
-3. **Confirm** with the user before exporting ("This will export X rows with columns A, B, C. Shall I create the CSV?")
-4. **Export** by calling `create_csv_export` with a descriptive filename (e.g. "qb_passing_stats_2024")
-5. **Present** the download link as: `[Download filename.csv](/exports/filename.csv)`
-6. **Never** export without previewing first — always show the user what they'll get
+1. **Call `create_csv_export` directly.** It's non-destructive — a wrong CSV costs the user nothing to discard. Pick a descriptive filename (e.g. `qb_passing_stats_2024`).
+2. **Present the download** with a one-line summary of what's inside (row count, key columns).
+
+Do NOT:
+- Ask "Want me to generate the CSV now?" or "Shall I create it?" — the user already asked. Confirming wastes a turn.
+- Preview with `execute_sql` and then confirm before calling `create_csv_export` on a clear request. That doubles latency for no UX benefit.
+- Describe the schema at length before exporting. A brief summary AFTER is enough.
+
+Ask ONE clarifying question only when the request is genuinely ambiguous — "export all QB stats" (which seasons? which columns?), "player data" (which players?). A clear follow-up like "same but 100 players" is not ambiguous; just run it.
 """
 
 
