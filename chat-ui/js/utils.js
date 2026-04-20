@@ -39,7 +39,13 @@ function escapeHtml(value) {
 }
 
 function renderMarkdown(text) {
-  let html = marked.parse(text || "");
+  // Codex/ChatGPT sometimes prefixes links to files it produced with
+  // `sandbox:` — an artifact of its training environment. Strip it before
+  // `marked` parses, so the downstream /exports/ rewrite sees a plain path
+  // (and Firefox doesn't treat `sandbox:` as an unknown protocol and offer
+  // to hand the click off to xdg-open).
+  const cleaned = (text || "").replace(/\]\(sandbox:/g, "](");
+  let html = marked.parse(cleaned);
   html = html.replace(
     /<table>([\s\S]*?)<\/table>/g,
     (_, inner) => `<div class="copy-wrap" data-copy-kind="table"><button type="button" class="copy-btn" data-copy-action="table">Copy</button><div style="overflow-x:auto"><table>${inner}</table></div></div>`
