@@ -1,14 +1,19 @@
 """Tool input validation and error hint injection.
 
 Keeps tool errors actionable:
-- `validate_tool_input` rejects malformed input before dispatch, citing the
-  schema key that failed.
+- `validate_tool_input` rejects malformed input before dispatch using
+  full JSON Schema semantics (enum, pattern, array, number, boolean,
+  nested objects) via the `jsonschema` library — catches invalid enum
+  values and wrong array element types that the previous type-only
+  checker let through.
 - `inject_hint` post-processes tool JSON errors to append a short
-  remediation hint for known patterns (ambiguous column, missing table,
-  timeout, etc.).
+  remediation hint for known patterns (ambiguous column, missing
+  table, timeout, etc.).
 """
 
 import json
+
+from jsonschema import Draft202012Validator
 
 from agent.tools.definitions import TOOL_DEFINITIONS
 
@@ -20,33 +25,79 @@ def _get_tool_definition(name: str) -> dict | None:
     return None
 
 
+# Cache one validator per tool. Building the validator parses the schema
+# and builds the checker graph — doing it per-call adds measurable
+# overhead on a hot path that runs before every tool invocation.
+_VALIDATOR_CACHE: dict[str, Draft202012Validator] = {}
+
+
+def _validator_for(name: str) -> Draft202012Validator | None:
+    cached = _VALIDATOR_CACHE.get(name)
+    if cached is not None:
+        return cached
+    tool = _get_tool_definition(name)
+    if tool is None:
+        return None
+    schema = tool.get("input_schema", {})
+    if not schema:
+        return None
+    validator = Draft202012Validator(schema)
+    _VALIDATOR_CACHE[name] = validator
+    return validator
+
+
+def _strip_codex_nulls(tool: dict, input_data: dict) -> dict:
+    """Drop `null` values for optional properties.
+
+    Codex strict-mode schemas force every property into `required` and
+    make optionals nullable, so Codex sends `{"topic": null, "extra": null}`
+    for unused optionals. The validator sees null-vs-string as a type
+    mismatch; handlers use `.get()` + falsy checks so absent and
+    explicit-null are identical to them. Strip null values that
+    correspond to not-originally-required properties before validating.
+    """
+    schema = tool.get("input_schema") or {}
+    if schema.get("type") != "object":
+        return input_data
+    required = set(schema.get("required") or [])
+    properties = schema.get("properties") or {}
+    cleaned = {}
+    for key, value in input_data.items():
+        if value is None and key in properties and key not in required:
+            continue
+        cleaned[key] = value
+    return cleaned
+
+
 def validate_tool_input(name: str, input_data: dict) -> str | None:
-    """Return an error string if input_data violates the tool's schema, else None."""
+    """Return an error string if input_data violates the tool's schema, else None.
+
+    Uses `jsonschema.Draft202012Validator` so we catch enum mismatches,
+    pattern violations, array element types, and number/boolean types —
+    things the previous hand-rolled checker missed. The error text names
+    the offending property path so the hint injector can point at it.
+    """
     tool = _get_tool_definition(name)
     if tool is None:
         return f"Unknown tool: {name}"
-    schema = tool.get("input_schema", {})
-    if schema.get("type") != "object":
-        return None
-    properties = schema.get("properties", {})
-    required = schema.get("required", [])
     if not isinstance(input_data, dict):
         return f"{name} expects an object input"
-    for key in required:
-        if key not in input_data:
-            return f"Missing required field '{key}' for {name}"
-    type_map = {"string": str, "integer": int, "object": dict}
-    for key, value in input_data.items():
-        if key not in properties:
-            continue
-        if value is None:
-            # Codex strict mode emits null for unused optionals; handlers use `.get()` + falsy checks.
-            continue
-        expected = properties[key].get("type")
-        py_type = type_map.get(expected)
-        if py_type and not isinstance(value, py_type):
-            return f"Field '{key}' for {name} must be {expected}"
-    return None
+
+    validator = _validator_for(name)
+    if validator is None:
+        return None
+
+    cleaned = _strip_codex_nulls(tool, input_data)
+    # First reported error wins — the model gets one clear message to
+    # retry against instead of a noisy multi-line dump.
+    errors = sorted(validator.iter_errors(cleaned), key=lambda e: e.path)
+    if not errors:
+        return None
+    err = errors[0]
+    path = ".".join(str(p) for p in err.absolute_path)
+    if path:
+        return f"Invalid input for {name}: {path}: {err.message}"
+    return f"Invalid input for {name}: {err.message}"
 
 
 _ERROR_HINTS = [
