@@ -172,7 +172,9 @@ class OpenAIClient(BaseLLMClient):
                     error_message=str(exc),
                 )
                 await asyncio.sleep(delay)
-        assert stream is not None  # loop exits via break or raise
+        # Defensive — see the matching note in anthropic.py.
+        if stream is None:
+            raise LLMError("OpenAI stream open exhausted retries without raising")
 
         # Track tool call accumulation across chunks
         tool_calls_acc: dict[int, dict] = {}  # index -> {id, name, arguments}
@@ -180,6 +182,13 @@ class OpenAIClient(BaseLLMClient):
         output_tokens = 0
         finish_reason: str | None = None
 
+        # Tracks whether the iterator drained naturally. If we leave the
+        # try block via exception or cancellation, the finally explicitly
+        # closes the underlying httpx response so the TCP connection is
+        # released immediately instead of waiting for GC. On the happy
+        # path the stream auto-closes when the iterator exhausts, so we
+        # skip the redundant close to dodge any "already closed" warnings.
+        iteration_complete = False
         try:
             async for chunk in stream:
                 # Track usage from the final chunk (sent when include_usage=True)
@@ -220,18 +229,17 @@ class OpenAIClient(BaseLLMClient):
                 if finish == "tool_calls":
                     for event in self._emit_accumulated_tools(tool_calls_acc):
                         yield event
+            iteration_complete = True
         except LLMError:
             raise
         except Exception as exc:
             raise self._translate_error(exc)
         finally:
-            # Close the underlying httpx response on cancellation /
-            # disconnect so the TCP connection is released immediately
-            # instead of dangling until GC.
-            try:
-                await stream.close()
-            except Exception:
-                logger.exception("Failed to close openai stream")
+            if not iteration_complete:
+                try:
+                    await stream.close()
+                except Exception:
+                    logger.exception("Failed to close openai stream")
 
         # Emit any remaining tool calls (e.g. finish_reason="length" or missing finish chunk)
         if tool_calls_acc:

@@ -182,7 +182,12 @@ class AnthropicClient(BaseLLMClient):
                     error_message=str(exc),
                 )
                 await asyncio.sleep(delay)
-        assert stream is not None and stream_ctx is not None  # loop exits via break or raise
+        # Defensive — the loop above always exits via `break` (after a
+        # successful __aenter__) or by raising. Use a real check instead
+        # of `assert` so `python -O` can't strip it and silently NPE in
+        # the iteration below.
+        if stream is None or stream_ctx is None:
+            raise LLMError("Anthropic stream open exhausted retries without raising")
 
         input_tokens = 0
         output_tokens = 0
@@ -252,7 +257,12 @@ class AnthropicClient(BaseLLMClient):
                 logger.exception("Failed to close anthropic stream")
 
         duration = time.monotonic() - t0
-        self._set_last_usage(Usage(input_tokens=input_tokens, output_tokens=output_tokens))
+        self._set_last_usage(Usage(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cache_read_tokens=cache_read,
+            cache_write_tokens=cache_write,
+        ))
         self._set_last_stop_reason(stop_reason)
         logger.debug(
             "LLM stream  model=%s  in=%d out=%d  cache_read=%d cache_write=%d  stop=%s  %.1fs",
@@ -381,8 +391,8 @@ class AnthropicClient(BaseLLMClient):
             int(getattr(usage, "cache_creation_input_tokens", 0) or 0),
         )
 
-    @staticmethod
-    def _parse_response(response) -> MessageResponse:
+    @classmethod
+    def _parse_response(cls, response) -> MessageResponse:
         content = []
         for block in response.content:
             if block.type == "text":
@@ -393,11 +403,14 @@ class AnthropicClient(BaseLLMClient):
                     name=block.name,
                     input=block.input,
                 ))
+        cache_read, cache_write = cls._extract_cache_usage(response.usage)
         return MessageResponse(
             content=content,
             stop_reason=_STOP_MAP.get(response.stop_reason, StopReason.END_TURN),
             usage=Usage(
                 input_tokens=response.usage.input_tokens,
                 output_tokens=response.usage.output_tokens,
+                cache_read_tokens=cache_read,
+                cache_write_tokens=cache_write,
             ),
         )

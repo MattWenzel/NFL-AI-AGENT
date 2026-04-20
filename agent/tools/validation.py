@@ -47,26 +47,43 @@ def _validator_for(name: str) -> Draft202012Validator | None:
 
 
 def _strip_codex_nulls(tool: dict, input_data: dict) -> dict:
-    """Drop `null` values for optional properties.
+    """Drop `null` values for optional properties at any nesting depth.
 
     Codex strict-mode schemas force every property into `required` and
     make optionals nullable, so Codex sends `{"topic": null, "extra": null}`
     for unused optionals. The validator sees null-vs-string as a type
     mismatch; handlers use `.get()` + falsy checks so absent and
-    explicit-null are identical to them. Strip null values that
-    correspond to not-originally-required properties before validating.
+    explicit-null are identical to them. Walk the input alongside the
+    schema and drop nulls that map to not-originally-required properties
+    at every level — none of our 7 tools have nested object inputs
+    today, but the recursion future-proofs the validator.
     """
     schema = tool.get("input_schema") or {}
-    if schema.get("type") != "object":
-        return input_data
-    required = set(schema.get("required") or [])
-    properties = schema.get("properties") or {}
-    cleaned = {}
-    for key, value in input_data.items():
-        if value is None and key in properties and key not in required:
-            continue
-        cleaned[key] = value
-    return cleaned
+    return _strip_nulls_recursive(input_data, schema)
+
+
+def _strip_nulls_recursive(value, schema):
+    if not isinstance(schema, dict):
+        return value
+    schema_type = schema.get("type")
+    if isinstance(value, dict) and (schema_type == "object" or "properties" in schema):
+        required = set(schema.get("required") or [])
+        properties = schema.get("properties") or {}
+        cleaned: dict = {}
+        for key, sub_value in value.items():
+            sub_schema = properties.get(key)
+            if sub_value is None and key in properties and key not in required:
+                continue
+            if sub_schema is not None:
+                cleaned[key] = _strip_nulls_recursive(sub_value, sub_schema)
+            else:
+                cleaned[key] = sub_value
+        return cleaned
+    if isinstance(value, list) and (schema_type == "array" or "items" in schema):
+        item_schema = schema.get("items")
+        if isinstance(item_schema, dict):
+            return [_strip_nulls_recursive(item, item_schema) for item in value]
+    return value
 
 
 def validate_tool_input(name: str, input_data: dict) -> str | None:

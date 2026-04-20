@@ -43,9 +43,17 @@ class StopReason(str, Enum):
 
 @dataclass
 class Usage:
-    """Token usage for a single LLM call."""
+    """Token usage for a single LLM call.
+
+    `cache_read_tokens` and `cache_write_tokens` are populated by
+    providers that support prompt caching (currently Anthropic) so
+    callers can audit cache efficacy without grepping logs. Both stay 0
+    on providers without cache support.
+    """
     input_tokens: int = 0
     output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 
 
 @dataclass
