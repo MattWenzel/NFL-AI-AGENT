@@ -12,6 +12,7 @@ turns when available, and a tiktoken-based estimate (see
 *when* to compact; not meant for billing.
 """
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass
@@ -56,6 +57,14 @@ MIN_RETENTION_BUDGET_TOKENS = 200
 TOOL_CALL_OVERHEAD_TOKENS = 20
 COMPACTION_TEXT_PREVIEW_CHARS = 240
 COMPACTION_TOOL_INPUT_PREVIEW_CHARS = 160
+
+# Hard ceiling on the entire compaction call (summarizer + heuristic
+# fallback + persistence). The summarizer itself has a 30s ceiling
+# (agent/runtime/summarizer.py:SUMMARIZER_TIMEOUT_SECONDS); this outer
+# bound covers anything that lives outside that wait_for — provider
+# lookup, token estimation against a huge transcript, persistence I/O.
+# Without it, a hung compaction wedges the session lock indefinitely.
+COMPACTION_HARD_TIMEOUT_SECONDS = 45.0
 
 
 @dataclass(frozen=True)
@@ -236,20 +245,46 @@ async def compact_if_needed(
 ) -> dict | None:
     """Compact oldest turns when active tokens exceed the session's context window.
 
-    When `client` is provided, attempt an LLM-generated summary using the
-    provider's `summarizer_model` override (falls back to the heuristic
-    on any error). Without a client, the heuristic summary is used
-    directly — keeps the CLI and offline tests working without hitting
-    the network.
+    Hard-bounded by COMPACTION_HARD_TIMEOUT_SECONDS so a stuck summarizer
+    can't wedge the session lock. On timeout we log loudly and return
+    None — the iteration proceeds without compaction, and the
+    ContextOverflowError path (provider 4xx → forced compaction with
+    retry) will rescue us if the missed compaction blows the window.
+    """
+    try:
+        return await asyncio.wait_for(
+            _compact_if_needed_inner(
+                store, session, client,
+                provider_name=provider_name,
+                force=force,
+                retention_budget_override=retention_budget_override,
+            ),
+            timeout=COMPACTION_HARD_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            "compaction exceeded hard timeout (%.0fs) — skipping for session %s",
+            COMPACTION_HARD_TIMEOUT_SECONDS, session.id,
+        )
+        return None
 
-    `force=True` skips the active-token check — used when the provider
-    rejected the prompt as too long even though our estimator was happy.
-    `retention_budget_override` shrinks the policy's per-turn token
-    budget so the forced pass actually frees space (quartering the
-    budget is a sensible aggressive default).
 
-    Returns a dict describing the compaction (summary turn id, source turn
-    ids, token counts, summary source) when one occurs, else None.
+async def _compact_if_needed_inner(
+    store: RuntimeStore,
+    session: SessionRecord,
+    client: BaseLLMClient | None,
+    *,
+    provider_name: str | None,
+    force: bool,
+    retention_budget_override: int | None,
+) -> dict | None:
+    """Body of compact_if_needed; see that function for parameter docs.
+
+    When `client` is provided, attempts an LLM-generated summary using
+    the provider's `summarizer_model` override (falls back to the
+    heuristic on any error). Without a client, the heuristic summary is
+    used directly — keeps the CLI and offline tests working without
+    hitting the network.
     """
     if not session.context_window:
         return None
