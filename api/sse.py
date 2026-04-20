@@ -21,6 +21,13 @@ def event_to_sse_payload(event: RuntimeEvent) -> dict | None:
         return {"type": "tool_call", "tool_run_id": event.tool_run_id, "name": event.name, "input": event.input}
     if event.type == "compaction_started":
         return {"type": "compaction", "meta": event.meta}
+    if event.type == "retrying":
+        return {
+            "type": "retrying",
+            "attempt": event.attempt,
+            "delay_seconds": event.delay_seconds,
+            "message": event.error or "Retrying after transient error",
+        }
     if event.type == "tool_completed":
         return {"type": "tool_result", "tool_run_id": event.tool_run_id, "name": event.name}
     if event.type == "tool_failed":

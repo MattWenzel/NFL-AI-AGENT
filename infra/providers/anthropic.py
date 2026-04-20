@@ -1,5 +1,6 @@
 """Anthropic Claude provider implementation."""
 
+import asyncio
 import json
 import logging
 import os
@@ -9,8 +10,12 @@ from typing import AsyncIterator
 import anthropic
 
 from infra.providers.base import (
-    BaseLLMClient, LLMError, Message, MessageResponse, TextEvent, ToolUseEvent,
-    StopReason, ToolChoice, Usage, ToolDefinition,
+    BaseLLMClient, LLMError, Message, MessageResponse, RetryingEvent,
+    TextEvent, ToolUseEvent, StopReason, ToolChoice, Usage, ToolDefinition,
+)
+from infra.providers.retry import (
+    MAX_ATTEMPTS, RetryableError, compute_delay, parse_retry_after,
+    parse_retry_after_ms, with_retries,
 )
 
 logger = logging.getLogger(__name__)
@@ -29,6 +34,38 @@ _ANTHROPIC_TOOL_CHOICE: dict[str, dict] = {
     "required": {"type": "any"},
     "none":     {"type": "none"},
 }
+
+
+def _retry_after_from_response(exc: Exception) -> float | None:
+    """Extract a delay (seconds) from Anthropic's response headers."""
+    response = getattr(exc, "response", None)
+    if response is None:
+        return None
+    headers = getattr(response, "headers", None) or {}
+    # `retry-after-ms` is more precise when present; fall back to standard.
+    return (
+        parse_retry_after_ms(headers.get("retry-after-ms"))
+        or parse_retry_after(headers.get("retry-after"))
+    )
+
+
+def classify_anthropic_error(exc: Exception) -> RetryableError | None:
+    """Decide whether an Anthropic SDK exception is safe to retry.
+
+    Retry on rate limits, 5xx (incl. 529 overloaded), connection
+    errors, and request timeouts. Auth, bad-request, and other 4xx
+    are not retryable — they'll fail again on retry.
+    """
+    if isinstance(exc, anthropic.RateLimitError):
+        return RetryableError(exc, retry_after_seconds=_retry_after_from_response(exc))
+    if isinstance(exc, anthropic.APIStatusError):
+        status = getattr(exc, "status_code", None)
+        if status is not None and (status == 529 or 500 <= status < 600):
+            return RetryableError(exc, retry_after_seconds=_retry_after_from_response(exc))
+        return None
+    if isinstance(exc, (anthropic.APIConnectionError, anthropic.APITimeoutError)):
+        return RetryableError(exc)
+    return None
 
 
 class AnthropicClient(BaseLLMClient):
@@ -67,7 +104,10 @@ class AnthropicClient(BaseLLMClient):
             kwargs["model"] = model
         t0 = time.monotonic()
         async with self._wrap_api_errors():
-            response = await self._client.messages.create(**kwargs)
+            response = await with_retries(
+                lambda: self._client.messages.create(**kwargs),
+                classify=classify_anthropic_error,
+            )
         duration = time.monotonic() - t0
         parsed = self._parse_response(response)
         self._set_last_usage(parsed.usage)
@@ -85,65 +125,95 @@ class AnthropicClient(BaseLLMClient):
         tools: list[ToolDefinition] | None = None,
         system: str | None = None,
         tool_choice: ToolChoice | None = None,
-    ) -> AsyncIterator[TextEvent | ToolUseEvent]:
+    ) -> AsyncIterator[TextEvent | ToolUseEvent | RetryingEvent]:
         kwargs = self._build_kwargs(
             self._convert_messages(messages), tools, system, tool_choice,
         )
         t0 = time.monotonic()
-        async with self._wrap_api_errors():
-            stream_ctx = self._client.messages.stream(**kwargs)
+        # Retry the stream-OPEN phase only. Once the stream is established
+        # and we've started yielding events, retrying would double-emit
+        # text — fail the turn instead. The Anthropic SDK opens the HTTP
+        # connection inside `__aenter__`, so transient overload errors
+        # surface there.
+        stream_ctx = None
+        stream = None
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            try:
+                stream_ctx = self._client.messages.stream(**kwargs)
+                stream = await stream_ctx.__aenter__()
+                break
+            except Exception as exc:
+                classification = classify_anthropic_error(exc)
+                if classification is None or attempt >= MAX_ATTEMPTS:
+                    raise self._translate_error(exc)
+                delay = compute_delay(attempt, classification.retry_after_seconds)
+                logger.info(
+                    "anthropic stream open failed (attempt %d/%d, sleep %.1fs): %s",
+                    attempt, MAX_ATTEMPTS, delay, exc,
+                )
+                yield RetryingEvent(
+                    attempt=attempt,
+                    delay_seconds=delay,
+                    error_message=str(exc),
+                )
+                await asyncio.sleep(delay)
+        assert stream is not None and stream_ctx is not None  # loop exits via break or raise
 
         input_tokens = 0
         output_tokens = 0
         stop_reason: StopReason | None = None
         try:
-            async with stream_ctx as stream:
-                current_tool_id = None
-                current_tool_name = None
-                current_tool_input_json = ""
+            current_tool_id = None
+            current_tool_name = None
+            current_tool_input_json = ""
 
-                async for event in stream:
-                    if event.type == "content_block_start":
-                        if event.content_block.type == "tool_use":
-                            current_tool_id = event.content_block.id
-                            current_tool_name = event.content_block.name
-                            current_tool_input_json = ""
-                    elif event.type == "content_block_delta":
-                        if event.delta.type == "text_delta":
-                            yield TextEvent(text=event.delta.text)
-                        elif event.delta.type == "input_json_delta":
-                            current_tool_input_json += event.delta.partial_json
-                    elif event.type == "content_block_stop":
-                        if current_tool_id and current_tool_name:
-                            try:
-                                tool_input = json.loads(current_tool_input_json) if current_tool_input_json else {}
-                            except json.JSONDecodeError:
-                                logger.warning("Failed to parse tool input JSON: %s", current_tool_input_json[:200])
-                                tool_input = {}
-                            yield ToolUseEvent(
-                                id=current_tool_id,
-                                name=current_tool_name,
-                                input=tool_input,
-                            )
-                            current_tool_id = None
-                            current_tool_name = None
-                            current_tool_input_json = ""
-                    elif event.type == "message_start" and hasattr(event, "message"):
-                        usage = getattr(event.message, "usage", None)
-                        if usage:
-                            input_tokens = getattr(usage, "input_tokens", 0) or 0
-                    elif event.type == "message_delta":
-                        usage = getattr(event, "usage", None)
-                        if usage:
-                            output_tokens = getattr(usage, "output_tokens", 0) or 0
-                        delta = getattr(event, "delta", None)
-                        raw_stop = getattr(delta, "stop_reason", None) if delta else None
-                        if raw_stop:
-                            stop_reason = _STOP_MAP.get(raw_stop, StopReason.END_TURN)
+            async for event in stream:
+                if event.type == "content_block_start":
+                    if event.content_block.type == "tool_use":
+                        current_tool_id = event.content_block.id
+                        current_tool_name = event.content_block.name
+                        current_tool_input_json = ""
+                elif event.type == "content_block_delta":
+                    if event.delta.type == "text_delta":
+                        yield TextEvent(text=event.delta.text)
+                    elif event.delta.type == "input_json_delta":
+                        current_tool_input_json += event.delta.partial_json
+                elif event.type == "content_block_stop":
+                    if current_tool_id and current_tool_name:
+                        try:
+                            tool_input = json.loads(current_tool_input_json) if current_tool_input_json else {}
+                        except json.JSONDecodeError:
+                            logger.warning("Failed to parse tool input JSON: %s", current_tool_input_json[:200])
+                            tool_input = {}
+                        yield ToolUseEvent(
+                            id=current_tool_id,
+                            name=current_tool_name,
+                            input=tool_input,
+                        )
+                        current_tool_id = None
+                        current_tool_name = None
+                        current_tool_input_json = ""
+                elif event.type == "message_start" and hasattr(event, "message"):
+                    usage = getattr(event.message, "usage", None)
+                    if usage:
+                        input_tokens = getattr(usage, "input_tokens", 0) or 0
+                elif event.type == "message_delta":
+                    usage = getattr(event, "usage", None)
+                    if usage:
+                        output_tokens = getattr(usage, "output_tokens", 0) or 0
+                    delta = getattr(event, "delta", None)
+                    raw_stop = getattr(delta, "stop_reason", None) if delta else None
+                    if raw_stop:
+                        stop_reason = _STOP_MAP.get(raw_stop, StopReason.END_TURN)
         except LLMError:
             raise
         except Exception as exc:
             raise self._translate_error(exc)
+        finally:
+            try:
+                await stream_ctx.__aexit__(None, None, None)
+            except Exception:
+                logger.exception("Failed to close anthropic stream")
 
         duration = time.monotonic() - t0
         self._set_last_usage(Usage(input_tokens=input_tokens, output_tokens=output_tokens))

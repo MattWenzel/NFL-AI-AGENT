@@ -13,6 +13,7 @@ async function sendMessage() {
     toolRuns: [],
     errors: [],
     compaction: null,
+    notice: null,
   };
   input.value = "";
   autoResize();
@@ -100,6 +101,7 @@ function handleStreamEvent(event) {
     state.liveTurn.status = "responding";
   } else if (event.type === "text") {
     state.liveTurn.status = "responding";
+    state.liveTurn.notice = null;
     state.liveTurn.assistantText += event.text;
     // Critical: skip the full re-render on text deltas. Streaming emits
     // dozens of text events per second, and with many prior turns in the
@@ -134,6 +136,12 @@ function handleStreamEvent(event) {
     // makes the turn look broken even when the model retries and recovers.
   } else if (event.type === "compaction") {
     state.liveTurn.compaction = event.meta;
+  } else if (event.type === "retrying") {
+    // Provider hit a transient overload before any text streamed.
+    // Surface as a notice on the live turn so the user sees progress
+    // instead of a silent stall during the backoff sleep.
+    const seconds = Math.max(1, Math.round(event.delay_seconds || 0));
+    state.liveTurn.notice = `Retrying after rate limit (attempt ${event.attempt}, ~${seconds}s)`;
   } else if (event.type === "error") {
     state.liveTurn.status = "error";
     state.liveTurn.errors.push(event.message);

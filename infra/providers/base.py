@@ -77,6 +77,21 @@ class ToolUseEvent:
 
 
 @dataclass
+class RetryingEvent:
+    """Emitted by `stream_message` before sleeping on a retryable failure.
+
+    The runtime forwards this to the UI as a "retrying after rate limit"
+    notice so a long sleep doesn't look like a frozen stream. Provider
+    implementations only emit this *before* any TextEvent/ToolUseEvent
+    has been yielded — once real content has flown, retries become
+    unsafe.
+    """
+    attempt: int
+    delay_seconds: float
+    error_message: str
+
+
+@dataclass
 class MessageResponse:
     """Complete (non-streamed) message response."""
     content: list  # list of TextEvent | ToolUseEvent
@@ -137,7 +152,7 @@ class BaseLLMClient(ABC):
         tools: list[ToolDefinition] | None = None,
         system: str | None = None,
         tool_choice: ToolChoice | None = None,
-    ) -> AsyncIterator[TextEvent | ToolUseEvent]:
+    ) -> AsyncIterator[TextEvent | ToolUseEvent | RetryingEvent]:
         """Stream a message response, yielding text chunks and tool calls.
 
         `tool_choice` overrides the provider's default when set. `None`

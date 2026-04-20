@@ -12,6 +12,7 @@ client here only ever sees a live access token string passed as `api_key`.
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import logging
@@ -27,6 +28,7 @@ from infra.providers.base import (
     LLMError,
     Message,
     MessageResponse,
+    RetryingEvent,
     StopReason,
     TextEvent,
     ToolChoice,
@@ -34,10 +36,38 @@ from infra.providers.base import (
     ToolUseEvent,
     Usage,
 )
+from infra.providers.retry import (
+    MAX_ATTEMPTS,
+    RetryableError,
+    compute_delay,
+    parse_retry_after,
+    parse_retry_after_ms,
+)
 
 logger = logging.getLogger(__name__)
 
 CODEX_URL = "https://chatgpt.com/backend-api/codex/responses"
+
+
+def _classify_codex_error(exc: Exception) -> RetryableError | None:
+    """Decide whether a Codex/httpx error is safe to retry.
+
+    Retry on 429, 5xx, connection errors, and timeouts. 401/403 (token
+    rejected) and 4xx other than 429 propagate immediately.
+    """
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        if status == 429 or 500 <= status < 600:
+            headers = exc.response.headers or {}
+            retry_after = (
+                parse_retry_after_ms(headers.get("retry-after-ms"))
+                or parse_retry_after(headers.get("retry-after"))
+            )
+            return RetryableError(exc, retry_after_seconds=retry_after)
+        return None
+    if isinstance(exc, (httpx.ConnectError, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout)):
+        return RetryableError(exc)
+    return None
 
 
 class OpenAICodexClient(BaseLLMClient):
@@ -133,7 +163,7 @@ class OpenAICodexClient(BaseLLMClient):
         *,
         model: str | None = None,
         tool_choice: ToolChoice | None = None,
-    ) -> AsyncIterator[TextEvent | ToolUseEvent]:
+    ) -> AsyncIterator[TextEvent | ToolUseEvent | RetryingEvent]:
         body = self._build_body(messages, tools, system, model=model, tool_choice=tool_choice)
         headers = {
             "Authorization": f"Bearer {self._access_token}",
@@ -144,97 +174,119 @@ class OpenAICodexClient(BaseLLMClient):
             "Accept": "text/event-stream",
         }
         t0 = time.monotonic()
-        # Per-stream assembly state
-        item_to_call: dict[str, str] = {}  # ephemeral item.id → stable call_id
-        calls: dict[str, dict] = {}        # call_id → {name, arguments, emitted}
-        pending_text: list[str] = []
         usage = Usage()
         stop_reason: StopReason | None = None
-
-        try:
-            async with self._http.stream("POST", CODEX_URL, headers=headers, json=body) as resp:
-                if resp.status_code >= 400:
-                    payload = await resp.aread()
-                    raise httpx.HTTPStatusError(
-                        f"Codex returned {resp.status_code}",
-                        request=resp.request,
-                        response=httpx.Response(
-                            resp.status_code,
-                            content=payload,
+        # Retry the stream-OPEN phase. Once we've yielded any TextEvent or
+        # ToolUseEvent, retries become unsafe; the inner code flips
+        # `events_yielded` so the outer except clause knows to propagate.
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            # Reset per-attempt assembly state so a retry doesn't carry over
+            # ghost tool slots from a partial earlier attempt.
+            item_to_call: dict[str, str] = {}
+            calls: dict[str, dict] = {}
+            events_yielded = False
+            try:
+                async with self._http.stream("POST", CODEX_URL, headers=headers, json=body) as resp:
+                    if resp.status_code >= 400:
+                        payload = await resp.aread()
+                        raise httpx.HTTPStatusError(
+                            f"Codex returned {resp.status_code}",
                             request=resp.request,
-                        ),
-                    )
-                async for raw_event in self._iter_sse(resp):
-                    etype = raw_event.get("type")
-                    if etype == "error":
-                        msg = (raw_event.get("error") or {}).get("message") or "Codex stream error"
-                        raise LLMError(msg)
+                            response=httpx.Response(
+                                resp.status_code,
+                                content=payload,
+                                request=resp.request,
+                            ),
+                        )
+                    async for raw_event in self._iter_sse(resp):
+                        etype = raw_event.get("type")
+                        if etype == "error":
+                            msg = (raw_event.get("error") or {}).get("message") or "Codex stream error"
+                            raise LLMError(msg)
 
-                    if etype == "response.output_text.delta":
-                        delta = raw_event.get("delta") or ""
-                        if delta:
-                            pending_text.append(delta)
-                            yield TextEvent(text=delta)
+                        if etype == "response.output_text.delta":
+                            delta = raw_event.get("delta") or ""
+                            if delta:
+                                events_yielded = True
+                                yield TextEvent(text=delta)
 
-                    elif etype == "response.output_item.added":
-                        item = raw_event.get("item") or {}
-                        if item.get("type") == "function_call":
-                            call_id = item.get("call_id") or item.get("id") or f"call_{uuid.uuid4().hex[:12]}"
-                            item_id = item.get("id")
-                            if item_id:
-                                item_to_call[item_id] = call_id
-                            calls.setdefault(call_id, {
-                                "name": item.get("name", ""),
-                                "arguments": "",
-                                "emitted": False,
-                            })
+                        elif etype == "response.output_item.added":
+                            item = raw_event.get("item") or {}
+                            if item.get("type") == "function_call":
+                                call_id = item.get("call_id") or item.get("id") or f"call_{uuid.uuid4().hex[:12]}"
+                                item_id = item.get("id")
+                                if item_id:
+                                    item_to_call[item_id] = call_id
+                                calls.setdefault(call_id, {
+                                    "name": item.get("name", ""),
+                                    "arguments": "",
+                                    "emitted": False,
+                                })
 
-                    elif etype == "response.function_call_arguments.delta":
-                        call_id = self._resolve_call_id(raw_event, item_to_call)
-                        delta = raw_event.get("delta") or ""
-                        if call_id:
-                            slot = calls.setdefault(call_id, {"name": "", "arguments": "", "emitted": False})
-                            slot["arguments"] += delta
-
-                    elif etype == "response.function_call_arguments.done":
-                        call_id = self._resolve_call_id(raw_event, item_to_call)
-                        final_args = raw_event.get("arguments")
-                        if call_id:
-                            slot = calls.setdefault(call_id, {"name": "", "arguments": "", "emitted": False})
-                            if final_args is not None:
-                                slot["arguments"] = final_args
-                            # Wait for output_item.done to fill in name if missing; emit if we have both.
-                            if slot["name"] and not slot["emitted"]:
-                                slot["emitted"] = True
-                                yield self._assemble_tool_event(call_id, slot)
-
-                    elif etype == "response.output_item.done":
-                        item = raw_event.get("item") or {}
-                        if item.get("type") == "function_call":
-                            call_id = item.get("call_id") or item_to_call.get(item.get("id", ""))
+                        elif etype == "response.function_call_arguments.delta":
+                            call_id = self._resolve_call_id(raw_event, item_to_call)
+                            delta = raw_event.get("delta") or ""
                             if call_id:
                                 slot = calls.setdefault(call_id, {"name": "", "arguments": "", "emitted": False})
-                                if item.get("name"):
-                                    slot["name"] = item["name"]
-                                if item.get("arguments") is not None:
-                                    slot["arguments"] = item["arguments"]
+                                slot["arguments"] += delta
+
+                        elif etype == "response.function_call_arguments.done":
+                            call_id = self._resolve_call_id(raw_event, item_to_call)
+                            final_args = raw_event.get("arguments")
+                            if call_id:
+                                slot = calls.setdefault(call_id, {"name": "", "arguments": "", "emitted": False})
+                                if final_args is not None:
+                                    slot["arguments"] = final_args
+                                # Wait for output_item.done to fill in name if missing; emit if we have both.
                                 if slot["name"] and not slot["emitted"]:
                                     slot["emitted"] = True
+                                    events_yielded = True
                                     yield self._assemble_tool_event(call_id, slot)
 
-                    elif etype in ("response.done", "response.completed"):
-                        # `response.output` is empirically always [] on this endpoint —
-                        # streaming events (output_item.added / function_call_arguments.done /
-                        # output_item.done) are the sole source of truth for tool calls.
-                        response = raw_event.get("response") or {}
-                        usage = self._parse_usage(response.get("usage"))
-                        stop_reason = self._derive_stop_reason(calls)
-        except LLMError:
-            raise
-        except httpx.HTTPStatusError as exc:
-            raise self._translate_error(exc)
-        except Exception as exc:
-            raise self._translate_error(exc)
+                        elif etype == "response.output_item.done":
+                            item = raw_event.get("item") or {}
+                            if item.get("type") == "function_call":
+                                call_id = item.get("call_id") or item_to_call.get(item.get("id", ""))
+                                if call_id:
+                                    slot = calls.setdefault(call_id, {"name": "", "arguments": "", "emitted": False})
+                                    if item.get("name"):
+                                        slot["name"] = item["name"]
+                                    if item.get("arguments") is not None:
+                                        slot["arguments"] = item["arguments"]
+                                    if slot["name"] and not slot["emitted"]:
+                                        slot["emitted"] = True
+                                        events_yielded = True
+                                        yield self._assemble_tool_event(call_id, slot)
+
+                        elif etype in ("response.done", "response.completed"):
+                            # `response.output` is empirically always [] on this endpoint —
+                            # streaming events (output_item.added / function_call_arguments.done /
+                            # output_item.done) are the sole source of truth for tool calls.
+                            response = raw_event.get("response") or {}
+                            usage = self._parse_usage(response.get("usage"))
+                            stop_reason = self._derive_stop_reason(calls)
+                # Stream finished cleanly — exit the retry loop.
+                break
+            except LLMError:
+                raise
+            except Exception as exc:
+                if events_yielded:
+                    # Mid-stream — partial output already flown; can't safely retry.
+                    raise self._translate_error(exc)
+                classification = _classify_codex_error(exc)
+                if classification is None or attempt >= MAX_ATTEMPTS:
+                    raise self._translate_error(exc)
+                delay = compute_delay(attempt, classification.retry_after_seconds)
+                logger.info(
+                    "codex stream open failed (attempt %d/%d, sleep %.1fs): %s",
+                    attempt, MAX_ATTEMPTS, delay, exc,
+                )
+                yield RetryingEvent(
+                    attempt=attempt,
+                    delay_seconds=delay,
+                    error_message=str(exc),
+                )
+                await asyncio.sleep(delay)
 
         # Fallback: if the stream terminated on `[DONE]` before emitting
         # response.done/response.completed, derive stop_reason from the

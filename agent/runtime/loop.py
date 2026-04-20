@@ -25,6 +25,7 @@ from infra.persistence.runtime_store import (
 )
 from infra.providers import (
     BaseLLMClient,
+    RetryingEvent,
     StopReason,
     TextEvent,
     ToolChoice,
@@ -149,7 +150,20 @@ class ChatRuntime:
                             system=get_base_prompt(),
                             tool_choice=iter_tool_choice,
                         ):
-                            if isinstance(event, TextEvent):
+                            if isinstance(event, RetryingEvent):
+                                # Provider hit a transient error before any
+                                # content streamed; surface it so the UI shows
+                                # progress instead of a silent stall.
+                                yield RuntimeEvent(
+                                    type="retrying",
+                                    session_id=session.id,
+                                    turn_id=assistant_turn.id,
+                                    error=event.error_message,
+                                    attempt=event.attempt,
+                                    delay_seconds=event.delay_seconds,
+                                    iterations=iterations,
+                                )
+                            elif isinstance(event, TextEvent):
                                 self.store.append_turn_text(assistant_turn.id, event.text)
                                 self.store.add_part(session.id, assistant_turn.id, "text", event.text)
                                 yield RuntimeEvent(

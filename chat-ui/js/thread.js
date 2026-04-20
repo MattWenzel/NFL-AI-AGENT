@@ -398,6 +398,7 @@ function renderLiveTurnCard() {
       ${isTyping ? `<div class="typing-dots"><span></span><span></span><span></span></div>` : ""}
       ${showTypingStatus ? `<div class="inline-status"><span class="spinner"></span>${escapeHtml(statusLabel(live.status))}</div>` : ""}
       ${live.compaction ? renderCompactionBanner(live.compaction) : ""}
+      ${live.notice ? `<div class="inline-status"><span class="spinner"></span>${escapeHtml(live.notice)}</div>` : ""}
       ${live.errors.map(error => `<div class="inline-status" style="background:var(--red-soft);color:var(--red)">${escapeHtml(error)}</div>`).join("")}
     </article>`;
 }

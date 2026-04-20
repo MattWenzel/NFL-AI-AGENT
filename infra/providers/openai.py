@@ -1,5 +1,6 @@
 """OpenAI provider implementation."""
 
+import asyncio
 import json
 import logging
 import os
@@ -7,8 +8,12 @@ import time
 from typing import AsyncIterator
 
 from infra.providers.base import (
-    BaseLLMClient, LLMError, Message, MessageResponse, TextEvent, ToolUseEvent,
-    StopReason, ToolChoice, Usage, ToolDefinition,
+    BaseLLMClient, LLMError, Message, MessageResponse, RetryingEvent,
+    TextEvent, ToolUseEvent, StopReason, ToolChoice, Usage, ToolDefinition,
+)
+from infra.providers.retry import (
+    MAX_ATTEMPTS, RetryableError, compute_delay, parse_retry_after,
+    parse_retry_after_ms, with_retries,
 )
 
 logger = logging.getLogger(__name__)
@@ -21,6 +26,36 @@ _STOP_MAP: dict[str, StopReason] = {
     "tool_calls": StopReason.TOOL_USE,
     "length": StopReason.MAX_TOKENS,
 }
+
+
+def _retry_after_from_response(exc: Exception) -> float | None:
+    """Pull a delay (seconds) from OpenAI's response headers."""
+    response = getattr(exc, "response", None)
+    if response is None:
+        return None
+    headers = getattr(response, "headers", None) or {}
+    return (
+        parse_retry_after_ms(headers.get("retry-after-ms"))
+        or parse_retry_after(headers.get("retry-after"))
+    )
+
+
+def classify_openai_error(exc: Exception) -> RetryableError | None:
+    """Decide whether an OpenAI SDK exception is safe to retry.
+
+    Same shape as the Anthropic classifier: rate-limit, 5xx, connection
+    errors, and timeouts retry; auth and 4xx propagate immediately.
+    """
+    if isinstance(exc, openai.RateLimitError):
+        return RetryableError(exc, retry_after_seconds=_retry_after_from_response(exc))
+    if isinstance(exc, openai.APIStatusError):
+        status = getattr(exc, "status_code", None)
+        if status is not None and 500 <= status < 600:
+            return RetryableError(exc, retry_after_seconds=_retry_after_from_response(exc))
+        return None
+    if isinstance(exc, (openai.APIConnectionError, openai.APITimeoutError)):
+        return RetryableError(exc)
+    return None
 
 
 class OpenAIClient(BaseLLMClient):
@@ -61,7 +96,10 @@ class OpenAIClient(BaseLLMClient):
             kwargs["model"] = model
         t0 = time.monotonic()
         async with self._wrap_api_errors():
-            response = await self._client.chat.completions.create(**kwargs)
+            response = await with_retries(
+                lambda: self._client.chat.completions.create(**kwargs),
+                classify=classify_openai_error,
+            )
         duration = time.monotonic() - t0
         parsed = self._parse_response(response)
         self._set_last_usage(parsed.usage)
@@ -79,7 +117,7 @@ class OpenAIClient(BaseLLMClient):
         tools: list[ToolDefinition] | None = None,
         system: str | None = None,
         tool_choice: ToolChoice | None = None,
-    ) -> AsyncIterator[TextEvent | ToolUseEvent]:
+    ) -> AsyncIterator[TextEvent | ToolUseEvent | RetryingEvent]:
         kwargs = self._build_kwargs(
             self._convert_messages(messages),
             self._convert_tools(tools),
@@ -89,8 +127,31 @@ class OpenAIClient(BaseLLMClient):
         kwargs["stream"] = True
         kwargs["stream_options"] = {"include_usage": True}
         t0 = time.monotonic()
-        async with self._wrap_api_errors():
-            stream = await self._client.chat.completions.create(**kwargs)
+        # Retry the stream-OPEN phase only. The OpenAI SDK returns the
+        # stream object from `create(..., stream=True)` — that's where
+        # transient overload errors surface. Once we're iterating, partial
+        # text has been yielded and retries would double-emit.
+        stream = None
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            try:
+                stream = await self._client.chat.completions.create(**kwargs)
+                break
+            except Exception as exc:
+                classification = classify_openai_error(exc)
+                if classification is None or attempt >= MAX_ATTEMPTS:
+                    raise self._translate_error(exc)
+                delay = compute_delay(attempt, classification.retry_after_seconds)
+                logger.info(
+                    "openai stream open failed (attempt %d/%d, sleep %.1fs): %s",
+                    attempt, MAX_ATTEMPTS, delay, exc,
+                )
+                yield RetryingEvent(
+                    attempt=attempt,
+                    delay_seconds=delay,
+                    error_message=str(exc),
+                )
+                await asyncio.sleep(delay)
+        assert stream is not None  # loop exits via break or raise
 
         # Track tool call accumulation across chunks
         tool_calls_acc: dict[int, dict] = {}  # index -> {id, name, arguments}

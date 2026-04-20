@@ -24,6 +24,11 @@ class RuntimeEvent:
     iterations: int | None = None
     status: str | None = None
     meta: dict | None = None
+    # Retry-specific fields surfaced by the `retrying` event so the UI can
+    # render "retrying after rate limit (attempt 2/4, ~4s)" instead of a
+    # silent stall.
+    attempt: int | None = None
+    delay_seconds: float | None = None
 
 
 class RuntimeLoopError(Exception):
