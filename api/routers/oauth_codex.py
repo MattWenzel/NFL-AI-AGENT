@@ -109,11 +109,13 @@ async def _run_device_flow(pending_id: str, store: RuntimeStore) -> None:
         # /cancel was called — leave the record as "pending" since the
         # caller is already handling status in their own response.
         raise
-    except Exception as exc:
+    except Exception:
+        # User-facing message only — the raw exception may include OpenAI
+        # implementation detail. Full traceback goes to the logger.
+        logger.exception("Codex OAuth failed for user=%d", rec.user_id)
         async with rec.lock:
             rec.status = "error"
-            rec.error = str(exc)
-        logger.exception("Codex OAuth failed for user=%d", rec.user_id)
+            rec.error = "Sign-in failed — try again."
 
 
 @router.post("/start", response_model=CodexOAuthStartResponse)
@@ -177,9 +179,13 @@ async def cancel_codex_oauth(
     pending_id: str = Query(..., min_length=16, max_length=64),
     user: AuthenticatedUser = Depends(get_current_user),
 ) -> dict:
-    rec = _pending.pop(pending_id, None)
+    # Peek before pop — a cross-user request must leave the legitimate
+    # owner's record intact, otherwise one user could wipe another user's
+    # in-flight flow by guessing pending_ids.
+    rec = _pending.get(pending_id)
     if rec is None or rec.user_id != user.id:
         raise HTTPException(status_code=404, detail="Unknown pending flow")
+    _pending.pop(pending_id, None)
     if rec.task and not rec.task.done():
         rec.task.cancel()
         try:
