@@ -18,12 +18,15 @@ EXPORT_MAX_ROWS = 10_000
 # Patterns that indicate PBP table usage
 _PBP_PATTERNS = re.compile(r"\bplay_by_play\b|\bpbp\.", re.IGNORECASE)
 
-# Only allow SELECT and WITH (CTE) statements, tolerating leading whitespace
-# and SQL comments (-- line and /* block */) before the keyword.
-_ALLOWED_START = re.compile(
-    r"^(?:\s+|--[^\n]*(?:\n|$)|/\*.*?\*/)*(SELECT|WITH)\b",
-    re.IGNORECASE | re.DOTALL,
+# Strip leading whitespace + SQL comments (-- line and /* block */) before
+# checking the leading keyword. Done in two steps (strip, then match) so
+# `_ALLOWED_START` is a simple keyword check that can't be confused by
+# crafted comment payloads.
+_LEADING_COMMENT = re.compile(
+    r"^(?:\s+|--[^\n]*(?:\n|$)|/\*.*?\*/)+",
+    re.DOTALL,
 )
+_ALLOWED_START = re.compile(r"^(SELECT|WITH)\b", re.IGNORECASE)
 
 # Trailing LIMIT clause with numeric value or parameter placeholder (?, :name).
 # Numeric values are capped at max_rows; placeholders are trusted to the caller.
@@ -46,6 +49,20 @@ class SQLValidationError(Exception):
     """Raised when SQL fails validation checks."""
 
 
+def _strip_leading_comments(sql: str) -> str:
+    """Repeatedly strip leading whitespace + SQL comments from `sql`.
+
+    Looped because `--` line comments and `/* */` block comments can
+    interleave; one regex pass would only consume the first run.
+    """
+    previous = None
+    current = sql.lstrip()
+    while previous != current:
+        previous = current
+        current = _LEADING_COMMENT.sub("", current)
+    return current
+
+
 def validate_sql(sql: str) -> None:
     """Validate that SQL is a safe read-only statement.
 
@@ -55,7 +72,10 @@ def validate_sql(sql: str) -> None:
     if not stripped:
         raise SQLValidationError("Empty SQL statement")
 
-    if not _ALLOWED_START.match(stripped):
+    # Strip leading comments before checking the keyword so a crafted
+    # `/* SELECT */ DELETE …` can't masquerade as a SELECT.
+    body = _strip_leading_comments(stripped)
+    if not body or not _ALLOWED_START.match(body):
         raise SQLValidationError(
             "Only SELECT and WITH (CTE) statements are allowed"
         )
@@ -149,8 +169,12 @@ def execute_export_sql(sql: str) -> SQLResult:
 def _ensure_limit(sql: str, max_rows: int) -> str:
     """Add LIMIT clause if missing, or cap an existing numeric LIMIT at max_rows.
 
-    Parameterized LIMITs (? or :name) are passed through unchanged — the caller
-    is responsible for clamping the bound value.
+    Parameterized LIMITs (`?` or `:name`) are passed through untouched.
+    No internal handler currently emits parameterized LIMITs (search:
+    `agent/tools/handlers/`), so the contract is enforced by convention,
+    not by code: if a future handler wants to use `?` for LIMIT, it must
+    clamp the bound value to `MAX_ROWS` / `EXPORT_MAX_ROWS` itself
+    before calling _run_sql, otherwise the row cap is bypassable.
     """
     stripped = sql.rstrip().rstrip(";")
     match = _TRAILING_LIMIT.search(stripped)
