@@ -14,8 +14,9 @@ come from `api.dependencies`. Event-to-wire translation lives in
 import asyncio
 import json
 import logging
+from collections import defaultdict
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
 from agent.runtime import ChatRuntime, TOOLS
@@ -40,6 +41,47 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 # reverse proxies (nginx 60s default, Cloudflare 100s) don't drop the
 # connection while a long-running tool call is in flight.
 SSE_HEARTBEAT_SECONDS = 15
+
+# Cap concurrent /chat/stream requests per user. The session lock already
+# serializes within a single conversation; this gate protects the host
+# from a single user fanning out across many sessions in parallel
+# (intentionally or via a runaway client). 3 is generous for normal use
+# (tabs, hot reload) and tight enough that one user can't exhaust the
+# event-loop / SQLite write budget.
+MAX_CONCURRENT_STREAMS_PER_USER = 3
+_active_streams_per_user: dict[int, int] = defaultdict(int)
+_active_streams_lock = asyncio.Lock()
+
+
+async def _acquire_stream_slot(user_id: int) -> None:
+    """Reserve a stream slot for the user or raise 429.
+
+    Held under _active_streams_lock to make the read-then-increment race
+    impossible. The lock is short-held; the actual stream work happens
+    outside it.
+    """
+    async with _active_streams_lock:
+        if _active_streams_per_user[user_id] >= MAX_CONCURRENT_STREAMS_PER_USER:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=(
+                    f"Too many concurrent chat streams (max "
+                    f"{MAX_CONCURRENT_STREAMS_PER_USER} per user). "
+                    "Wait for an in-flight reply to finish."
+                ),
+            )
+        _active_streams_per_user[user_id] += 1
+
+
+async def _release_stream_slot(user_id: int) -> None:
+    async with _active_streams_lock:
+        remaining = _active_streams_per_user.get(user_id, 0) - 1
+        if remaining > 0:
+            _active_streams_per_user[user_id] = remaining
+        else:
+            # Drop the entry so the dict doesn't grow without bound for
+            # users who only chat occasionally.
+            _active_streams_per_user.pop(user_id, None)
 
 
 async def _prepare_chat(
@@ -157,7 +199,15 @@ async def chat_stream(
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     """Send a message and stream the response via SSE."""
-    client, provider_name, session = await _prepare_chat(body, runtime, store, user)
+    # Reserve a slot before we touch any provider state. If the cap is
+    # hit the request fails with 429 *before* a session is prepared, so
+    # we don't churn an LLM client for a rejected request.
+    await _acquire_stream_slot(user.id)
+    try:
+        client, provider_name, session = await _prepare_chat(body, runtime, store, user)
+    except BaseException:
+        await _release_stream_slot(user.id)
+        raise
 
     async def event_generator():
         logger.debug("chat/stream  session=%s  msg=%s", session.id, body.message[:100])
@@ -234,6 +284,7 @@ async def chat_stream(
             except Exception:
                 logger.exception("Failed to close runtime source  session=%s", session.id)
             await close_client(client)
+            await _release_stream_slot(user.id)
 
     return StreamingResponse(
         event_generator(),
