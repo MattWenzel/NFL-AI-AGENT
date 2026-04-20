@@ -1,6 +1,6 @@
 """Token counting for compaction decisions.
 
-Used by `agent/runtime/compaction.py` to estimate whether the active
+Used by `agent/compaction.py` to estimate whether the active
 transcript has grown past the session's context window. Accuracy matters
 only enough to pick a compaction boundary — not billing — so we use a
 single tiktoken encoder (cl100k_base) for both Anthropic and OpenAI.

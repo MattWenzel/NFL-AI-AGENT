@@ -6,9 +6,9 @@ This doc covers the trigger, the retention policy, how the summary is generated 
 
 ## File map
 
-- `agent/runtime/compaction.py` — trigger, policy, token estimation, heuristic summary.
-- `agent/runtime/summarizer.py` — LLM-backed summarizer.
-- `infra/persistence/runtime_store.py` — persists summaries and rebuilds wire messages with them.
+- `agent/compaction.py` — trigger, policy, token estimation, heuristic summary.
+- `agent/summarizer.py` — LLM-backed summarizer.
+- `storage/` — persists summaries and rebuilds wire messages with them.
 
 ## The trigger
 
@@ -65,7 +65,7 @@ Two paths, `_build_summary` (`compaction.py:216`):
 
 ### LLM path
 
-`summarizer.py:65`. Uses the provider's **summarizer_model** — a cheap sibling of the main model (e.g., Haiku for Anthropic, gpt-5-mini for OpenAI). Declared per provider in `infra/providers/__init__.py`. See [providers.md](providers.md#summarizer-model).
+`summarizer.py:65`. Uses the provider's **summarizer_model** — a cheap sibling of the main model (e.g., Haiku for Anthropic, gpt-5-mini for OpenAI). Declared per provider in `provider/__init__.py`. See [providers.md](providers.md#summarizer-model).
 
 System prompt (`summarizer.py:31`) instructs the model to produce a dense bulleted memo preserving:
 
@@ -160,7 +160,7 @@ The `Conversation Memory` section of the system prompt (`system.py:20`) reinforc
 
 ## Interaction with the iteration loop
 
-Compaction is checked at the **top of every loop iteration** (`loop.py:112`), not just at session start. This matters because a single turn can drive the loop through 10 iterations of tool_use → tool_result → model response, each one growing the active transcript. A session that was 80% of window at turn start can blow past the window by iteration 5.
+Compaction is checked at the **top of every loop iteration** (`runtime.py:134`), not just at session start. This matters because a single turn can drive the loop through 10 iterations of tool_use → tool_result → model response, each one growing the active transcript. A session that was 80% of window at turn start can blow past the window by iteration 5.
 
 Checking every iteration means the runtime can compact mid-turn. The session lock ensures no other turn is writing while this happens.
 

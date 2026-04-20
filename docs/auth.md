@@ -6,11 +6,11 @@ This doc covers the password flow, token scheme, rate limiting, API-key encrypti
 
 ## File map
 
-- `api/routers/auth.py` — HTTP endpoints.
-- `api/auth.py` — `AuthenticatedUser`, `get_current_user` dependency, password hashing, token generation.
-- `api/rate_limit.py` — sliding-window rate limiter keyed by IP.
-- `infra/encryption.py` — Fernet wrapper for API-key storage.
-- `infra/persistence/runtime_store.py` — `users`, `auth_sessions`, `user_api_keys` tables (see [persistence.md](persistence.md#schema)).
+- `server/routes/auth.py` — HTTP endpoints.
+- `auth/primitives.py` — `AuthenticatedUser`, `get_current_user` dependency, password hashing, token generation.
+- `server/rate_limit.py` — sliding-window rate limiter keyed by IP.
+- `auth/encryption.py` — Fernet wrapper for API-key storage.
+- `storage/` — `users`, `auth_sessions`, `user_api_keys` tables (see [persistence.md](persistence.md#schema)).
 
 ## Endpoints
 
@@ -23,7 +23,7 @@ This doc covers the password flow, token scheme, rate limiting, API-key encrypti
 | `PUT` | `/auth/password` | Rotate password; invalidates all other sessions for this user. |
 | `DELETE` | `/auth/me` | Cascade delete — user, sessions, API keys, conversations, exports, on-disk CSVs. |
 
-All protected endpoints across the app depend on `get_current_user` (`api/auth.py:88`), which resolves the bearer token or raises 401. `/auth/status` uses the optional variant (`get_current_user_optional`, `api/auth.py:102`) so an unauthenticated caller gets a useful response instead of 401.
+All protected endpoints across the app depend on `get_current_user` (`auth/primitives.py:88`), which resolves the bearer token or raises 401. `/auth/status` uses the optional variant (`get_current_user_optional`, `auth/primitives.py:102`) so an unauthenticated caller gets a useful response instead of 401.
 
 ## The password flow
 
@@ -38,7 +38,7 @@ All protected endpoints across the app depend on `get_current_user` (`api/auth.p
 5. `_issue_session` — generate token, write `auth_sessions` row with `expires_at = now + AUTH_TOKEN_TTL_DAYS`.
 6. Return `{token, user: {id, email, role}}`.
 
-Pydantic (`RegisterRequest` in `api/schemas.py`) enforces password minimum length before the handler runs.
+Pydantic (`RegisterRequest` in `server/schemas/`) enforces password minimum length before the handler runs.
 
 ### Login
 
@@ -54,7 +54,7 @@ Successful login doesn't revoke existing sessions. The user may have other devic
 
 ### Logout
 
-`auth.py:193`. Parses the bearer token directly from the request header (`_extract_bearer` in `api/auth.py:58`) rather than through `get_current_user`, which only exposes the user record. Then `store.delete_auth_session(token)` removes the row. Subsequent requests with that token will 401.
+`auth.py:193`. Parses the bearer token directly from the request header (`_extract_bearer` in `auth/primitives.py:58`) rather than through `get_current_user`, which only exposes the user record. Then `store.delete_auth_session(token)` removes the row. Subsequent requests with that token will 401.
 
 `get_current_user` is still a dependency so an unauthenticated caller can't log anyone out — need a valid token first.
 
@@ -79,7 +79,7 @@ The calling session dies along with the rest, so the next request from the clien
 
 ## Password hashing
 
-`api/auth.py:40`. bcrypt at default cost factor (12):
+`auth/primitives.py:40`. bcrypt at default cost factor (12):
 
 ```python
 def hash_password(plain): return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
@@ -92,13 +92,13 @@ Cost 12 → roughly ~300ms per verify on typical hardware. That's intentional: f
 
 ## Bearer tokens
 
-`api/auth.py:53`. `secrets.token_urlsafe(32)` — 32 random bytes, base64-urlsafe encoded. ~256 bits of entropy. Collision-resistant; unguessable.
+`auth/primitives.py:53`. `secrets.token_urlsafe(32)` — 32 random bytes, base64-urlsafe encoded. ~256 bits of entropy. Collision-resistant; unguessable.
 
 Stored as the primary key of `auth_sessions` alongside `user_id`, `expires_at`, `created_at`, `last_used_at`.
 
 ### Token resolution
 
-`_resolve_user` (`api/auth.py:68`):
+`_resolve_user` (`auth/primitives.py:68`):
 
 1. Pull bearer from `Authorization` (case-insensitive, handle both `Authorization` and `authorization`).
 2. `store.get_auth_session(token)` — 401 if unknown.
@@ -108,11 +108,11 @@ Stored as the primary key of `auth_sessions` alongside `user_id`, `expires_at`, 
 
 ### TTL
 
-Default 30 days (`AUTH_TOKEN_TTL_DAYS` env var). The lifespan purges expired sessions on startup (`main.py:49`); the resolver cleans them up lazily on access. There's no background sweeper — the two together are enough.
+Default 30 days (`AUTH_TOKEN_TTL_DAYS` env var). The lifespan purges expired sessions on startup (`app.py:49`); the resolver cleans them up lazily on access. There's no background sweeper — the two together are enough.
 
 ## Rate limiting
 
-`api/rate_limit.py`. In-memory sliding-window limiter, keyed by client IP.
+`server/rate_limit.py`. In-memory sliding-window limiter, keyed by client IP.
 
 Three limiters on the auth router:
 
@@ -134,7 +134,7 @@ Users can bring their own Anthropic / OpenAI keys via the Settings modal. Storag
 
 ### Encryption
 
-`infra/encryption.py`. Uses `cryptography.fernet.Fernet` — AES-128-CBC + HMAC-SHA256 with a master key from `SETTINGS_ENCRYPTION_KEY` env var.
+`auth/encryption.py`. Uses `cryptography.fernet.Fernet` — AES-128-CBC + HMAC-SHA256 with a master key from `SETTINGS_ENCRYPTION_KEY` env var.
 
 - `encrypt(plaintext) -> str` — ciphertext as base64 URL-safe string.
 - `decrypt(ciphertext) -> str` — raises `ValueError` on auth failure (wrong key, tampered ciphertext).
@@ -150,10 +150,10 @@ The Fernet instance is lazily loaded (`encryption.py:42`) so CLI contexts withou
 
 Flow at request time:
 
-1. `resolve_user_credential` in `api/dependencies.py` calls `store.get_api_key(user_id, provider)`.
+1. `resolve_user_credential` in `server/dependencies.py` calls `store.get_api_key(user_id, provider)`.
 2. If a row exists, `encryption.decrypt(rec.encrypted_key)`. On `ValueError` (tampered / key-era mismatch), log and return `None`.
 3. The plain key is passed to `create_client_for_request` as `api_key=...`, which short-circuits the env-var lookup.
-4. For OAuth providers (`credential_shape="codex_oauth"`) the decrypted payload is a JSON bundle; `resolve_user_credential` refreshes the access token when near expiry, re-encrypts, and upserts before returning the bearer string. See `infra/codex_oauth.py` and `api/routers/oauth_codex.py` for the device-code flow.
+4. For OAuth providers (`credential_shape="codex_oauth"`) the decrypted payload is a JSON bundle; `resolve_user_credential` refreshes the access token when near expiry, re-encrypts, and upserts before returning the bearer string. See `auth/codex_oauth.py` and `server/routes/codex_oauth.py` for the device-code flow.
 
 ### Key rotation pitfall
 
@@ -174,11 +174,11 @@ Plus, if this is the first user, `store.backfill_orphan_ownership(user.id)` runs
 
 There's no way to promote other users to admin via the UI. To make another user admin, do it directly in SQLite. The admin role doesn't currently gate much — the multi-user story is mostly per-user isolation, not admin tooling.
 
-`ensure_admin_exists` in the lifespan (`main.py:60`) is a safety net: if for some reason the `role` column is empty across all users (e.g., migrating a pre-role DB), it promotes the oldest user to admin so the deployment has at least one.
+`ensure_admin_exists` in the lifespan (`app.py:60`) is a safety net: if for some reason the `role` column is empty across all users (e.g., migrating a pre-role DB), it promotes the oldest user to admin so the deployment has at least one.
 
 ## `AuthenticatedUser` vs `UserRecord`
 
-`AuthenticatedUser` (`api/auth.py:27`) is a lightweight view of the current user that routers depend on: `id`, `email`, `role`. `UserRecord` (the full SQLite row) carries `password_hash` — which routers shouldn't accidentally serialize.
+`AuthenticatedUser` (`auth/primitives.py:28`) is a lightweight view of the current user that routers depend on: `id`, `email`, `role`. `UserRecord` (the full SQLite row) carries `password_hash` — which routers shouldn't accidentally serialize.
 
 The dependency returns `AuthenticatedUser`; if a router needs the password_hash (password change, account delete), it explicitly calls `store.get_user_by_id(user.id)` to get the `UserRecord`. This is a small but important firewall: no way to leak `password_hash` through `AuthUser` in a response body.
 

@@ -6,7 +6,7 @@ The 2.3GB nflverse and pbp SQLite files are a separate concern — they're read-
 
 ## File map
 
-- `infra/persistence/runtime_store.py` — single-file store (~1440 lines).
+- `storage/` — single-file store (~1440 lines).
 - `config.py` — `RUNTIME_DB_PATH` (env-overridable).
 
 ## `RuntimeStore`
@@ -141,7 +141,7 @@ UPDATE tool_runs  SET status = 'interrupted', error_text = ... WHERE status IN (
 UPDATE turns      SET status = 'interrupted', error      = ... WHERE role = 'assistant' AND status = 'running';
 ```
 
-If the server dies mid-turn — SIGKILL, OOM, power loss — the loop's `finally` cleanup (`loop.py:238`) doesn't run. These rows would otherwise appear "running" forever in the UI. On startup, the store sweeps them to `interrupted`, logs a warning with the count, and moves on.
+If the server dies mid-turn — SIGKILL, OOM, power loss — the loop's `finally` cleanup (`runtime.py:314`) doesn't run. These rows would otherwise appear "running" forever in the UI. On startup, the store sweeps them to `interrupted`, logs a warning with the count, and moves on.
 
 The warning matters: a restart that orphans nothing is healthy; one that orphans dozens of rows points at a crash.
 

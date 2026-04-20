@@ -27,4 +27,4 @@ For a new engineer, read in this order:
 
 - **Deployment.** Runbooks for Fly.io and self-hosted VPS live in `CLAUDE.md`.
 - **API reference.** Interactive OpenAPI docs are served at `/docs` when the app is running.
-- **NFL data semantics.** Table schemas, join graph, play-by-play columns — all in `NFLVERSE/docs/DATABASE.md` and the in-app guides (`agent/prompts/guides/`).
+- **NFL data semantics.** Table schemas, join graph, play-by-play columns — all in `NFLVERSE/docs/DATABASE.md` and the in-app guides (`agent/guides/`).

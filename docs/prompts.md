@@ -4,9 +4,9 @@ The agent has a deliberately slim system prompt and a set of on-demand markdown 
 
 ## File map
 
-- `agent/prompts/system.py` — base system prompt template + `get_base_prompt()`.
-- `agent/prompts/guides/*.md` — seven topic-specific reference docs.
-- `agent/tools/handlers/get_guide.py` — guide loader tool.
+- `agent/system_prompt.py` — base system prompt template + `get_base_prompt()`.
+- `agent/guides/*.md` — seven topic-specific reference docs.
+- `tool/get_guide.py` — guide loader tool.
 
 ## The split: prompt vs. guide
 
@@ -21,7 +21,7 @@ Why: a typical "how many TDs did Mahomes throw in 2024" question doesn't need th
 
 ## The base prompt
 
-`agent/prompts/system.py:5`. A single f-string template with one variable: `{today}`. `get_base_prompt()` (`system.py:122`) evaluates it at call time, so "today's date" in the prompt matches the server's clock on the day of the request.
+`agent/system_prompt.py:5`. A single f-string template with one variable: `{today}`. `get_base_prompt()` (`system.py:122`) evaluates it at call time, so "today's date" in the prompt matches the server's clock on the day of the request.
 
 Structure (in order):
 
@@ -49,7 +49,7 @@ The prompt is intentionally prescriptive. This is not a general-purpose system p
 
 ## Guide system
 
-Seven markdown files in `agent/prompts/guides/` (`get_guide.py:9`):
+Seven markdown files in `agent/guides/` (`get_guide.py:9`):
 
 | Topic | When to load |
 |-------|--------------|
@@ -111,5 +111,5 @@ Without this instruction, models tend to fetch one guide, wait, fetch another, w
 ## Adding or changing content
 
 - **Edit a guide**: change the `.md` file, restart the server. No code changes.
-- **Add a new guide**: (1) drop `newtopic.md` into `agent/prompts/guides/`, (2) add `"newtopic"` to `_TOPICS` in `get_guide.py`, (3) add `"newtopic"` to the `enum` in `definitions.py`, (4) add a row to the Guide Index in `system.py`. Restart.
+- **Add a new guide**: (1) drop `newtopic.md` into `agent/guides/`, (2) add `"newtopic"` to `_TOPICS` in `get_guide.py`, (3) add `"newtopic"` to the `enum` in `definitions.py`, (4) add a row to the Guide Index in `system.py`. Restart.
 - **Tune the base prompt**: edit `_SYSTEM_PROMPT_TEMPLATE`. No restart needed for the CLI (it re-imports per invocation), but the running API server caches imports — restart.

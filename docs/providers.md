@@ -4,11 +4,11 @@ One codebase, two LLM SDKs. The provider layer is a thin adapter that translates
 
 ## File map
 
-- `infra/providers/base.py` — `BaseLLMClient` ABC, canonical types.
-- `infra/providers/anthropic.py` — `AnthropicClient`.
-- `infra/providers/openai.py` — `OpenAIClient`.
-- `infra/providers/__init__.py` — registry, factory, default provider definitions.
-- `api/dependencies.py` — per-request client construction.
+- `provider/base.py` — `BaseLLMClient` ABC, canonical types.
+- `provider/anthropic.py` — `AnthropicClient`.
+- `provider/openai.py` — `OpenAIClient`.
+- `provider/__init__.py` — registry, factory, default provider definitions.
+- `server/dependencies.py` — per-request client construction.
 
 ## Canonical types
 
@@ -68,7 +68,7 @@ Two state fields are shared by both clients (`base.py:96`):
 - `last_usage: Usage` — tokens for the most recent call. Read by the runtime to write `input_tokens` / `output_tokens` on the assistant turn.
 - `last_stop_reason: StopReason | None` — last call's stop reason. Read by the runtime to detect `MAX_TOKENS` without a tool call.
 
-Both are reset by the runtime at the top of each iteration (`loop.py:129`) so a previous turn's stats don't leak forward if the current call never emits usage.
+Both are reset by the runtime at the top of each iteration (`runtime.py:159`) so a previous turn's stats don't leak forward if the current call never emits usage.
 
 ### `model` override on `create_message`
 
@@ -113,12 +113,12 @@ Declared per-provider so each provider controls its own sibling choice. Looked u
 
 ## Per-request client construction
 
-`api/dependencies.py:49`. Clients are not cached. Every chat request builds a fresh one:
+`server/dependencies.py:97`. Clients are not cached. Every chat request builds a fresh one:
 
 ```
 create_client_for_request(provider, model, api_key)
     ↓
-create_client(provider, model, api_key)     # infra/providers/__init__.py:67
+create_client(provider, model, api_key)     # provider/__init__.py:67
     ├─ resolve provider name (arg > env CHAT_PROVIDER > "anthropic")
     ├─ resolve model (arg > provider default)
     ├─ resolve key (arg > env)
@@ -127,7 +127,7 @@ create_client(provider, model, api_key)     # infra/providers/__init__.py:67
 
 Why no caching: the API key varies per user. The transport layer looks up the authenticated user's stored key (Fernet-decrypted from `user_api_keys`) and passes it to `create_client_for_request`. Multi-user setups can't reuse a client across users without risking cross-user leakage. See [auth.md](auth.md#api-keys) for key storage.
 
-Callers own cleanup (`dependencies.py:77`): a `try/finally` around the request wraps `await close_client(client)`, which calls `aclose()`. On the Anthropic SDK, this releases the underlying httpx session; on OpenAI the default no-op is fine.
+Callers own cleanup (`dependencies.py:130`): a `try/finally` around the request wraps `await close_client(client)`, which calls `aclose()`. On the Anthropic SDK, this releases the underlying httpx session; on OpenAI the default no-op is fine.
 
 ## Anthropic adapter
 
@@ -210,7 +210,7 @@ The `_wrap_api_errors` context manager on `BaseLLMClient` (`base.py:147`) wraps 
 
 ## Adding a provider
 
-1. Write `infra/providers/myprovider.py` with a `BaseLLMClient` subclass implementing `create_message`, `stream_message`, `provider_name`, and `_translate_error`.
+1. Write `provider/myprovider.py` with a `BaseLLMClient` subclass implementing `create_message`, `stream_message`, `provider_name`, and `_translate_error`.
 2. Register it in `__init__.py` — add a `ProviderInfo` with `client_class=MyProviderClient` and set `summarizer_model` to a cheap sibling. Wrap the registration in `try/except ImportError` if the SDK is optional.
 3. Map the SDK's stop-reason strings to `StopReason` in a `_STOP_MAP` constant.
 4. Translate `Message` both ways in `_convert_messages`; if tool result role differs from Anthropic/OpenAI, match the provider's convention there.

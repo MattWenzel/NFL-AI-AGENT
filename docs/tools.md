@@ -6,12 +6,12 @@ The runtime's role in tool calls (concurrent dispatch under `asyncio.gather`, re
 
 ## File map
 
-- `agent/tools/__init__.py` — public surface: `TOOLS`, `TOOL_DEFINITIONS`, `execute_tool`, `execute_tool_structured`.
-- `agent/tools/definitions.py` — Anthropic-format tool schemas + typed `TOOLS` list.
-- `agent/tools/dispatch.py` — dispatch table, execution helpers, drift guard.
-- `agent/tools/validation.py` — input validation, error-hint injection.
-- `agent/tools/sql_sandbox.py` — read-only SQL runner with row/timeout caps.
-- `agent/tools/handlers/` — one file per tool.
+- `tool/__init__.py` — public surface: `TOOLS`, `TOOL_DEFINITIONS`, `execute_tool`, `execute_tool_structured`.
+- `tool/definitions.py` — Anthropic-format tool schemas + typed `TOOLS` list.
+- `tool/registry.py` — dispatch table, execution helpers, drift guard.
+- `tool/validation.py` — input validation, error-hint injection.
+- `tool/sandbox.py` — read-only SQL runner with row/timeout caps.
+- `tool/` — one file per tool.
 
 ## The seven tools
 
@@ -37,12 +37,12 @@ Schemas use Anthropic's `tool_use` input_schema format (JSON Schema subset). The
 ChatRuntime._execute_tool(tool_run)
     │
     ▼
-execute_tool_structured(name, input, ctx)          # dispatch.py:86
+execute_tool_structured(name, input, ctx)          # registry.py:86
     │
     ├─ validate_tool_input(name, input)            # validation.py:23
     │     └─ fail → return error envelope
     │
-    ├─ execute_tool(name, input, ctx)              # dispatch.py:56
+    ├─ execute_tool(name, input, ctx)              # registry.py:56
     │     ├─ fn = _TOOL_DISPATCH[name]
     │     ├─ await asyncio.to_thread(fn, input, ctx)   # blocking SQLite safe
     │     ├─ catch SQLValidationError  → JSON {"error": ...}
@@ -59,20 +59,20 @@ The runtime persists the envelope to the store and yields a `tool_completed` or 
 
 ## The dispatch table
 
-`dispatch.py:27`. A plain dict from tool name → handler function. Handlers have a uniform signature:
+`registry.py:27`. A plain dict from tool name → handler function. Handlers have a uniform signature:
 
 ```python
 def _handler(input_data: dict, ctx: dict | None) -> str:
     ...  # returns JSON-string result
 ```
 
-All handlers are synchronous. The dispatcher wraps them in `asyncio.to_thread` (`dispatch.py:74`) so blocking SQLite I/O doesn't stall the event loop. This matters because `_execute_tool` is called under `asyncio.gather` — multiple tools from one pass run concurrently, each on its own thread.
+All handlers are synchronous. The dispatcher wraps them in `asyncio.to_thread` (`registry.py:74`) so blocking SQLite I/O doesn't stall the event loop. This matters because `_execute_tool` is called under `asyncio.gather` — multiple tools from one pass run concurrently, each on its own thread.
 
 ### Registry drift guard
 
-`dispatch.py:40`. Import-time assert that `_TOOL_DISPATCH.keys() == {t["name"] for t in TOOL_DEFINITIONS}`. Without this, a rename in one place (say, adding `create_chart` to definitions but forgetting dispatch) would silently produce "Unknown tool" errors and skip input validation. The assert fails loudly at startup instead.
+`registry.py:42`. Import-time assert that `_TOOL_DISPATCH.keys() == {t["name"] for t in TOOL_DEFINITIONS}`. Without this, a rename in one place (say, adding `create_chart` to definitions but forgetting dispatch) would silently produce "Unknown tool" errors and skip input validation. The assert fails loudly at startup instead.
 
-If you add a tool, you must edit both `definitions.py` and `dispatch.py`; the guard reminds you.
+If you add a tool, you must edit both `definitions.py` and `registry.py`; the guard reminds you.
 
 ## Input validation
 
@@ -102,15 +102,15 @@ This is a prompt-engineering shortcut, not a substitute for the system prompt �
 
 ## The SQL sandbox
 
-`sql_sandbox.py`. Four pieces:
+`sandbox.py`. Four pieces:
 
 ### Validation
 
-`validate_sql` (`sql_sandbox.py:49`) — regex whitelist. Only `SELECT` or `WITH` at the start of the statement (tolerating leading whitespace and `--` / `/* */` comments). Anything else raises `SQLValidationError`. Multi-statement inputs are rejected by SQLite's `sqlite3.Warning` at execute time, not by the regex.
+`validate_sql` (`sandbox.py:66`) — regex whitelist. Only `SELECT` or `WITH` at the start of the statement (tolerating leading whitespace and `--` / `/* */` comments). Anything else raises `SQLValidationError`. Multi-statement inputs are rejected by SQLite's `sqlite3.Warning` at execute time, not by the regex.
 
 ### Read-only connection
 
-Opened with `file:{DB_PATH}?mode=ro` (`sql_sandbox.py:80`). SQLite enforces read-only at driver level — even malformed whitelist bypasses cannot write. `check_same_thread=False` is safe because each tool call opens its own connection on its own thread.
+Opened with `file:{DB_PATH}?mode=ro` (`sandbox.py:100`). SQLite enforces read-only at driver level — even malformed whitelist bypasses cannot write. `check_same_thread=False` is safe because each tool call opens its own connection on its own thread.
 
 ### Limits
 
@@ -119,21 +119,21 @@ Opened with `file:{DB_PATH}?mode=ro` (`sql_sandbox.py:80`). SQLite enforces read
 | Row cap | `MAX_ROWS = 500` | `EXPORT_MAX_ROWS = 10_000` |
 | Op budget | `QUERY_TIMEOUT_OPS = 300M` (~30s) | `EXPORT_TIMEOUT_OPS = 600M` (~60s) |
 
-The op budget is enforced via `conn.set_progress_handler` (`sql_sandbox.py:100`): SQLite calls the handler every N VM instructions; returning non-zero aborts. This is more robust than wall-clock timeout because it runs inside SQLite's vdbe loop.
+The op budget is enforced via `conn.set_progress_handler` (`sandbox.py:120`): SQLite calls the handler every N VM instructions; returning non-zero aborts. This is more robust than wall-clock timeout because it runs inside SQLite's vdbe loop.
 
-The row cap is enforced by `_ensure_limit` (`sql_sandbox.py:149`), which either appends `LIMIT N` or rewrites a too-high numeric `LIMIT` in-place. Parameterized `LIMIT ?` is passed through unchanged — the caller is trusted.
+The row cap is enforced by `_ensure_limit` (`sandbox.py:169`), which either appends `LIMIT N` or rewrites a too-high numeric `LIMIT` in-place. Parameterized `LIMIT ?` is passed through unchanged — the caller is trusted.
 
 ### PBP auto-attach
 
-`sql_sandbox.py:19`. Queries matching `\bplay_by_play\b` or `\bpbp\.` trigger `ATTACH DATABASE file:{PBP_DB_PATH}?mode=ro AS pbp` (`sql_sandbox.py:93`). On function exit, the database is detached in a `finally` block. The model references `play_by_play` naturally; it doesn't know `pbp.db` is a separate file.
+`sandbox.py:19`. Queries matching `\bplay_by_play\b` or `\bpbp\.` trigger `ATTACH DATABASE file:{PBP_DB_PATH}?mode=ro AS pbp` (`sandbox.py:114`). On function exit, the database is detached in a `finally` block. The model references `play_by_play` naturally; it doesn't know `pbp.db` is a separate file.
 
-If `pbp.db` is missing and the query references it, `SQLValidationError` is raised with a clear message (`sql_sandbox.py:88`) — no cryptic SQLite error reaches the model.
+If `pbp.db` is missing and the query references it, `SQLValidationError` is raised with a clear message (`sandbox.py:110`) — no cryptic SQLite error reaches the model.
 
 ## The `ctx` side-channel
 
 Handlers have a uniform `(input_data, ctx)` signature, but most ignore `ctx`. It exists so handlers can reach runtime services without importing them. Right now only `create_csv_export` uses it.
 
-`ChatRuntime._execute_tool` (`loop.py:282`) builds `ctx`:
+`ChatRuntime._execute_tool` (`runtime.py:358`) builds `ctx`:
 
 ```python
 ctx = {
@@ -156,14 +156,14 @@ Every handler returns a JSON string. The shape is tool-specific but two conventi
 - **Error envelope.** On expected failure, return `{"error": "message"}`. `execute_tool` also wraps any uncaught `SQLValidationError` or `Exception` in this shape, so handlers don't need defensive `try` blocks around known error sources.
 - **Truncation note.** When row caps hit, include a `note` field so the model can warn the user (see `execute_sql.py:19`).
 
-`execute_tool_structured` (`dispatch.py:86`) parses the result looking for `error` and `hint` keys; the presence of `error` flips `status` to `"error"` in the envelope. Handlers should not set `status` themselves — the dispatcher derives it.
+`execute_tool_structured` (`registry.py:86`) parses the result looking for `error` and `hint` keys; the presence of `error` flips `status` to `"error"` in the envelope. Handlers should not set `status` themselves — the dispatcher derives it.
 
 ## Adding a new tool
 
 1. Add the schema dict to `TOOL_DEFINITIONS` in `definitions.py`.
-2. Write the handler in `agent/tools/handlers/<name>.py` with signature `(input_data, ctx) -> str`.
-3. Import the handler in `dispatch.py` and add it to `_TOOL_DISPATCH`. The drift-guard assert will fail otherwise.
-4. If the handler needs runtime state, extend `ctx` in `loop.py:282`. Otherwise ignore `ctx`.
+2. Write the handler in `tool/<name>.py` with signature `(input_data, ctx) -> str`.
+3. Import the handler in `registry.py` and add it to `_TOOL_DISPATCH`. The drift-guard assert will fail otherwise.
+4. If the handler needs runtime state, extend `ctx` in `runtime.py:358`. Otherwise ignore `ctx`.
 5. If tool output can produce novel error strings users should correct, add a `(pattern, hint)` pair to `_ERROR_HINTS` in `validation.py`.
 
 No test fixtures, no registration decorators, no boot-time side effects. The drift-guard assert and the uniform handler signature are the only contracts.

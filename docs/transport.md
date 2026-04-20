@@ -6,18 +6,18 @@ This doc covers the app factory, lifespan, per-request client construction, SSE 
 
 ## File map
 
-- `api/main.py` — FastAPI factory, lifespan, CORS, UI mounts.
-- `api/dependencies.py` — `get_store`, `get_runtime`, `create_client_for_request`.
-- `api/routers/chat.py` — `POST /chat/message` and `POST /chat/stream`.
-- `api/sse.py` — `RuntimeEvent` → SSE dict serialization.
-- `api/routers/conversations.py`, `providers.py`, `exports.py`, `csvs.py`, `settings.py` — other endpoints.
-- `api/schemas.py` — Pydantic request/response shapes.
-- `api/auth.py` — `AuthenticatedUser`, `get_current_user` dependency.
+- `server/app.py` — FastAPI factory, lifespan, CORS, UI mounts.
+- `server/dependencies.py` — `get_store`, `get_runtime`, `create_client_for_request`.
+- `server/routes/chat.py` — `POST /chat/message` and `POST /chat/stream`.
+- `server/sse.py` — `RuntimeEvent` → SSE dict serialization.
+- `server/routes/conversations.py`, `providers.py`, `exports.py`, `csvs.py`, `settings.py` — other endpoints.
+- `server/schemas/` — Pydantic request/response shapes.
+- `auth/primitives.py` — `AuthenticatedUser`, `get_current_user` dependency.
 - `run.py` — uvicorn launcher.
 
 ## App factory
 
-`api/main.py:108`. Returns a configured `FastAPI` instance:
+`server/app.py:108`. Returns a configured `FastAPI` instance:
 
 - Title + version for `/docs` and `/redoc`.
 - `lifespan` context manager for startup/shutdown.
@@ -26,15 +26,15 @@ This doc covers the app factory, lifespan, per-request client construction, SSE 
 - `/health` — single-line health endpoint for monitors and deploy preflight.
 - Static mounts (see "UI wiring" below).
 
-`app = create_app()` at module level (`main.py:166`) is what uvicorn imports. One app instance per worker process.
+`app = create_app()` at module level (`app.py:167`) is what uvicorn imports. One app instance per worker process.
 
 ### CORS
 
-`main.py:127`. `allow_credentials=False` — no cookies. The frontend uses `Authorization: Bearer <token>` on every request, so credentialed CORS isn't needed and dropping it keeps the preflight simple.
+`app.py:127`. `allow_credentials=False` — no cookies. The frontend uses `Authorization: Bearer <token>` on every request, so credentialed CORS isn't needed and dropping it keeps the preflight simple.
 
 ## Lifespan
 
-`main.py:27`. Runs **once per worker process** (reload=True on dev spawns fresh workers on file change). Responsibilities:
+`app.py:27`. Runs **once per worker process** (reload=True on dev spawns fresh workers on file change). Responsibilities:
 
 1. **Re-apply logging.** `setup_logging()` is called here because the child process resets the root logger config.
 2. **Validate encryption key.** `encryption.require_configured()` fails fast if `SETTINGS_ENCRYPTION_KEY` is missing or malformed. Failing at startup is strictly better than failing at the first `PUT /settings/api-keys` an hour later.
@@ -48,17 +48,17 @@ The store and runtime survive across requests for the life of the worker. Rebuil
 
 ## Dependency injection
 
-`api/dependencies.py`.
+`server/dependencies.py`.
 
 ### `get_store` / `get_runtime`
 
-`dependencies.py:31` and `:40`. Pull from `request.app.state`. If the lifespan hasn't run (test misconfiguration), raise `RuntimeError` loudly — a request trying to use a non-existent store is a programmer error, not a 500.
+`dependencies.py:40` and `:40`. Pull from `request.app.state`. If the lifespan hasn't run (test misconfiguration), raise `RuntimeError` loudly — a request trying to use a non-existent store is a programmer error, not a 500.
 
 Usage: `store: RuntimeStore = Depends(get_store)` in router signatures.
 
 ### `create_client_for_request`
 
-`dependencies.py:49`. Bundles three checks into one place so routers don't reimplement them:
+`dependencies.py:97`. Bundles three checks into one place so routers don't reimplement them:
 
 1. Resolve provider name: request body → env `CHAT_PROVIDER` → `"anthropic"`.
 2. Look up `ProviderInfo` — unknown provider → 400.
@@ -69,13 +69,13 @@ Usage: `store: RuntimeStore = Depends(get_store)` in router signatures.
 
 ### `close_client`
 
-`dependencies.py:77`. `await client.aclose()` wrapped in a try/except that logs and moves on. A failing close shouldn't crash request teardown; worst case is a leaked httpx session until GC, which is fine for personal/small deployments.
+`dependencies.py:130`. `await client.aclose()` wrapped in a try/except that logs and moves on. A failing close shouldn't crash request teardown; worst case is a leaked httpx session until GC, which is fine for personal/small deployments.
 
 Callers in `chat.py` wrap the runtime call in `try/finally: await close_client(client)`, so every request cleans up.
 
 ## Chat endpoints
 
-Both live in `api/routers/chat.py`. They share `_prepare_chat` (`chat.py:61`) to resolve provider/client/session identically.
+Both live in `server/routes/chat.py`. They share `_prepare_chat` (`chat.py:88`) to resolve provider/client/session identically.
 
 ### `_prepare_chat`
 
@@ -88,7 +88,7 @@ The caller (`/message` or `/stream`) is responsible for closing the client.
 
 ### `POST /chat/message`
 
-`chat.py:90`. Buffered response. Iterates the runtime's async generator and collects:
+`chat.py:118`. Buffered response. Iterates the runtime's async generator and collects:
 
 - **Response text** — concatenate all `text_delta`s.
 - **Tool calls** — one record per `tool_pending`, updated in place by matching `tool_run_id` on `tool_completed`/`tool_failed`. Result preview truncated to 500 chars for the response body (full result stays in the transcript).
@@ -100,9 +100,9 @@ Returns `ChatResponse(conversation_id, response, tool_calls, truncated)` — a s
 
 ### `POST /chat/stream`
 
-`chat.py:166`. SSE streaming — the production path for the browser.
+`chat.py:195`. SSE streaming — the production path for the browser.
 
-The wire format is standard SSE: `data: {json}\n\n` per event, with `: ping\n\n` comments for keepalives. Response headers (`chat.py:255`):
+The wire format is standard SSE: `data: {json}\n\n` per event, with `: ping\n\n` comments for keepalives. Response headers (`chat.py:293`):
 
 - `Cache-Control: no-cache` — prevents proxy caching.
 - `Connection: keep-alive` — long-lived connection.
@@ -128,7 +128,7 @@ async for event in asyncio.wait_for(source, timeout=15):
 
 …cancels the source generator every 15s, which cancels the tool call with it.
 
-The correct shape — producer/consumer with a queue (`chat.py:180`):
+The correct shape — producer/consumer with a queue (`chat.py:220`):
 
 ```
 ┌──────────────┐            ┌──────────────┐
@@ -147,11 +147,11 @@ The correct shape — producer/consumer with a queue (`chat.py:180`):
 - A `_PRODUCER_DONE` sentinel on the queue signals completion.
 - Exceptions from the producer (`LLMError`, runtime errors, disconnects) are put on the queue and re-raised on the consumer side so the outer handler can log them.
 
-Client disconnect is checked via `request.is_disconnected()` at the top of every loop (`chat.py:207`). On disconnect, the cleanup block (`chat.py:236`) cancels the producer task and calls `source.aclose()` — this runs the runtime's `finally` block *now*, releasing the session lock and marking in-flight tool runs as `interrupted` (see [runtime.md](runtime.md#cleanup-on-early-exit)) rather than waiting on GC.
+Client disconnect is checked via `request.is_disconnected()` at the top of every loop (`chat.py:244`). On disconnect, the cleanup block (`chat.py:278`) cancels the producer task and calls `source.aclose()` — this runs the runtime's `finally` block *now*, releasing the session lock and marking in-flight tool runs as `interrupted` (see [runtime.md](runtime.md#cleanup-on-early-exit)) rather than waiting on GC.
 
 ### SSE event catalog
 
-`api/sse.py` maps `RuntimeEvent`s to wire payloads. Events not listed are suppressed (returned as `None`):
+`server/sse.py` maps `RuntimeEvent`s to wire payloads. Events not listed are suppressed (returned as `None`):
 
 | `RuntimeEvent.type` | Wire `type` | Extra fields |
 |--------------------|-------------|--------------|
@@ -175,17 +175,17 @@ Notably, **tool results are not sent over SSE**. `tool_completed` carries only `
 
 ### `GET /chat/conversations`, `/transcript`, `PATCH`, `DELETE`
 
-`api/routers/conversations.py`. User-scoped conversation CRUD. Every query goes through the store with `user_id=user.id`; 404 on any not-owned id.
+`server/routes/conversations.py`. User-scoped conversation CRUD. Every query goes through the store with `user_id=user.id`; 404 on any not-owned id.
 
 Transcript endpoint flattens the nested `SessionTranscript` (see [persistence.md](persistence.md#sessiontranscript)) into a response shape the UI can iterate cleanly — turns include their parts and tool runs inline.
 
 ### `GET /chat/providers`
 
-`api/routers/providers.py`. Returns `list_providers()` metadata plus an `available` flag. `available=true` if the server has the env key **or** the calling user has a stored key. This is what drives the provider dropdown's enabled/disabled state.
+`server/routes/providers.py`. Returns `list_providers()` metadata plus an `available` flag. `available=true` if the server has the env key **or** the calling user has a stored key. This is what drives the provider dropdown's enabled/disabled state.
 
 ### `GET /exports/{filename}`
 
-`api/routers/exports.py`. Serves generated CSVs. Path traversal guard on the filename (alphanumeric, hyphen, underscore only), ownership check against `exports.user_id`, `FileResponse` with the CSV MIME type. 404 on any not-owned file — no existence leak.
+`server/routes/csv_downloads.py`. Serves generated CSVs. Path traversal guard on the filename (alphanumeric, hyphen, underscore only), ownership check against `exports.user_id`, `FileResponse` with the CSV MIME type. 404 on any not-owned file — no existence leak.
 
 ### Settings, CSVs, Auth
 
@@ -195,7 +195,7 @@ Transcript endpoint flattens the nested `SessionTranscript` (see [persistence.md
 
 ## UI wiring
 
-`main.py:153`. The same FastAPI app that serves the API also serves the browser UI:
+`app.py:154`. The same FastAPI app that serves the API also serves the browser UI:
 
 - `/chat-ui/*` → static mount of `chat-ui/` directory.
 - `/` → `FileResponse(chat.html)`.
@@ -210,7 +210,7 @@ API routes registered above the static mount take precedence — `/health`, `/ch
 
 - Load `.env` (simple key=value parser).
 - `setup_logging(verbose=args.verbose)`.
-- `uvicorn.run("api.main:app", host=HOST, port=PORT, reload=True, proxy_headers=True, forwarded_allow_ips=...)`.
+- `uvicorn.run("server.app:app", host=HOST, port=PORT, reload=True, proxy_headers=True, forwarded_allow_ips=...)`.
 
 Key uvicorn options:
 

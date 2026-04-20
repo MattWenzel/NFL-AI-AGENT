@@ -18,26 +18,29 @@ One user message drives one call to `ChatRuntime.run_session`, which drives the 
 
 ## Layering
 
-Three top-level concerns, three top-level directories:
+Top-level folders are organized by subsystem rather than layer:
 
 ```
-api/       HTTP transport          (thin — parses, authenticates, dispatches)
-agent/     Domain                  (runtime loop, tools, prompts)
-infra/     External adapters       (LLM SDKs, SQLite persistence, encryption)
+agent/     LLM conversation domain (runtime loop, compaction, prompts)
+tool/      Tool registry + handlers (SQL sandbox, schema, CSV export, ...)
+auth/      Auth primitives, encryption, Codex OAuth, credential refresh
+provider/  LLM adapters             (Anthropic, OpenAI, OpenAI Codex)
+storage/   SQLite persistence       (RuntimeStore facade composed of mixins)
+server/    HTTP transport           (FastAPI app factory, routes, schemas)
 ```
 
-Dependencies go in one direction: `api/` depends on `agent/` and `infra/`; `agent/` depends on `infra/` (for the store and provider types). `infra/` doesn't depend on either.
+Dependencies flow from `server/` and `cli.py` (entry points) → `agent/` (domain) → `tool/`, `provider/`, `storage/`, `auth/` (subsystems). Subsystems don't import from `server/` or each other except where noted (e.g. `auth/codex_credentials.py` uses `storage` to persist refreshed bundles).
 
-`cli/chat_cli.py` is a second entry point that drives `agent/` directly, bypassing `api/`. Same runtime, same tools; no HTTP.
+`cli.py` is a second entry point that drives `agent/` directly, bypassing `server/`. Same runtime, same tools; no HTTP.
 
 | Dir | Contents | Doc |
 |-----|----------|-----|
-| `api/` | FastAPI app factory, routers, SSE, auth | [transport.md](transport.md), [auth.md](auth.md) |
-| `agent/runtime/` | `ChatRuntime`, event types, compaction, doom-loop guard | [runtime.md](runtime.md), [compaction.md](compaction.md) |
-| `agent/tools/` | Tool definitions, dispatch, validation, SQL sandbox, handlers | [tools.md](tools.md) |
-| `agent/prompts/` | Base system prompt, on-demand guides | [prompts.md](prompts.md) |
-| `infra/providers/` | `BaseLLMClient`, Anthropic + OpenAI adapters | [providers.md](providers.md) |
-| `infra/persistence/` | SQLite store (sessions, turns, tool runs, users, keys) | [persistence.md](persistence.md) |
+| `agent/` | `ChatRuntime`, event types, compaction, system prompt, guides | [runtime.md](runtime.md), [compaction.md](compaction.md), [prompts.md](prompts.md) |
+| `tool/` | Tool definitions, registry/dispatch, validation, SQL sandbox, handlers | [tools.md](tools.md) |
+| `auth/` | Password hashing, bearer-token issuance, Fernet encryption, Codex OAuth | [auth.md](auth.md) |
+| `provider/` | `BaseLLMClient`, Anthropic + OpenAI + OpenAI Codex adapters, retry/overflow helpers | [providers.md](providers.md) |
+| `storage/` | SQLite store (sessions, turns, tool runs, users, keys, exports) | [persistence.md](persistence.md) |
+| `server/` | FastAPI app factory, routes, schemas, SSE serialization, rate limit | [transport.md](transport.md), [auth.md](auth.md) |
 | `chat-ui/` | Browser app | [ui.md](ui.md) |
 
 ## Data flow of one user turn
@@ -52,8 +55,8 @@ Following a single message from the browser back to the browser:
  └───────────────────────────────────┘
                 │
                 ▼
- ┌── api/routers/chat.py ────────────┐
- │ POST /chat/stream                 │        chat.py:166
+ ┌── server/routes/chat.py ────────────┐
+ │ POST /chat/stream                 │        chat.py:195
  │  ├─ get_current_user (401 guard)  │
  │  ├─ _prepare_chat:                │
  │  │    ├─ IDOR check               │
@@ -66,8 +69,8 @@ Following a single message from the browser back to the browser:
  └───────────────────────────────────┘
                 │
                 ▼
- ┌── agent/runtime/loop.py ──────────┐
- │ ChatRuntime.run_session           │        loop.py:80
+ ┌── agent/runtime.py ──────────┐
+ │ ChatRuntime.run_session           │        runtime.py:83
  │  ├─ acquire session lock          │
  │  ├─ write user turn               │
  │  └─ for _ in range(10):           │
@@ -83,18 +86,18 @@ Following a single message from the browser back to the browser:
                 │
                 │ (each tool call)
                 ▼
- ┌── agent/tools/ ───────────────────┐
- │ execute_tool_structured           │        dispatch.py:86
+ ┌── tool/ ───────────────────┐
+ │ execute_tool_structured           │        registry.py:86
  │  ├─ validate_tool_input           │
  │  ├─ dispatch → handler            │
- │  │   └─ execute_sql → sandbox     │        sql_sandbox.py
+ │  │   └─ execute_sql → sandbox     │        sandbox.py
  │  ├─ inject_hint on known errors   │
  │  └─ return envelope (+duration)   │
  └───────────────────────────────────┘
                 │
                 ▼
- ┌── infra/persistence ──────────────┐
- │ RuntimeStore writes every step    │        runtime_store.py
+ ┌── storage/ ──────────────────────┐
+ │ RuntimeStore writes every step    │       store.py + transcripts.py
  │ (turns, parts, tool_runs)         │
  └───────────────────────────────────┘
 ```
@@ -107,15 +110,15 @@ Common "where does X happen" questions:
 
 | Question | Where |
 |----------|-------|
-| User message arrives → HTTP | `api/routers/chat.py:166` ([transport.md](transport.md)) |
-| Who owns this conversation? | IDOR guard in `_prepare_chat`, `chat.py:78` ([transport.md](transport.md#idor-protection)) |
+| User message arrives → HTTP | `server/routes/chat.py:195` ([transport.md](transport.md)) |
+| Who owns this conversation? | IDOR guard in `_prepare_chat`, `chat.py:105` ([transport.md](transport.md#idor-protection)) |
 | Which API key to use? | `resolve_user_credential` → `encryption.decrypt` ([auth.md](auth.md#api-keys)) |
 | Model selects a tool | Streamed `ToolUseEvent` from the provider adapter ([providers.md](providers.md#streaming)) |
 | Tool call actually runs | `ChatRuntime._execute_tool` → `execute_tool_structured` ([tools.md](tools.md#data-flow-for-one-tool-call)) |
-| SQL query limits | `sql_sandbox.py` — 500 rows, ~30s, PBP auto-attach ([tools.md](tools.md#the-sql-sandbox)) |
-| Which tools are available? | `agent/tools/definitions.py` — 7 tools ([tools.md](tools.md#the-seven-tools)) |
-| What the model sees as system prompt | `get_base_prompt()` in `agent/prompts/system.py` ([prompts.md](prompts.md#the-base-prompt)) |
-| Topic-specific query templates | `agent/prompts/guides/*.md`, loaded via `get_guide` tool ([prompts.md](prompts.md#guide-system)) |
+| SQL query limits | `sandbox.py` — 500 rows, ~30s, PBP auto-attach ([tools.md](tools.md#the-sql-sandbox)) |
+| Which tools are available? | `tool/definitions.py` — 7 tools ([tools.md](tools.md#the-seven-tools)) |
+| What the model sees as system prompt | `get_base_prompt()` in `agent/system_prompt.py` ([prompts.md](prompts.md#the-base-prompt)) |
+| Topic-specific query templates | `agent/guides/*.md`, loaded via `get_guide` tool ([prompts.md](prompts.md#guide-system)) |
 | Why the conversation doesn't blow past the context window | `compact_if_needed` ([compaction.md](compaction.md)) |
 | Infinite tool loops | `raise_if_doom_loop` ([runtime.md](runtime.md#doom-loop-detector)) |
 | Server crash mid-turn | `finally` cleanup + `reconcile_interrupted_runs` at startup ([runtime.md](runtime.md#cleanup-on-early-exit), [persistence.md](persistence.md#startup-reconciliation)) |
@@ -127,21 +130,21 @@ Common "where does X happen" questions:
 
 The places where swapping a component is cheap:
 
-### Provider adapter (`infra/providers/`)
+### Provider adapter (`provider/`)
 
-New LLM SDK? Subclass `BaseLLMClient`, translate canonical `Message` / `ToolUseEvent` / `TextEvent` both directions, register in `__init__.py`. Nothing in `api/` or `agent/` changes. See [providers.md](providers.md#adding-a-provider).
+New LLM SDK? Subclass `BaseLLMClient`, translate canonical `Message` / `ToolUseEvent` / `TextEvent` both directions, register in `__init__.py`. Nothing in `server/` or `agent/` changes. See [providers.md](providers.md#adding-a-provider).
 
-### Tool handler (`agent/tools/handlers/`)
+### Tool handler (`tool/`)
 
-New tool? One schema in `definitions.py`, one handler function, one line in `dispatch.py`. Handlers are plain `(input, ctx) -> str`; no registration decorators. The drift guard catches missing entries at import time. See [tools.md](tools.md#adding-a-new-tool).
+New tool? One schema in `definitions.py`, one handler function, one line in `registry.py`. Handlers are plain `(input, ctx) -> str`; no registration decorators. The drift guard catches missing entries at import time. See [tools.md](tools.md#adding-a-new-tool).
 
-### Guide (`agent/prompts/guides/`)
+### Guide (`agent/guides/`)
 
 New topic? Drop a markdown file, add the topic name to `_TOPICS` (`get_guide.py`) and the `enum` in `definitions.py`, add a row to the system prompt's Guide Index. No code changes. See [prompts.md](prompts.md#adding-or-changing-content).
 
 ### Transport
 
-New entry point (CLI, MCP server, etc.)? Build a `RuntimeStore` and a `ChatRuntime`, construct a `BaseLLMClient`, call `run_session` and consume its events. The runtime is transport-agnostic — no HTTP assumptions leak into it. See `cli/chat_cli.py` for the minimal example.
+New entry point (CLI, MCP server, etc.)? Build a `RuntimeStore` and a `ChatRuntime`, construct a `BaseLLMClient`, call `run_session` and consume its events. The runtime is transport-agnostic — no HTTP assumptions leak into it. See `cli.py` for the minimal example.
 
 ## Concurrency model
 

@@ -16,7 +16,7 @@ from auth import encryption
 from storage import RuntimeStore
 from config import ALLOWED_ORIGINS, DB_PATH, PBP_DB_PATH, RUNTIME_DB_PATH, format_file_size
 
-# Project root — one level up from this file (api/main.py → project/).
+# Project root — one level up from this file (server/app.py → project/).
 # Used to resolve the UI's static assets and the chat.html entry point so the
 # same process serves both the API and the front-end (single-origin deploy).
 APP_ROOT = Path(__file__).resolve().parent.parent

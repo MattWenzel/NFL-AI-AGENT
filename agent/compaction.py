@@ -60,7 +60,7 @@ COMPACTION_TOOL_INPUT_PREVIEW_CHARS = 160
 
 # Hard ceiling on the entire compaction call (summarizer + heuristic
 # fallback + persistence). The summarizer itself has a 30s ceiling
-# (agent/runtime/summarizer.py:SUMMARIZER_TIMEOUT_SECONDS); this outer
+# (agent/summarizer.py:SUMMARIZER_TIMEOUT_SECONDS); this outer
 # bound covers anything that lives outside that wait_for — provider
 # lookup, token estimation against a huge transcript, persistence I/O.
 # Without it, a hung compaction wedges the session lock indefinitely.

@@ -38,7 +38,7 @@ AUTH_TOKEN_TTL_DAYS = int(os.environ.get("AUTH_TOKEN_TTL_DAYS", "30"))
 REGISTRATION_INVITE_CODE: str | None = os.environ.get("REGISTRATION_INVITE_CODE") or None
 
 # CORS. Comma-separated origins; if unset we fall back to the localhost
-# defaults baked into api/main.py (plus "null" for file:// dev). When
+# defaults baked into server/app.py (plus "null" for file:// dev). When
 # deploying behind a real domain, set this to the prod origin(s).
 _origins_env = os.environ.get("ALLOWED_ORIGINS", "").strip()
 ALLOWED_ORIGINS: list[str] | None = (

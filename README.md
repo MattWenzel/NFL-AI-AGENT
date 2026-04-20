@@ -16,10 +16,15 @@ Powered by Claude (Anthropic) or GPT (OpenAI) with tool use. Runs entirely on yo
 
 ## Architecture
 
-- **`api/`** — FastAPI HTTP layer (chat, streaming, conversations, CSV exports)
-- **`agent/`** — the domain: prompt, runtime loop, tool definitions, SQL sandbox
-- **`infra/`** — adapters to the LLM SDKs (Anthropic, OpenAI) and to the SQLite transcript store
-- **`cli/`** — alternate entry point: `python3 -m cli.chat_cli`
+Top-level folders are organized by subsystem:
+
+- **`agent/`** — LLM conversation domain: runtime loop, compaction, prompts
+- **`tool/`** — Tool registry + handlers (SQL sandbox, schema discovery, CSV export, etc.)
+- **`auth/`** — Auth subsystem: password primitives, encryption, Codex OAuth, credential refresh
+- **`provider/`** — LLM adapters (Anthropic, OpenAI, OpenAI Codex)
+- **`storage/`** — SQLite persistence (`RuntimeStore` facade composed of per-domain mixins)
+- **`server/`** — FastAPI HTTP layer (app factory, routes, dependencies, schemas)
+- **`cli.py`** — alternate entry point: `python3 cli.py` (drives the same `agent/` runtime)
 - **`chat.html`** — browser UI (SSE streaming, provider picker)
 
 For a deeper walkthrough see [CLAUDE.md](CLAUDE.md).
@@ -80,7 +85,7 @@ python3 -m cli.chat_cli --provider openai
 | Anthropic | `ANTHROPIC_API_KEY`  | `claude-sonnet-4-6`         | 200K    |
 | OpenAI    | `OPENAI_API_KEY`     | `gpt-5`                     | 128K    |
 
-Adding a provider is a new file under `infra/providers/` plus one `register_provider()` call — see `infra/providers/base.py` for the ABC.
+Adding a provider is a new file under `provider/` plus one `register_provider()` call — see `provider/base.py` for the ABC.
 
 ## Notes
 

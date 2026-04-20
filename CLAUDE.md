@@ -98,17 +98,30 @@ provider/                   # LLM provider adapters
 ├── retry.py                #   shared header-aware exponential backoff
 └── overflow.py             #   context-overflow error detection
 
-storage/                    # SQLite persistence
-└── runtime_store.py        #   RuntimeStore: users, auth sessions, API keys, sessions,
-                            #   turns, parts, tool runs, compaction summaries, exports
+storage/                    # SQLite persistence — RuntimeStore facade composed of mixins
+├── __init__.py             #   re-exports RuntimeStore + dataclass records
+├── store.py                #   RuntimeStore(UsersMixin, TranscriptsMixin, ExportsMixin)
+├── records.py              #   @dataclass records (Session, Turn, ToolRun, Export, etc.)
+├── schema.py               #   DDL + ALTER TABLE migrations + reconcile_interrupted_runs
+├── _rows.py                #   sqlite3.Row → dataclass mappers
+├── users.py                #   UsersMixin (users, auth_sessions, user_api_keys)
+├── transcripts.py          #   TranscriptsMixin (sessions, turns, parts, tool runs, compaction)
+└── exports.py              #   ExportsMixin (CSV export registry CRUD)
 
 server/                     # HTTP transport (FastAPI)
 ├── app.py                  #   app factory + lifespan (validates DBs, wires store+runtime)
 ├── dependencies.py         #   get_store, get_runtime, create_client_for_request
-├── schemas.py              #   all request/response Pydantic models
 ├── sse.py                  #   RuntimeEvent → SSE dict serialization
 ├── rate_limit.py           #   in-memory sliding-window limiter for auth endpoints
 ├── logging.py              #   setup_logging()
+├── schemas/                #   Pydantic wire-format models, split per domain
+│   ├── chat.py             #     /chat/message + /chat/stream payloads
+│   ├── conversations.py    #     conversation list / transcript / update
+│   ├── exports.py          #     CSV library list / detail / rename
+│   ├── auth.py             #     register / login / status / password / delete
+│   ├── settings.py         #     per-user API key CRUD
+│   ├── providers.py        #     provider listing
+│   └── codex_oauth.py      #     device-code start / status responses
 └── routes/
     ├── chat.py             #   POST /chat/message, POST /chat/stream
     ├── conversations.py    #   list / transcript / delete
@@ -163,14 +176,14 @@ When Google OAuth ships, the following six-step plan picks up from the current s
 
 1. `pip install authlib` (or `google-auth` + `google-auth-oauthlib`); add to `requirements.txt`.
 2. New table `user_identities(id, user_id, provider, provider_subject, created_at, UNIQUE(provider, provider_subject))`. On migration, seed one `('password', user.email)` row per existing user for consistency. Also rebuild `users` to drop NOT NULL on `password_hash` (SQLite requires a table rebuild — do it in a separate commit with a pre-flight backup).
-3. New endpoints in `api/routers/auth.py`:
+3. New endpoints in `server/routes/auth.py`:
    - `GET /auth/oauth/google/start` — PKCE + state, 302 to Google.
    - `GET /auth/oauth/google/callback` — exchange code, verify `id_token`, look up by `(provider='google', provider_subject=sub)`. If not found, look up by email: link if an existing password user matches, else call `_create_user_from_verified_identity(email=…, password_hash=None, verified=True)`. Issue session via `_issue_session`.
 4. Frontend: render a "Continue with Google" button in the reserved `.auth-alt` slot (`chat-ui/js/auth.js`); point it at `/auth/oauth/google/start`.
 5. Settings modal: add an "Account" section listing linked identities, with unlink buttons. Guard: don't let a user unlink their last identity if they have no password.
 6. Google Cloud Console: create OAuth client, set authorized redirect URI to `<prod-url>/auth/oauth/google/callback` (and `http://localhost:8001/auth/oauth/google/callback` for dev).
 
-The tail `_create_user_from_verified_identity` → `_issue_session` path in `api/routers/auth.py` is already shaped so the OAuth callback reuses it unchanged — the password and OAuth flows differ only in how they produce a verified email.
+The tail `_create_user_from_verified_identity` → `_issue_session` path in `server/routes/auth.py` is already shaped so the OAuth callback reuses it unchanged — the password and OAuth flows differ only in how they produce a verified email.
 
 ## Deployment
 
@@ -305,7 +318,7 @@ REGISTRATION_INVITE_CODE=<a secret>       # optional; open signup if unset
 #### Run
 
 ```bash
-uvicorn api.main:app \
+uvicorn server.app:app \
     --host 127.0.0.1 --port 8001 \
     --proxy-headers --forwarded-allow-ips 127.0.0.1
 ```
@@ -338,7 +351,7 @@ After=network.target
 User=nflverse
 WorkingDirectory=/srv/nflverse
 EnvironmentFile=/srv/nflverse/.env
-ExecStart=/srv/nflverse/.venv/bin/uvicorn api.main:app \
+ExecStart=/srv/nflverse/.venv/bin/uvicorn server.app:app \
     --host 127.0.0.1 --port 8001 \
     --proxy-headers --forwarded-allow-ips 127.0.0.1
 Restart=on-failure
