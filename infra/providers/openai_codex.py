@@ -29,6 +29,7 @@ from infra.providers.base import (
     MessageResponse,
     StopReason,
     TextEvent,
+    ToolChoice,
     ToolDefinition,
     ToolUseEvent,
     Usage,
@@ -117,8 +118,9 @@ class OpenAICodexClient(BaseLLMClient):
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
         system: str | None = None,
+        tool_choice: ToolChoice | None = None,
     ) -> AsyncIterator[TextEvent | ToolUseEvent]:
-        async for event in self._run_stream(messages, tools, system):
+        async for event in self._run_stream(messages, tools, system, tool_choice=tool_choice):
             yield event
 
     # ---------------- streaming core ----------------
@@ -130,8 +132,9 @@ class OpenAICodexClient(BaseLLMClient):
         system: str | None,
         *,
         model: str | None = None,
+        tool_choice: ToolChoice | None = None,
     ) -> AsyncIterator[TextEvent | ToolUseEvent]:
-        body = self._build_body(messages, tools, system, model=model)
+        body = self._build_body(messages, tools, system, model=model, tool_choice=tool_choice)
         headers = {
             "Authorization": f"Bearer {self._access_token}",
             "chatgpt-account-id": self._account_id,
@@ -318,13 +321,14 @@ class OpenAICodexClient(BaseLLMClient):
         system: str | None,
         *,
         model: str | None = None,
+        tool_choice: ToolChoice | None = None,
     ) -> dict:
         body = {
             "model": model or self.model,
             "store": False,
             "stream": True,
             "input": self._convert_messages(messages),
-            "tool_choice": "auto",
+            "tool_choice": tool_choice or "auto",
             "parallel_tool_calls": True,
         }
         if system:

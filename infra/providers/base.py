@@ -13,6 +13,11 @@ from typing import AsyncIterator, Literal
 # uses this to decide which input to render.
 CredentialShape = Literal["api_key", "codex_oauth"]
 
+# Tool-use control. "auto" lets the model decide; "required" forces it to emit
+# a tool call this turn; "none" forbids tool calls entirely. Callers pass None
+# to use the provider's default (which is "auto" everywhere we support).
+ToolChoice = Literal["auto", "required", "none"]
+
 
 class LLMError(Exception):
     """Raised when the LLM API call fails with a user-readable message."""
@@ -131,8 +136,16 @@ class BaseLLMClient(ABC):
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
         system: str | None = None,
+        tool_choice: ToolChoice | None = None,
     ) -> AsyncIterator[TextEvent | ToolUseEvent]:
-        """Stream a message response, yielding text chunks and tool calls."""
+        """Stream a message response, yielding text chunks and tool calls.
+
+        `tool_choice` overrides the provider's default when set. `None`
+        means "use the SDK default" (which is "auto" on every provider
+        we wire). Each provider translates the canonical string into its
+        own wire format (e.g. Anthropic's `{"type": "any"}` for
+        "required").
+        """
 
     @property
     @abstractmethod

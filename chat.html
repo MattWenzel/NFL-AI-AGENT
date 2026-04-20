@@ -95,6 +95,11 @@
             <div class="composer-meta-left">
               <select id="providerSelect" class="composer-select" aria-label="Provider"></select>
               <select id="modelSelect" class="composer-select" aria-label="Model"></select>
+              <select id="toolChoiceSelect" class="composer-select" aria-label="Tool use" title="Control whether the model uses tools this turn">
+                <option value="auto">Auto</option>
+                <option value="required">Force tool</option>
+                <option value="none">Text only</option>
+              </select>
             </div>
             <button id="sendBtn" title="Send">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M2 21 23 12 2 3v7l15 2-15 2v7Z"/></svg>

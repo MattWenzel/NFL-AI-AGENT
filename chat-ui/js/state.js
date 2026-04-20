@@ -10,6 +10,7 @@ const state = {
   providers: [],
   selectedProvider: localStorage.getItem("nfl_chat_provider") || "anthropic",
   selectedModel: localStorage.getItem("nfl_chat_model") || "",
+  toolChoice: localStorage.getItem("nfl_chat_tool_choice") || "auto",
   sidebarSearch: "",
   inspectorOpen: false,
   thinkingOpen: new Set(),

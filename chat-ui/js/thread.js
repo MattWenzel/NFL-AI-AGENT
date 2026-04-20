@@ -45,6 +45,11 @@ function onModelChange(event) {
   renderSessionHeader();
 }
 
+function onToolChoiceChange(event) {
+  state.toolChoice = event.target.value;
+  localStorage.setItem("nfl_chat_tool_choice", state.toolChoice);
+}
+
 
 function render() {
   // Destroy existing Chart.js instances before the DOM swap that follows —

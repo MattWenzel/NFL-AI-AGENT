@@ -8,7 +8,7 @@ from typing import AsyncIterator
 
 from infra.providers.base import (
     BaseLLMClient, LLMError, Message, MessageResponse, TextEvent, ToolUseEvent,
-    StopReason, Usage, ToolDefinition,
+    StopReason, ToolChoice, Usage, ToolDefinition,
 )
 
 logger = logging.getLogger(__name__)
@@ -78,11 +78,13 @@ class OpenAIClient(BaseLLMClient):
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
         system: str | None = None,
+        tool_choice: ToolChoice | None = None,
     ) -> AsyncIterator[TextEvent | ToolUseEvent]:
         kwargs = self._build_kwargs(
             self._convert_messages(messages),
             self._convert_tools(tools),
             system,
+            tool_choice,
         )
         kwargs["stream"] = True
         kwargs["stream_options"] = {"include_usage": True}
@@ -235,6 +237,7 @@ class OpenAIClient(BaseLLMClient):
         messages: list[dict],
         tools: list[dict] | None,
         system: str | None,
+        tool_choice: ToolChoice | None = None,
     ) -> dict:
         if system:
             messages = [{"role": "system", "content": system}] + messages
@@ -245,6 +248,8 @@ class OpenAIClient(BaseLLMClient):
         }
         if tools:
             kwargs["tools"] = tools
+        if tool_choice:
+            kwargs["tool_choice"] = tool_choice
         return kwargs
 
     @staticmethod

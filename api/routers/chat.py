@@ -95,6 +95,7 @@ async def chat_message(
             client,
             tools=TOOLS,
             provider_name=provider_name,
+            tool_choice=body.tool_choice,
         ):
             if event.type == "text_delta" and event.text:
                 response_text += event.text
@@ -172,6 +173,7 @@ async def chat_stream(
             client,
             tools=TOOLS,
             provider_name=provider_name,
+            tool_choice=body.tool_choice,
         )
 
         async def producer():

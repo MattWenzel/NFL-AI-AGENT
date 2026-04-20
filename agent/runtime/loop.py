@@ -27,6 +27,7 @@ from infra.providers import (
     BaseLLMClient,
     StopReason,
     TextEvent,
+    ToolChoice,
     ToolDefinition,
     ToolUseEvent,
     Usage,
@@ -85,6 +86,7 @@ class ChatRuntime:
         *,
         tools: list[ToolDefinition],
         provider_name: str,
+        tool_choice: ToolChoice | None = None,
     ) -> AsyncIterator[RuntimeEvent]:
         """Drive one user turn through the model, tool loop, and persistence.
 
@@ -106,6 +108,11 @@ class ChatRuntime:
             self.store.update_session(session)
             yield RuntimeEvent(type="turn_started", session_id=session.id, turn_id=user_turn.id)
             iterations = 0
+            # The user's explicit `tool_choice` seeds the first iteration;
+            # later iterations fall back to the provider's default so the
+            # follow-up turn after a tool result isn't forced into another
+            # tool call when it should be presenting results as text.
+            force_tool_choice_next_iter: ToolChoice | None = tool_choice
             try:
                 for _ in range(MAX_TOOL_ITERATIONS):
                     iterations += 1
@@ -128,11 +135,14 @@ class ChatRuntime:
                     # this one's accounting if the provider never emits a usage event.
                     client.last_usage = Usage()
                     client.last_stop_reason = None
+                    iter_tool_choice = force_tool_choice_next_iter
+                    force_tool_choice_next_iter = None
                     try:
                         async for event in client.stream_message(
                             messages=self.store.build_model_messages(session.id),
                             tools=tools,
                             system=get_base_prompt(),
+                            tool_choice=iter_tool_choice,
                         ):
                             if isinstance(event, TextEvent):
                                 self.store.append_turn_text(assistant_turn.id, event.text)

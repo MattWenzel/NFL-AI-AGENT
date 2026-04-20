@@ -40,6 +40,12 @@ document.getElementById("csvList").addEventListener("click", (e) => {
 });
 document.getElementById("providerSelect").addEventListener("change", onProviderChange);
 document.getElementById("modelSelect").addEventListener("change", onModelChange);
+(function initToolChoiceSelect() {
+  const sel = document.getElementById("toolChoiceSelect");
+  if (!sel) return;
+  sel.value = state.toolChoice;
+  sel.addEventListener("change", onToolChoiceChange);
+})();
 document.getElementById("sendBtn").addEventListener("click", sendMessage);
 document.getElementById("input").addEventListener("keydown", handleInputKeydown);
 document.getElementById("input").addEventListener("input", autoResize);

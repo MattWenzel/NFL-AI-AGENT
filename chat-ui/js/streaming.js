@@ -27,6 +27,12 @@ async function sendMessage() {
         conversation_id: state.activeSessionId || undefined,
         provider: state.selectedProvider || undefined,
         model: state.selectedModel || undefined,
+        // Omit "auto" — it's the server default; sending undefined keeps
+        // the wire identical to pre-picker behavior when the user hasn't
+        // changed the dropdown.
+        tool_choice: state.toolChoice && state.toolChoice !== "auto"
+          ? state.toolChoice
+          : undefined,
       }),
     });
     if (resp.status === 401) {

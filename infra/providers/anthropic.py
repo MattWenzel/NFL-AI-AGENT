@@ -10,7 +10,7 @@ import anthropic
 
 from infra.providers.base import (
     BaseLLMClient, LLMError, Message, MessageResponse, TextEvent, ToolUseEvent,
-    StopReason, Usage, ToolDefinition,
+    StopReason, ToolChoice, Usage, ToolDefinition,
 )
 
 logger = logging.getLogger(__name__)
@@ -19,6 +19,15 @@ _STOP_MAP: dict[str, StopReason] = {
     "end_turn": StopReason.END_TURN,
     "tool_use": StopReason.TOOL_USE,
     "max_tokens": StopReason.MAX_TOKENS,
+}
+
+# Canonical ToolChoice → Anthropic wire format. Anthropic uses a dict with
+# "any" (not "required") for the "must call some tool" case; the other two
+# map onto `auto` / `none` directly.
+_ANTHROPIC_TOOL_CHOICE: dict[str, dict] = {
+    "auto":     {"type": "auto"},
+    "required": {"type": "any"},
+    "none":     {"type": "none"},
 }
 
 
@@ -75,9 +84,10 @@ class AnthropicClient(BaseLLMClient):
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
         system: str | None = None,
+        tool_choice: ToolChoice | None = None,
     ) -> AsyncIterator[TextEvent | ToolUseEvent]:
         kwargs = self._build_kwargs(
-            self._convert_messages(messages), tools, system,
+            self._convert_messages(messages), tools, system, tool_choice,
         )
         t0 = time.monotonic()
         async with self._wrap_api_errors():
@@ -197,6 +207,7 @@ class AnthropicClient(BaseLLMClient):
         messages: list[dict],
         tools: list[ToolDefinition] | None,
         system: str | None,
+        tool_choice: ToolChoice | None = None,
     ) -> dict:
         kwargs = {
             "model": self.model,
@@ -207,6 +218,8 @@ class AnthropicClient(BaseLLMClient):
             kwargs["system"] = system
         if tools:
             kwargs["tools"] = [t.to_dict() for t in tools]
+        if tool_choice:
+            kwargs["tool_choice"] = _ANTHROPIC_TOOL_CHOICE[tool_choice]
         return kwargs
 
     @staticmethod
