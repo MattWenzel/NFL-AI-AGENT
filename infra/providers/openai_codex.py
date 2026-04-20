@@ -236,6 +236,11 @@ class OpenAICodexClient(BaseLLMClient):
         except Exception as exc:
             raise self._translate_error(exc)
 
+        # Fallback: if the stream terminated on `[DONE]` before emitting
+        # response.done/response.completed, derive stop_reason from the
+        # calls dict so an emitted tool isn't silently downgraded to END_TURN.
+        if stop_reason is None:
+            stop_reason = self._derive_stop_reason(calls)
         self._set_last_usage(usage)
         self._set_last_stop_reason(stop_reason or StopReason.END_TURN)
         duration = time.monotonic() - t0
