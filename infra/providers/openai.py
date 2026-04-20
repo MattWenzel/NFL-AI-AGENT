@@ -257,12 +257,17 @@ class OpenAIClient(BaseLLMClient):
         for idx in sorted(tool_calls_acc.keys()):
             acc = tool_calls_acc[idx]
             if acc["id"] and acc["name"]:
+                raw_for_debug: str | None = None
                 try:
                     tool_input = json.loads(acc["arguments"]) if acc["arguments"] else {}
                 except json.JSONDecodeError:
                     logger.warning("Failed to parse tool input JSON: %s", acc["arguments"][:200])
                     tool_input = {}
-                events.append(ToolUseEvent(id=acc["id"], name=acc["name"], input=tool_input))
+                    raw_for_debug = acc["arguments"]
+                events.append(ToolUseEvent(
+                    id=acc["id"], name=acc["name"], input=tool_input,
+                    raw_input_json=raw_for_debug,
+                ))
             else:
                 logger.warning("Dropping incomplete tool call at index %d: id=%r name=%r", idx, acc["id"], acc["name"])
         tool_calls_acc.clear()

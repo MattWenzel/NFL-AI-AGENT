@@ -177,6 +177,10 @@ class ToolRunRecord:
     compacted: bool
     created_at: str
     updated_at: str
+    # Captured when the model's streamed JSON arguments fail to parse
+    # — input_json gets the {} fallback so the loop keeps moving, and
+    # this preserves the original bytes for post-hoc debugging.
+    raw_input_text: str | None = None
 
 
 @dataclass
@@ -354,6 +358,7 @@ class RuntimeStore:
             self._ensure_column(conn, "sessions", "source_csv_id", "TEXT")
             self._ensure_column(conn, "sessions", "user_id", "INTEGER REFERENCES users(id)")
             self._ensure_column(conn, "exports", "user_id", "INTEGER REFERENCES users(id)")
+            self._ensure_column(conn, "tool_runs", "raw_input_text", "TEXT")
             # Multi-user additions. Both are additive (ADD COLUMN) so existing
             # rows get the DEFAULT / NULL. No table rebuild.
             self._ensure_column(conn, "users", "role", "TEXT NOT NULL DEFAULT 'user'")
@@ -754,7 +759,16 @@ class RuntimeStore:
             )
         return part
 
-    def create_tool_run(self, session_id: str, turn_id: str, tool_name: str, input_data: dict, status: str = "pending") -> ToolRunRecord:
+    def create_tool_run(
+        self,
+        session_id: str,
+        turn_id: str,
+        tool_name: str,
+        input_data: dict,
+        status: str = "pending",
+        *,
+        raw_input_text: str | None = None,
+    ) -> ToolRunRecord:
         now = _utcnow()
         tool_run = ToolRunRecord(
             id=_new_id(),
@@ -770,14 +784,16 @@ class RuntimeStore:
             compacted=False,
             created_at=now,
             updated_at=now,
+            raw_input_text=raw_input_text,
         )
         with self._connect() as conn:
             conn.execute(
                 """
                 INSERT INTO tool_runs (
                     id, session_id, turn_id, tool_name, input_json, status,
-                    result_text, error_text, hint, duration_ms, compacted, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, 0, ?, ?)
+                    result_text, error_text, hint, duration_ms, compacted,
+                    created_at, updated_at, raw_input_text
+                ) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, 0, ?, ?, ?)
                 """,
                 (
                     tool_run.id,
@@ -788,6 +804,7 @@ class RuntimeStore:
                     tool_run.status,
                     tool_run.created_at,
                     tool_run.updated_at,
+                    tool_run.raw_input_text,
                 ),
             )
         return tool_run
@@ -1421,6 +1438,7 @@ class RuntimeStore:
 
     @staticmethod
     def _row_to_tool_run(row: sqlite3.Row) -> ToolRunRecord:
+        keys = row.keys()
         return ToolRunRecord(
             id=row["id"],
             session_id=row["session_id"],
@@ -1435,6 +1453,7 @@ class RuntimeStore:
             compacted=bool(row["compacted"]),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            raw_input_text=row["raw_input_text"] if "raw_input_text" in keys else None,
         )
 
     @staticmethod

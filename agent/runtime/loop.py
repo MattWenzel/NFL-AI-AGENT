@@ -192,7 +192,9 @@ class ChatRuntime:
                                 )
                             elif isinstance(event, ToolUseEvent):
                                 tool_run = self.store.create_tool_run(
-                                    session.id, assistant_turn.id, event.name, event.input, status="pending"
+                                    session.id, assistant_turn.id, event.name, event.input,
+                                    status="pending",
+                                    raw_input_text=event.raw_input_json,
                                 )
                                 self.store.add_part(
                                     session.id,
