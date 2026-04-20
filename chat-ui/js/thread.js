@@ -376,6 +376,13 @@ function renderLiveUserCard() {
 }
 
 function renderCompactionBanner(meta) {
+  // Phase-1 prune-only compaction: no summary turn was created, just
+  // dropped old tool outputs from the active prompt. Render the cheaper
+  // event distinctly so the user knows nothing was paraphrased.
+  if (meta.summary_source === "prune_only") {
+    const pruned = meta.pruned_tool_run_count ?? 0;
+    return `<div class="inline-status">Pruned ${pruned} old tool result${pruned === 1 ? "" : "s"} · ${meta.active_tokens_before}→${meta.active_tokens_after} tok / ${meta.context_window} budget</div>`;
+  }
   const turnCount = meta.source_turn_count ?? meta.source_turn_ids?.length;
   const turnLabel = turnCount != null ? `${turnCount} earlier turn${turnCount === 1 ? "" : "s"}` : "earlier turns";
   const summaryTokens = meta.summary_token_count;

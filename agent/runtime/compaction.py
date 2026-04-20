@@ -199,7 +199,12 @@ def _select_source_turns(
 
 def _compact_old_tool_runs(
     store: RuntimeStore, session_id: str, policy: RetentionPolicy
-) -> None:
+) -> int:
+    """Mark tool-run results older than the retention window as compacted.
+
+    Returns the number of tool runs newly marked compacted so callers
+    can decide whether the prune freed enough headroom.
+    """
     transcript = store.get_transcript(session_id)
     active_completed = [
         run
@@ -208,10 +213,11 @@ def _compact_old_tool_runs(
         if not run.compacted and run.status == "completed"
     ]
     if len(active_completed) <= policy.recent_raw_tool_runs:
-        return
+        return 0
     stale = active_completed[: -policy.recent_raw_tool_runs]
     for run in stale:
         store.update_tool_run(run.id, compacted=1)
+    return len(stale)
 
 
 def _heuristic_summary(
@@ -292,6 +298,35 @@ async def _compact_if_needed_inner(
     if not force and active_tokens <= session.context_window:
         return None
     policy = RetentionPolicy.for_context_window(session.context_window)
+
+    # Phase 1: try pruning old completed tool outputs first. Cheap — no
+    # LLM call — and preserves every turn's text verbatim, which is what
+    # the user actually cares about reading. Bulky SQL-dump tool results
+    # fall out of the active prompt; recent exchanges stay raw. If this
+    # frees enough, skip phase 2 entirely. Skipped on `force=True`
+    # because the caller already tried pruning via a prior iteration and
+    # wants a summary this time.
+    if not force:
+        pruned = _compact_old_tool_runs(store, session.id, policy)
+        if pruned:
+            new_tokens = estimate_active_tokens(store, session.id)
+            if new_tokens <= session.context_window:
+                logger.info(
+                    "compaction: pruned %d tool output(s), freed %d→%d tokens (skipping summary)",
+                    pruned, active_tokens, new_tokens,
+                )
+                return {
+                    "summary_turn_id": None,
+                    "source_turn_ids": [],
+                    "active_tokens_before": active_tokens,
+                    "active_tokens_after": new_tokens,
+                    "context_window": session.context_window,
+                    "pruned_tool_run_count": pruned,
+                    "summary_source": "prune_only",
+                }
+            active_tokens = new_tokens
+
+    # Phase 2: prune wasn't enough; summarize the oldest turns.
     if retention_budget_override is not None:
         policy = RetentionPolicy(
             recent_raw_turns=policy.recent_raw_turns,
