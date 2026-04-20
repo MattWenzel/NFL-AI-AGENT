@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import sys
 import time
 from typing import AsyncIterator
 
@@ -237,8 +238,13 @@ class AnthropicClient(BaseLLMClient):
         except Exception as exc:
             raise self._translate_error(exc)
         finally:
+            # Forward the live exception (incl. CancelledError on disconnect)
+            # to the SDK's context manager so it can clean up appropriately
+            # — passing all-None would tell it "clean exit", which leaks
+            # the underlying HTTP connection on cancel.
+            exc_info = sys.exc_info()
             try:
-                await stream_ctx.__aexit__(None, None, None)
+                await stream_ctx.__aexit__(*exc_info)
             except Exception:
                 logger.exception("Failed to close anthropic stream")
 

@@ -224,6 +224,14 @@ class OpenAIClient(BaseLLMClient):
             raise
         except Exception as exc:
             raise self._translate_error(exc)
+        finally:
+            # Close the underlying httpx response on cancellation /
+            # disconnect so the TCP connection is released immediately
+            # instead of dangling until GC.
+            try:
+                await stream.close()
+            except Exception:
+                logger.exception("Failed to close openai stream")
 
         # Emit any remaining tool calls (e.g. finish_reason="length" or missing finish chunk)
         if tool_calls_acc:
