@@ -53,64 +53,75 @@ The chat runtime is transcript-backed: sessions, turns, assistant parts, tool ru
 
 ### Architecture
 
-Layered by flow-of-data: `api/` (HTTP transport) → `agent/` (domain: runtime + tools + prompts) → `infra/` (adapters to LLM SDKs + SQLite). `cli/` is an alternate entry point that drives the same `agent/` runtime.
+Organized by subsystem, not by layer. Top-level folders each own a concern:
 
 ```
-api/                        # HTTP transport — thin routers
-├── main.py                 #   app factory + lifespan (validates DBs, wires store+runtime)
-├── dependencies.py         #   get_store, get_runtime, create_client_for_request, close_client
+agent/                      # LLM conversation domain
+├── runtime.py              #   ChatRuntime: prepare_session, run_session, _execute_tool
+├── events.py               #   RuntimeEvent dataclass + RuntimeLoopError
+├── loop_detector.py        #   raise_if_doom_loop
+├── compaction.py           #   estimate_active_tokens, compact_if_needed
+├── summarizer.py           #   LLM-backed summarization for compaction
+├── token_counting.py       #   cl100k token estimator for compaction decisions
+├── system_prompt.py        #   slim base prompt (~2.3K tokens: rules + guide index)
+├── __init__.py             #   exposes GUIDES_DIR constant
+└── guides/                 #   topic-specific markdown loaded via get_guide tool
+    ├── fantasy.md          #   drives.md, games.md, play_by_play.md, player_profile.md,
+    └── …                   #   player_stats.md, postseason.md
+
+tool/                       # Tool registry + implementations (flat)
+├── __init__.py             #   re-exports TOOLS, TOOL_DEFINITIONS, execute_tool*
+├── definitions.py          #   tool schemas + TOOLS typed list
+├── registry.py             #   dispatch table + registry drift guard
+├── validation.py           #   JSON Schema input validation + error hint injection
+├── sandbox.py              #   read-only SQL with timeout, row limit, PBP auto-attach
+├── truncate.py             #   truncate_text, truncate_rows (shared result formatters)
+├── schema_metadata.py      #   TABLE_ALIASES, TABLE_DATABASE, JOIN_EDGES
+├── execute_sql.py          #   handlers — flat, one file per tool
+├── player_lookup.py
+├── get_schema.py
+├── get_guide.py
+├── create_chart.py
+└── create_csv_export.py
+
+auth/                       # Authentication subsystem (primitives + OAuth + encryption)
+├── primitives.py           #   password hashing, bearer tokens, get_current_user dep
+├── encryption.py           #   Fernet wrapper for encrypted API keys / OAuth bundles
+└── codex_oauth.py          #   ChatGPT device-code OAuth protocol
+
+provider/                   # LLM provider adapters
+├── __init__.py             #   registry + factory (create_client, list_providers, ...)
+├── base.py                 #   BaseLLMClient ABC + canonical types
+├── anthropic.py            #   Anthropic Claude
+├── openai.py               #   OpenAI GPT (optional SDK)
+├── codex.py                #   OpenAI Codex (ChatGPT OAuth) via internal Responses API
+├── retry.py                #   shared header-aware exponential backoff
+└── overflow.py             #   context-overflow error detection
+
+storage/                    # SQLite persistence
+└── runtime_store.py        #   RuntimeStore: users, auth sessions, API keys, sessions,
+                            #   turns, parts, tool runs, compaction summaries, exports
+
+server/                     # HTTP transport (FastAPI)
+├── app.py                  #   app factory + lifespan (validates DBs, wires store+runtime)
+├── dependencies.py         #   get_store, get_runtime, create_client_for_request
 ├── schemas.py              #   all request/response Pydantic models
 ├── sse.py                  #   RuntimeEvent → SSE dict serialization
-└── routers/
+├── rate_limit.py           #   in-memory sliding-window limiter for auth endpoints
+├── logging.py              #   setup_logging()
+└── routes/
     ├── chat.py             #   POST /chat/message, POST /chat/stream
     ├── conversations.py    #   list / transcript / delete
     ├── providers.py        #   GET /chat/providers
-    └── exports.py          #   GET /exports/{filename}
+    ├── auth.py             #   register, login, logout, password change, delete account
+    ├── settings.py         #   per-user API key CRUD
+    ├── codex_oauth.py      #   ChatGPT OAuth device-code start/status/cancel
+    ├── csv_library.py      #   CSV export library CRUD (/chat/exports)
+    └── csv_downloads.py    #   GET /exports/{filename} download endpoint
 
-agent/                      # Domain — runtime + tools + prompts
-├── runtime/
-│   ├── __init__.py         #   re-exports ChatRuntime, RuntimeEvent, RuntimeLoopError, TOOLS
-│   ├── loop.py             #   ChatRuntime: run_session, prepare_session, _execute_tool
-│   ├── events.py           #   RuntimeEvent dataclass + RuntimeLoopError
-│   ├── compaction.py       #   estimate_active_tokens, compact_if_needed
-│   └── loop_detector.py    #   raise_if_doom_loop
-├── prompts/
-│   ├── system.py           #   slim base prompt (~2.3K tokens: rules + guide index)
-│   └── guides/             #   topic-specific guides loaded via get_guide tool
-│       ├── fantasy.md
-│       ├── player_stats.md
-│       ├── play_by_play.md
-│       ├── player_profile.md
-│       └── games.md
-└── tools/
-    ├── __init__.py         #   re-exports TOOL_DEFINITIONS, TOOLS, execute_tool*
-    ├── definitions.py      #   tool schemas + TOOLS typed list
-    ├── dispatch.py         #   dispatch table + registry drift guard
-    ├── validation.py       #   input validation + error hint injection
-    ├── sql_sandbox.py      #   read-only SQL with timeout, row limit, PBP auto-attach
-    └── handlers/
-        ├── execute_sql.py
-        ├── player_lookup.py
-        ├── get_schema.py
-        ├── get_guide.py
-        ├── create_chart.py
-        └── create_csv_export.py
-
-infra/                      # External adapters
-├── providers/
-│   ├── __init__.py         #   registry, factory (create_client), ProviderInfo
-│   ├── base.py             #   BaseLLMClient ABC + canonical types
-│   ├── anthropic.py        #   Anthropic Claude
-│   └── openai.py           #   OpenAI GPT (optional SDK)
-├── persistence/
-│   └── runtime_store.py    #   SQLite transcript store (sessions, turns, parts, tool runs)
-└── logger.py               #   setup_logging()
-
-cli/
-└── chat_cli.py             #   python3 -m cli.chat_cli (drives ChatRuntime directly)
-
+cli.py                      # CLI entry point (python3 cli.py)
+run.py                      # HTTP server entry point (python3 run.py)
 config.py                   # DB paths, runtime db path, load_dotenv()
-run.py                      # Server entry point
 chat.html                   # Browser UI (SSE streaming, provider selection)
 tests/                      # pytest test suite
 data/                       # Runtime data (runtime.sqlite3 — ignored)
@@ -120,8 +131,8 @@ data/                       # Runtime data (runtime.sqlite3 — ignored)
 
 ```bash
 python3 run.py                    # API server (port 8001)
-python3 -m cli.chat_cli           # AI chat agent (default: Anthropic)
-python3 -m cli.chat_cli -p openai # Use OpenAI
+python3 cli.py                    # AI chat agent (default: Anthropic)
+python3 cli.py -p openai          # Use OpenAI
 open chat.html                    # Chat UI
 python3 -m pytest tests/          # Run tests
 
@@ -134,7 +145,7 @@ python3 NFLVERSE/scripts/build_db_nflreadpy.py --pbp --all # Fallback: PBP via n
 python3 NFLVERSE/scripts/check_updates.py                 # Check which tables/years are stale
 ```
 
-**Note**: Restart the API server (`python3 run.py`) after changing `agent/prompts/system.py` or `agent/tools/*` — the running server caches imports.
+**Note**: Restart the API server (`python3 run.py`) after changing `agent/system_prompt.py` or `tool/*` — the running server caches imports.
 
 ## Auth & multi-user
 
