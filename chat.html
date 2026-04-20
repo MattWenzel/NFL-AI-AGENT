@@ -123,10 +123,10 @@
       <button type="button" class="settings-close" id="settingsCloseBtn" aria-label="Close">&times;</button>
     </div>
     <div class="settings-tabs" role="tablist">
-      <button type="button" class="settings-tab active" data-tab="providers" role="tab">Providers</button>
-      <button type="button" class="settings-tab" data-tab="account" role="tab">Account</button>
+      <button type="button" class="settings-tab active" id="settingsTabProviders" data-tab="providers" role="tab" aria-selected="true" aria-controls="settingsBody" tabindex="0">Providers</button>
+      <button type="button" class="settings-tab" id="settingsTabAccount" data-tab="account" role="tab" aria-selected="false" aria-controls="settingsBody" tabindex="-1">Account</button>
     </div>
-    <div class="settings-body" id="settingsBody"></div>
+    <div class="settings-body" id="settingsBody" role="tabpanel" aria-labelledby="settingsTabProviders"></div>
   </div>
   <div class="confirm-backdrop" id="confirmBackdrop"></div>
   <div class="confirm-modal" id="confirmModal" role="dialog" aria-labelledby="confirmTitle" aria-modal="true">

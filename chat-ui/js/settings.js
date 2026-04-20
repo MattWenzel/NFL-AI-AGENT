@@ -35,17 +35,28 @@ function attachSettingsTabListeners() {
       if (next === settingsActiveTab) return;
       cancelCodexFlow({ silent: true });
       settingsActiveTab = next;
-      updateSettingsTabActiveState();
+      updateSettingsTabActiveState({ focus: true });
       renderSettingsBody();
     };
   });
 }
 
-function updateSettingsTabActiveState() {
+function updateSettingsTabActiveState({ focus = false } = {}) {
   const tabs = document.querySelectorAll("#settingsModal .settings-tab");
+  let activeTabEl = null;
   tabs.forEach((tab) => {
-    tab.classList.toggle("active", tab.dataset.tab === settingsActiveTab);
+    const isActive = tab.dataset.tab === settingsActiveTab;
+    tab.classList.toggle("active", isActive);
+    tab.setAttribute("aria-selected", isActive ? "true" : "false");
+    tab.setAttribute("tabindex", isActive ? "0" : "-1");
+    if (isActive) activeTabEl = tab;
   });
+  // Keep the tabpanel labelled by the currently-active tab for screen readers.
+  const panel = document.getElementById("settingsBody");
+  if (panel && activeTabEl) {
+    panel.setAttribute("aria-labelledby", activeTabEl.id);
+  }
+  if (focus && activeTabEl) activeTabEl.focus();
 }
 
 function closeSettingsModal() {
