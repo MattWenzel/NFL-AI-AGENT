@@ -8,9 +8,11 @@ import time
 from typing import AsyncIterator
 
 from infra.providers.base import (
-    BaseLLMClient, LLMError, Message, MessageResponse, RetryingEvent,
-    TextEvent, ToolUseEvent, StopReason, ToolChoice, Usage, ToolDefinition,
+    BaseLLMClient, ContextOverflowError, LLMError, Message, MessageResponse,
+    RetryingEvent, TextEvent, ToolUseEvent, StopReason, ToolChoice, Usage,
+    ToolDefinition,
 )
+from infra.providers.overflow import is_context_overflow
 from infra.providers.retry import (
     MAX_ATTEMPTS, RetryableError, compute_delay, parse_retry_after,
     parse_retry_after_ms, with_retries,
@@ -76,9 +78,28 @@ class OpenAIClient(BaseLLMClient):
             return LLMError("Invalid OpenAI API key — update it in Settings")
         if isinstance(exc, openai.RateLimitError):
             return LLMError("Rate limited by OpenAI — retry shortly")
+        if isinstance(exc, openai.BadRequestError):
+            body = self._error_body(exc)
+            if is_context_overflow(body):
+                return ContextOverflowError(
+                    "Prompt exceeded OpenAI context window — compacting and retrying"
+                )
         if isinstance(exc, openai.APIError):
             return LLMError(f"OpenAI API error: {exc.message}")
         return LLMError(f"OpenAI error: {exc}")
+
+    @staticmethod
+    def _error_body(exc: Exception) -> str:
+        parts = [str(exc)]
+        message = getattr(exc, "message", None)
+        if message:
+            parts.append(str(message))
+        response = getattr(exc, "response", None)
+        if response is not None:
+            text = getattr(response, "text", None)
+            if isinstance(text, str):
+                parts.append(text)
+        return " ".join(parts)
 
     async def create_message(
         self,

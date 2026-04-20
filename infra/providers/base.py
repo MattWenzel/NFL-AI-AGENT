@@ -23,6 +23,17 @@ class LLMError(Exception):
     """Raised when the LLM API call fails with a user-readable message."""
 
 
+class ContextOverflowError(LLMError):
+    """Raised when the provider rejected the request as too-long-for-context.
+
+    Distinct from generic LLMError so the runtime can catch it, force one
+    extra compaction pass, and retry the iteration. Our pre-call estimator
+    (tiktoken cl100k_base) is close but not exact for Anthropic/OpenAI
+    counts of tool definitions and system overhead — when it under-shoots,
+    this is the recovery path.
+    """
+
+
 class StopReason(str, Enum):
     """Normalized stop reason across all providers."""
     END_TURN = "end_turn"

@@ -10,9 +10,11 @@ from typing import AsyncIterator
 import anthropic
 
 from infra.providers.base import (
-    BaseLLMClient, LLMError, Message, MessageResponse, RetryingEvent,
-    TextEvent, ToolUseEvent, StopReason, ToolChoice, Usage, ToolDefinition,
+    BaseLLMClient, ContextOverflowError, LLMError, Message, MessageResponse,
+    RetryingEvent, TextEvent, ToolUseEvent, StopReason, ToolChoice, Usage,
+    ToolDefinition,
 )
+from infra.providers.overflow import is_context_overflow
 from infra.providers.retry import (
     MAX_ATTEMPTS, RetryableError, compute_delay, parse_retry_after,
     parse_retry_after_ms, with_retries,
@@ -86,9 +88,30 @@ class AnthropicClient(BaseLLMClient):
             return LLMError("Invalid Anthropic API key — update it in Settings")
         if isinstance(exc, anthropic.RateLimitError):
             return LLMError("Rate limited by Anthropic — retry shortly")
+        if isinstance(exc, anthropic.BadRequestError):
+            # 400 with a "prompt is too long" body → trigger compaction.
+            body = self._error_body(exc)
+            if is_context_overflow(body):
+                return ContextOverflowError(
+                    "Prompt exceeded Anthropic context window — compacting and retrying"
+                )
         if isinstance(exc, anthropic.APIError):
             return LLMError(f"Anthropic API error: {exc.message}")
         return LLMError(f"Anthropic error: {exc}")
+
+    @staticmethod
+    def _error_body(exc: Exception) -> str:
+        """Best-effort extract of the error message + response body for matching."""
+        parts = [str(exc)]
+        message = getattr(exc, "message", None)
+        if message:
+            parts.append(str(message))
+        response = getattr(exc, "response", None)
+        if response is not None:
+            text = getattr(response, "text", None)
+            if isinstance(text, str):
+                parts.append(text)
+        return " ".join(parts)
 
     async def create_message(
         self,

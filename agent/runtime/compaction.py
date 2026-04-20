@@ -231,6 +231,8 @@ async def compact_if_needed(
     client: BaseLLMClient | None = None,
     *,
     provider_name: str | None = None,
+    force: bool = False,
+    retention_budget_override: int | None = None,
 ) -> dict | None:
     """Compact oldest turns when active tokens exceed the session's context window.
 
@@ -240,15 +242,27 @@ async def compact_if_needed(
     directly — keeps the CLI and offline tests working without hitting
     the network.
 
+    `force=True` skips the active-token check — used when the provider
+    rejected the prompt as too long even though our estimator was happy.
+    `retention_budget_override` shrinks the policy's per-turn token
+    budget so the forced pass actually frees space (quartering the
+    budget is a sensible aggressive default).
+
     Returns a dict describing the compaction (summary turn id, source turn
     ids, token counts, summary source) when one occurs, else None.
     """
     if not session.context_window:
         return None
     active_tokens = estimate_active_tokens(store, session.id)
-    if active_tokens <= session.context_window:
+    if not force and active_tokens <= session.context_window:
         return None
     policy = RetentionPolicy.for_context_window(session.context_window)
+    if retention_budget_override is not None:
+        policy = RetentionPolicy(
+            recent_raw_turns=policy.recent_raw_turns,
+            recent_raw_tool_runs=policy.recent_raw_tool_runs,
+            retention_budget_tokens=max(MIN_RETENTION_BUDGET_TOKENS, retention_budget_override),
+        )
     transcript = store.get_transcript(session.id)
     active_turns = [t for t in transcript.turns if not t.compacted and t.role in {"user", "assistant"}]
     source_turns = _select_source_turns(

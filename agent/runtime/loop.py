@@ -34,6 +34,7 @@ from infra.providers import (
     Usage,
     get_provider,
 )
+from infra.providers.base import ContextOverflowError
 
 from agent.prompts.system import get_base_prompt
 from agent.runtime.compaction import compact_if_needed
@@ -119,12 +120,28 @@ class ChatRuntime:
             # follow-up turn after a tool result isn't forced into another
             # tool call when it should be presenting results as text.
             force_tool_choice_next_iter: ToolChoice | None = tool_choice
+            # Set when the provider rejects the prompt as too long; the next
+            # iteration forces a compaction with a tightened retention budget
+            # before re-trying the same model call. One-shot per user turn —
+            # if the forced compaction doesn't free enough, we surface the
+            # overflow as a normal error.
+            force_overflow_compaction = False
+            overflow_retry_used = False
             try:
                 for _ in range(MAX_TOOL_ITERATIONS):
                     iterations += 1
-                    compaction_info = await compact_if_needed(
-                        self.store, session, client, provider_name=provider_name
-                    )
+                    if force_overflow_compaction:
+                        compaction_info = await compact_if_needed(
+                            self.store, session, client,
+                            provider_name=provider_name,
+                            force=True,
+                            retention_budget_override=session.context_window // 4,
+                        )
+                        force_overflow_compaction = False
+                    else:
+                        compaction_info = await compact_if_needed(
+                            self.store, session, client, provider_name=provider_name
+                        )
                     if compaction_info is not None:
                         yield RuntimeEvent(
                             type="compaction_started",
@@ -232,6 +249,33 @@ class ChatRuntime:
                         yield RuntimeEvent(type="assistant_requires_followup", session_id=session.id, turn_id=assistant_turn.id, iterations=iterations)
                         assistant_turn = None
                         tool_runs = []
+                    except ContextOverflowError as exc:
+                        # Provider says the prompt is too long even though our
+                        # estimator was happy. Mark this attempt as errored, set
+                        # the forced-compaction flag, and let the outer loop run
+                        # one more iteration to compact and retry. One-shot per
+                        # user turn — a second overflow falls through to the
+                        # generic LLMError branch below.
+                        self.store.update_turn(
+                            assistant_turn.id,
+                            status="error",
+                            error=str(exc),
+                            input_tokens=client.last_usage.input_tokens,
+                            output_tokens=client.last_usage.output_tokens,
+                        )
+                        assistant_turn = None
+                        tool_runs = []
+                        if overflow_retry_used:
+                            yield RuntimeEvent(
+                                type="runtime_error",
+                                session_id=session.id,
+                                error=str(exc),
+                                iterations=iterations,
+                            )
+                            return
+                        overflow_retry_used = True
+                        force_overflow_compaction = True
+                        continue
                     except RuntimeLoopError as exc:
                         failed_turn_id = assistant_turn.id
                         self.store.update_turn(

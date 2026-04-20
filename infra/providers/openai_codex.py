@@ -25,6 +25,7 @@ import httpx
 from infra.codex_oauth import CodexOAuthError, decode_account_id
 from infra.providers.base import (
     BaseLLMClient,
+    ContextOverflowError,
     LLMError,
     Message,
     MessageResponse,
@@ -36,6 +37,7 @@ from infra.providers.base import (
     ToolUseEvent,
     Usage,
 )
+from infra.providers.overflow import is_context_overflow
 from infra.providers.retry import (
     MAX_ATTEMPTS,
     RetryableError,
@@ -105,8 +107,12 @@ class OpenAICodexClient(BaseLLMClient):
                 return LLMError("ChatGPT OAuth token rejected — reconnect in Settings.")
             if status == 429:
                 return LLMError("Rate limited by ChatGPT — retry shortly.")
-            body = (exc.response.text or "")[:300]
-            return LLMError(f"Codex API error (HTTP {status}): {body}")
+            body = exc.response.text or ""
+            if status == 400 and is_context_overflow(body):
+                return ContextOverflowError(
+                    "Prompt exceeded Codex context window — compacting and retrying"
+                )
+            return LLMError(f"Codex API error (HTTP {status}): {body[:300]}")
         if isinstance(exc, httpx.RequestError):
             return LLMError(f"Codex request failed: {exc}")
         return LLMError(f"Codex error: {exc}")

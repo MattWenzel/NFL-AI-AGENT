@@ -5,9 +5,9 @@ import logging
 from dataclasses import dataclass, field
 
 from infra.providers.base import (
-    BaseLLMClient, CredentialShape, LLMError, Message, MessageResponse,
-    RetryingEvent, TextEvent, ToolUseEvent, StopReason, ToolChoice, Usage,
-    ToolDefinition,
+    BaseLLMClient, ContextOverflowError, CredentialShape, LLMError, Message,
+    MessageResponse, RetryingEvent, TextEvent, ToolUseEvent, StopReason,
+    ToolChoice, Usage, ToolDefinition,
 )
 
 logger = logging.getLogger(__name__)
@@ -177,9 +177,9 @@ register_provider(ProviderInfo(
 ))
 
 __all__ = [
-    "BaseLLMClient", "CredentialShape", "LLMError", "Message", "MessageResponse",
-    "RetryingEvent", "TextEvent", "ToolUseEvent", "ProviderInfo",
-    "StopReason", "ToolChoice", "Usage", "ToolDefinition",
+    "BaseLLMClient", "ContextOverflowError", "CredentialShape", "LLMError",
+    "Message", "MessageResponse", "RetryingEvent", "TextEvent", "ToolUseEvent",
+    "ProviderInfo", "StopReason", "ToolChoice", "Usage", "ToolDefinition",
     "register_provider", "get_provider", "list_providers",
     "get_default_provider", "create_client", "provider_is_available",
 ]
