@@ -14,6 +14,7 @@
   crash request teardown.
 """
 
+import asyncio
 import json
 import logging
 
@@ -34,6 +35,22 @@ from infra.providers import (
 logger = logging.getLogger(__name__)
 
 CODEX_PROVIDER = "openai-codex"
+
+# Per-user lock guarding the "read bundle → refresh → persist" block for
+# OAuth providers. Two concurrent requests for the same user would
+# otherwise both call the refresh endpoint, and if OpenAI rotates the
+# refresh_token the loser's copy goes stale the moment the winner writes.
+# In-process only — fine on single-worker deploys (same constraint as the
+# in-memory rate limiter).
+_refresh_locks: dict[int, asyncio.Lock] = {}
+
+
+def _refresh_lock_for(user_id: int) -> asyncio.Lock:
+    lock = _refresh_locks.get(user_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _refresh_locks[user_id] = lock
+    return lock
 
 
 def get_store(request: Request) -> RuntimeStore:
@@ -95,6 +112,49 @@ def _resolve_api_key(
 async def _resolve_codex_access_token(
     store: RuntimeStore, user_id: int, provider_name: str
 ) -> str | None:
+    bundle = _load_codex_bundle(store, user_id, provider_name)
+    if bundle is None:
+        return None
+    if not codex_oauth.is_near_expiry(bundle):
+        return bundle.access_token
+    # Refresh path: serialize across concurrent requests for this user and
+    # re-read under the lock — a concurrent request may have already
+    # refreshed and persisted while we were waiting to acquire.
+    async with _refresh_lock_for(user_id):
+        bundle = _load_codex_bundle(store, user_id, provider_name)
+        if bundle is None:
+            return None
+        if not codex_oauth.is_near_expiry(bundle):
+            return bundle.access_token
+        try:
+            bundle = await codex_oauth.refresh_access_token(bundle.refresh_token)
+        except codex_oauth.CodexOAuthError as exc:
+            logger.warning(
+                "Codex token refresh failed for user=%d: %s", user_id, exc
+            )
+            # The user IS connected; the refresh call just failed. Surface
+            # that explicitly instead of returning None, which would
+            # otherwise collapse into the "not connected" branch of
+            # create_client_for_request.
+            raise HTTPException(
+                status_code=503,
+                detail="ChatGPT session expired — reconnect in Settings.",
+            )
+        store.upsert_api_key(
+            user_id=user_id,
+            provider=provider_name,
+            encrypted_key=encryption.encrypt(codex_oauth.bundle_to_json(bundle)),
+        )
+        logger.info("Refreshed Codex token for user=%d", user_id)
+        return bundle.access_token
+
+
+def _load_codex_bundle(
+    store: RuntimeStore, user_id: int, provider_name: str
+) -> codex_oauth.TokenBundle | None:
+    """Read and decrypt the stored Codex bundle. Returns None on any
+    "effectively missing" state (no record, tampered ciphertext, malformed
+    JSON) so callers can treat it as "not connected"."""
     rec = store.get_api_key(user_id=user_id, provider=provider_name)
     if rec is None:
         return None
@@ -106,25 +166,10 @@ async def _resolve_codex_access_token(
         )
         return None
     try:
-        bundle = codex_oauth.bundle_from_json(blob_json)
+        return codex_oauth.bundle_from_json(blob_json)
     except (KeyError, ValueError, json.JSONDecodeError) as exc:
         logger.error("Malformed Codex bundle for user=%d: %s", user_id, exc)
         return None
-    if codex_oauth.is_near_expiry(bundle):
-        try:
-            bundle = await codex_oauth.refresh_access_token(bundle.refresh_token)
-        except codex_oauth.CodexOAuthError as exc:
-            logger.warning(
-                "Codex token refresh failed for user=%d: %s", user_id, exc
-            )
-            return None
-        store.upsert_api_key(
-            user_id=user_id,
-            provider=provider_name,
-            encrypted_key=encryption.encrypt(codex_oauth.bundle_to_json(bundle)),
-        )
-        logger.info("Refreshed Codex token for user=%d", user_id)
-    return bundle.access_token
 
 
 def create_client_for_request(
