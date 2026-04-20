@@ -135,10 +135,11 @@ class AnthropicClient(BaseLLMClient):
         parsed = self._parse_response(response)
         self._set_last_usage(parsed.usage)
         self._set_last_stop_reason(parsed.stop_reason)
+        cache_read, cache_write = self._extract_cache_usage(getattr(response, "usage", None))
         logger.debug(
-            "LLM create  model=%s  in=%d out=%d  stop=%s  %.1fs",
-            kwargs["model"], parsed.usage.input_tokens,
-            parsed.usage.output_tokens, parsed.stop_reason, duration,
+            "LLM create  model=%s  in=%d out=%d  cache_read=%d cache_write=%d  stop=%s  %.1fs",
+            kwargs["model"], parsed.usage.input_tokens, parsed.usage.output_tokens,
+            cache_read, cache_write, parsed.stop_reason, duration,
         )
         return parsed
 
@@ -184,6 +185,8 @@ class AnthropicClient(BaseLLMClient):
 
         input_tokens = 0
         output_tokens = 0
+        cache_read = 0
+        cache_write = 0
         stop_reason: StopReason | None = None
         try:
             current_tool_id = None
@@ -220,6 +223,7 @@ class AnthropicClient(BaseLLMClient):
                     usage = getattr(event.message, "usage", None)
                     if usage:
                         input_tokens = getattr(usage, "input_tokens", 0) or 0
+                        cache_read, cache_write = self._extract_cache_usage(usage)
                 elif event.type == "message_delta":
                     usage = getattr(event, "usage", None)
                     if usage:
@@ -242,8 +246,9 @@ class AnthropicClient(BaseLLMClient):
         self._set_last_usage(Usage(input_tokens=input_tokens, output_tokens=output_tokens))
         self._set_last_stop_reason(stop_reason)
         logger.debug(
-            "LLM stream  model=%s  in=%d out=%d  stop=%s  %.1fs",
-            self.model, input_tokens, output_tokens, stop_reason, duration,
+            "LLM stream  model=%s  in=%d out=%d  cache_read=%d cache_write=%d  stop=%s  %.1fs",
+            self.model, input_tokens, output_tokens,
+            cache_read, cache_write, stop_reason, duration,
         )
 
     @staticmethod
@@ -305,15 +310,67 @@ class AnthropicClient(BaseLLMClient):
         kwargs = {
             "model": self.model,
             "max_tokens": self.max_output_tokens,
-            "messages": messages,
+            "messages": self._add_message_cache_breakpoint(messages),
         }
         if system:
-            kwargs["system"] = system
+            # System prompt as a cached block — same content across every
+            # call within a session, so caching it pays off after the
+            # second turn (5-min ephemeral TTL).
+            kwargs["system"] = [
+                {
+                    "type": "text",
+                    "text": system,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
         if tools:
             kwargs["tools"] = [t.to_dict() for t in tools]
         if tool_choice:
             kwargs["tool_choice"] = _ANTHROPIC_TOOL_CHOICE[tool_choice]
         return kwargs
+
+    @staticmethod
+    def _add_message_cache_breakpoint(messages: list[dict]) -> list[dict]:
+        """Mark the last block of the last message with cache_control.
+
+        Anthropic's `cache_control: ephemeral` flags everything *before*
+        the marker as cacheable. Putting it on the very last block caches
+        the entire conversation history; later iterations within the
+        same turn only pay full price for the newly appended tool_result
+        blocks. Net win grows with conversation length.
+
+        Safe-to-mutate copy: shallow-clones the last message and the
+        block we change so callers' lists aren't disturbed.
+        """
+        if not messages:
+            return messages
+        last = dict(messages[-1])
+        content = last.get("content")
+        if isinstance(content, str):
+            last["content"] = [
+                {"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}
+            ]
+        elif isinstance(content, list) and content:
+            new_content = list(content)
+            last_block = dict(new_content[-1])
+            last_block["cache_control"] = {"type": "ephemeral"}
+            new_content[-1] = last_block
+            last["content"] = new_content
+        else:
+            # Empty / unexpected shape — leave the request alone rather
+            # than risk a 400 from a malformed cache_control marker.
+            return messages
+        return list(messages[:-1]) + [last]
+
+    @staticmethod
+    def _extract_cache_usage(usage) -> tuple[int, int]:
+        """Pull (cache_read_input_tokens, cache_creation_input_tokens) when present."""
+        if usage is None:
+            return 0, 0
+        return (
+            int(getattr(usage, "cache_read_input_tokens", 0) or 0),
+            int(getattr(usage, "cache_creation_input_tokens", 0) or 0),
+        )
 
     @staticmethod
     def _parse_response(response) -> MessageResponse:
