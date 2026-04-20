@@ -12,6 +12,8 @@ const CODEX_POLL_MS = 2000;
 // modal closes or the user starts a fresh attempt.
 let codexFlowState = null; // { pendingId, timer, cancelled }
 
+let settingsActiveTab = "providers";
+
 async function openSettingsModal() {
   const modal = document.getElementById("settingsModal");
   const backdrop = document.getElementById("settingsBackdrop");
@@ -19,7 +21,31 @@ async function openSettingsModal() {
   modal.classList.add("open");
   backdrop.classList.add("open");
   document.addEventListener("keydown", settingsKeyHandler);
+  settingsActiveTab = "providers";
+  attachSettingsTabListeners();
+  updateSettingsTabActiveState();
   await renderSettingsBody();
+}
+
+function attachSettingsTabListeners() {
+  const tabs = document.querySelectorAll("#settingsModal .settings-tab");
+  tabs.forEach((tab) => {
+    tab.onclick = () => {
+      const next = tab.dataset.tab;
+      if (next === settingsActiveTab) return;
+      cancelCodexFlow({ silent: true });
+      settingsActiveTab = next;
+      updateSettingsTabActiveState();
+      renderSettingsBody();
+    };
+  });
+}
+
+function updateSettingsTabActiveState() {
+  const tabs = document.querySelectorAll("#settingsModal .settings-tab");
+  tabs.forEach((tab) => {
+    tab.classList.toggle("active", tab.dataset.tab === settingsActiveTab);
+  });
 }
 
 function closeSettingsModal() {
@@ -38,6 +64,14 @@ function settingsKeyHandler(event) {
 async function renderSettingsBody() {
   const body = document.getElementById("settingsBody");
   if (!body) return;
+  if (settingsActiveTab === "account") {
+    body.innerHTML = renderAccountSection();
+    const pwForm = document.getElementById("accountPasswordForm");
+    if (pwForm) pwForm.addEventListener("submit", onChangePassword);
+    const delForm = document.getElementById("accountDeleteForm");
+    if (delForm) delForm.addEventListener("submit", onDeleteAccount);
+    return;
+  }
   body.innerHTML = `<div class="settings-loading">Loading…</div>`;
   let items;
   try {
@@ -46,8 +80,7 @@ async function renderSettingsBody() {
     body.innerHTML = `<div class="settings-error">Failed to load: ${escapeHtml(err.message)}</div>`;
     return;
   }
-  body.innerHTML =
-    items.map(renderProviderSection).join("") + renderAccountSection();
+  body.innerHTML = items.map(renderProviderSection).join("");
   body.querySelectorAll("form[data-provider]").forEach((form) => {
     form.addEventListener("submit", onSaveKey);
     const clearBtn = form.querySelector("button[data-action='clear']");
@@ -59,10 +92,6 @@ async function renderSettingsBody() {
   body.querySelectorAll("[data-codex-action='disconnect']").forEach((btn) => {
     btn.addEventListener("click", onCodexDisconnect);
   });
-  const pwForm = document.getElementById("accountPasswordForm");
-  if (pwForm) pwForm.addEventListener("submit", onChangePassword);
-  const delForm = document.getElementById("accountDeleteForm");
-  if (delForm) delForm.addEventListener("submit", onDeleteAccount);
 }
 
 function renderAccountSection() {
@@ -72,7 +101,6 @@ function renderAccountSection() {
     : "";
   return `
     <section class="settings-section settings-account">
-      <header><h3>Account</h3></header>
       ${emailLine}
 
       <h4 class="settings-subheading">Change password</h4>
