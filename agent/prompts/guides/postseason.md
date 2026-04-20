@@ -11,7 +11,7 @@ Playoff, Super Bowl, Wild Card, Divisional, and Conference Championship queries.
 | `games` | `game_type` | `'REG'` | `'WC'` / `'DIV'` / `'CON'` / `'SB'` | **Preferred discriminator. No `'POST'` value.** |
 | `play_by_play` | `season_type` + `week` | `'REG'` | `'POST'` + week 18/19/20/21/22 (era-dependent — see below) | **No `game_type` column exists.** Join to `games` if you need the round name. |
 | `season_stats` / `game_stats` | `season_type` | `'REG'` | `'POST'` | Binary only — no round granularity. |
-| `ngs_stats` | `season_type` | `'REG'` | `'POST'` | Same as season_stats. |
+| `ngs_stats` | `season_type` | `'REG'` | `'POST'` | **SB week is offset by +1 vs game_stats** (NGS skips the Pro Bowl bye). Don't `JOIN n.week = gs.week` for playoffs — silently drops Super Bowls. See NGS postseason section. |
 | `qbr` | `season_type` | `'Regular'` | `'Postseason'` | **Full words, unique to this table.** |
 | `snap_counts` | `game_type` | `'REG'` | `'WC'` / `'DIV'` / `'CON'` / `'SB'` | Same granularity as `games`. |
 | `depth_charts` | `game_type` | `'REG'` | `'WC'` / `'DIV'` / `'CON'` / `'SB'` | Same. |
@@ -201,6 +201,43 @@ GROUP BY p.gsis_id, p.display_name, q.season
 ORDER BY playoff_qbr DESC
 LIMIT 20;
 ```
+
+## NGS postseason — week offset + partial coverage
+
+`ngs_stats` postseason weeks do NOT line up with `game_stats` postseason weeks. NGS skips the Pro Bowl bye, so the Super Bowl row is always labeled one week higher than `game_stats` labels the same game:
+
+| Era | game_stats SB week | NGS SB week |
+|---|---|---|
+| 1999–2020 | 21 | 22 |
+| 2021–present | 22 | 23 |
+
+WC/DIV/CON line up; the Super Bowl is the only offset. A naive `LEFT JOIN ngs_stats n ON n.season = gs.season AND n.week = gs.week` silently drops every Super Bowl — a common failure mode when a user asks "what's player X's NGS postseason line?" and the answer wrongly shows nulls for the biggest game.
+
+**Safe patterns:**
+
+```sql
+-- (a) Query NGS alone for postseason, skip the game_stats join entirely:
+SELECT n.season, n.week, n.targets, n.receptions, n.yards, n.avg_separation
+FROM ngs_stats n JOIN players p ON p.gsis_id = n.player_gsis_id
+WHERE p.display_name = 'DeVonta Smith'
+  AND n.stat_type = 'receiving' AND n.season_type = 'POST'
+ORDER BY n.season, n.week;
+```
+
+```sql
+-- (b) If you MUST join game_stats + NGS postseason, normalize the SB week:
+LEFT JOIN ngs_stats n
+  ON n.player_gsis_id = gs.player_id
+ AND n.season = gs.season
+ AND n.season_type = 'POST'
+ AND n.stat_type = 'receiving'
+ AND n.week = CASE
+       WHEN gs.season >= 2021 AND gs.week = 22 THEN 23   -- SB, 17-game era
+       WHEN gs.season <  2021 AND gs.week = 21 THEN 22   -- SB, 16-game era
+       ELSE gs.week END                                  -- WC/DIV/CON align
+```
+
+**NGS receiving is a qualified leaderboard, not full coverage.** Each playoff week charts only ~9–20 receivers league-wide (minimum routes/targets). A player with 2–4 catches in a playoff game often won't have a row — that's not a data bug, that's NGS's own threshold. If the user asks "why is X missing?", check their target volume for that game first.
 
 ## Gotchas
 

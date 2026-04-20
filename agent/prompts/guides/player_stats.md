@@ -146,6 +146,39 @@ HAVING SUM(targets) >= 200   -- applies to the total, not per-row
 ```
 `WHERE targets >= 200` would filter individual season rows, not career totals.
 
+**NGS postseason week numbers are OFFSET from both `game_stats` and `games`.** NGS skips the Pro Bowl bye and labels the Super Bowl one week higher than the other tables do:
+
+| Era | `game_stats` / `games` SB week | `ngs_stats` SB week |
+|---|---|---|
+| 1999–2020 | 21 | 22 |
+| 2021–present | 22 | 23 |
+
+WC/DIV/CON align across all three tables; only the SB is offset. **Never join `ngs_stats` on `week` to `game_stats` OR `games` for postseason rows** — it silently drops every Super Bowl. Two safe patterns:
+
+*(a) NGS alone — simplest:*
+```sql
+SELECT n.season, n.week, n.team_abbr, n.targets, n.receptions, n.yards, n.avg_separation
+FROM ngs_stats n JOIN players p ON p.gsis_id = n.player_gsis_id
+WHERE p.display_name = 'DeVonta Smith'
+  AND n.stat_type = 'receiving' AND n.season_type = 'POST'
+ORDER BY n.season, n.week;
+```
+
+*(b) NGS + `games` for opponent / round name / score — use a CASE to remap:*
+```sql
+LEFT JOIN games g
+  ON g.season = n.season
+ AND (g.home_team = n.team_abbr OR g.away_team = n.team_abbr)
+ AND g.game_type IN ('WC','DIV','CON','SB')
+ AND g.week = CASE
+       WHEN n.season >= 2021 AND n.week = 23 THEN 22   -- SB, 17-game era
+       WHEN n.season <  2021 AND n.week = 22 THEN 21   -- SB, 16-game era
+       ELSE n.week END                                 -- WC/DIV/CON align
+```
+Joining ngs → games directly gives you `g.game_type` (WC/DIV/CON/SB round label), `g.away_team`/`g.home_team`, and `g.home_score`/`g.away_score` without the `game_stats` hop.
+
+**NGS receiving is a qualified leaderboard, not full coverage.** Each postseason week charts only 9–20 receivers league-wide (minimum routes/targets). A player with 2–4 catches in a playoff game often won't have a row. If a user asks "why is NGS missing X?", the answer is usually "X didn't meet NGS's charting threshold that week" — not an ingestion gap. Regular-season coverage is broader but still threshold-gated for low-volume players.
+
 ### `pfr_advanced` — PFR advanced stats (7.8K rows, 2018–2025)
 
 - **ID**: `pfr_id` — bridges via `player_ids.pfr_id`.
