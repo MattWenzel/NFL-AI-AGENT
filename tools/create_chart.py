@@ -12,7 +12,7 @@ aggregate upstream (GROUP BY / LIMIT) before calling this.
 import json
 import logging
 
-from tool.sandbox import execute_safe_sql
+from tools.sandbox import execute_safe_sql
 
 logger = logging.getLogger(__name__)
 

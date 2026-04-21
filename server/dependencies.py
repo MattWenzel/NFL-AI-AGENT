@@ -1,16 +1,8 @@
-"""FastAPI dependencies and HTTP-level helpers shared by chat routers.
+"""FastAPI dependencies shared by HTTP routes.
 
 - `get_store` / `get_runtime`: resolve the `RuntimeStore` and
   `ChatRuntime` attached to `app.state` by the lifespan. Use via
   `Depends(get_store)`.
-- `resolve_user_credential`: look up (and if needed refresh) the
-  authenticated user's stored credential for a provider. Returns the
-  string that the client constructor wants — an API key for the
-  classic providers, a bearer access_token for Codex OAuth. The refresh
-  bookkeeping lives in `auth/codex_credentials.py`.
-- `create_client_for_request`: translate provider/model request params
-  into a live `BaseLLMClient`, raising the right HTTP status when the
-  provider is unknown or its key is missing.
 - `close_client`: swallow close-errors so one failing client doesn't
   crash request teardown.
 """
@@ -21,7 +13,10 @@ from fastapi import HTTPException, Request
 
 from agent.runtime import ChatRuntime
 from auth import encryption
-from auth.codex_credentials import resolve_access_token as _resolve_codex_access_token
+from auth.codex_credentials import (
+    CodexCredentialError,
+    resolve_access_token as _resolve_codex_access_token,
+)
 from storage import RuntimeStore
 from provider import (
     BaseLLMClient,
@@ -73,7 +68,10 @@ async def resolve_user_credential(
     except KeyError:
         return None
     if info.credential_shape == "codex_oauth":
-        return await _resolve_codex_access_token(store, user_id, provider_name)
+        try:
+            return await _resolve_codex_access_token(store, user_id, provider_name)
+        except CodexCredentialError:
+            return None
     return _resolve_api_key(store, user_id, provider_name)
 
 

@@ -12,8 +12,9 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from auth.primitives import AuthenticatedUser, get_current_user
 from server.dependencies import get_store
+from server.serializers.conversations import conversation_info_from_row, transcript_response
 from server.schemas.conversations import ConversationInfo, ConversationTranscriptResponse, ConversationUpdate
-from storage import RuntimeStore, safe_load_tool_input
+from storage import RuntimeStore
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -24,19 +25,7 @@ async def list_conversations(
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     """List all active conversations for the current user."""
-    return [
-        ConversationInfo(
-            id=item["id"],
-            message_count=item["turn_count"],
-            title=item["title"],
-            provider=item.get("provider"),
-            model=item.get("model"),
-            updated_at=item.get("updated_at"),
-            pinned_at=item.get("pinned_at"),
-            source_csv_id=item.get("source_csv_id"),
-        )
-        for item in store.list_sessions(user_id=user.id)
-    ]
+    return [conversation_info_from_row(item) for item in store.list_sessions(user_id=user.id)]
 
 
 @router.get("/conversations/{conversation_id}/transcript", response_model=ConversationTranscriptResponse)
@@ -54,69 +43,7 @@ async def get_conversation_transcript(
     except KeyError:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    tool_runs = []
-    for turn_id, runs in transcript.tool_runs_by_turn.items():
-        for run in runs:
-            tool_runs.append({
-                "id": run.id,
-                "turn_id": turn_id,
-                "tool_name": run.tool_name,
-                "status": run.status,
-                "input": safe_load_tool_input(run.input_json, tool_run_id=run.id),
-                "result": run.result_text,
-                "error": run.error_text,
-                "hint": run.hint,
-                "duration_ms": run.duration_ms,
-                "compacted": run.compacted,
-                "created_at": run.created_at,
-                "updated_at": run.updated_at,
-            })
-    parts = []
-    for turn_id, records in transcript.parts_by_turn.items():
-        for part in records:
-            parts.append({
-                "id": part.id,
-                "turn_id": turn_id,
-                "kind": part.kind,
-                "order_index": part.order_index,
-                "content": part.content,
-                "name": part.name,
-                "tool_run_id": part.tool_run_id,
-                "created_at": part.created_at,
-            })
-    return ConversationTranscriptResponse(
-        session_id=conversation_id,
-        title=transcript.session.title,
-        provider=transcript.session.provider,
-        model=transcript.session.model,
-        updated_at=transcript.session.updated_at,
-        turns=[
-            {
-                "id": turn.id,
-                "role": turn.role,
-                "status": turn.status,
-                "text": turn.text,
-                "compacted": turn.compacted,
-                "error": turn.error,
-                "input_tokens": turn.input_tokens,
-                "output_tokens": turn.output_tokens,
-                "created_at": turn.created_at,
-                "updated_at": turn.updated_at,
-            }
-            for turn in transcript.turns
-        ],
-        parts=parts,
-        tool_runs=tool_runs,
-        summaries=[
-            {
-                "id": summary.id,
-                "summary_turn_id": summary.summary_turn_id,
-                "source_turn_ids": summary.source_turn_ids,
-                "created_at": summary.created_at,
-            }
-            for summary in transcript.summaries
-        ],
-    )
+    return transcript_response(conversation_id, transcript)
 
 
 @router.patch("/conversations/{conversation_id}", response_model=ConversationInfo)
@@ -141,16 +68,18 @@ async def update_conversation(
         (s for s in store.list_sessions(user_id=user.id) if s["id"] == conversation_id),
         None,
     )
-    return ConversationInfo(
-        id=session.id,
-        message_count=entry["turn_count"] if entry else 0,
-        title=entry["title"] if entry else (session.title or "New conversation"),
-        provider=session.provider,
-        model=session.model,
-        updated_at=session.updated_at,
-        pinned_at=session.pinned_at,
-        source_csv_id=session.source_csv_id,
-    )
+    if entry is None:
+        entry = {
+            "id": session.id,
+            "turn_count": 0,
+            "title": session.title or "New conversation",
+            "provider": session.provider,
+            "model": session.model,
+            "updated_at": session.updated_at,
+            "pinned_at": session.pinned_at,
+            "source_csv_id": session.source_csv_id,
+        }
+    return conversation_info_from_row(entry)
 
 
 @router.delete("/conversations/{conversation_id}")

@@ -11,7 +11,7 @@ from provider import (
     provider_is_available, LLMError,
 )
 from agent.runtime import ChatRuntime
-from tool import TOOLS
+from tools import TOOLS
 from storage import RuntimeStore
 
 

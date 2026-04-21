@@ -11,10 +11,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from server.routes import auth, chat, codex_oauth, conversations, csv_downloads, csv_library, providers, settings
-from agent.runtime import ChatRuntime
-from auth import encryption
-from storage import RuntimeStore
-from config import ALLOWED_ORIGINS, DB_PATH, PBP_DB_PATH, RUNTIME_DB_PATH, format_file_size
+from config import ALLOWED_ORIGINS
+from server.startup import configure_runtime_state, log_environment_state, run_housekeeping, validate_encryption
 
 # Project root — one level up from this file (server/app.py → project/).
 # Used to resolve the UI's static assets and the chat.html entry point so the
@@ -31,76 +29,10 @@ async def lifespan(app: FastAPI):
     from server.logging import setup_logging
     setup_logging(verbose=os.environ.get("NFLVERSE_VERBOSE") == "1")
 
-    # Encryption key must be present before we accept auth/settings traffic.
-    # Fail fast at startup with a concrete hint rather than at the first PUT /settings/api-keys.
-    try:
-        encryption.require_configured()
-    except encryption.EncryptionKeyMissing as exc:
-        logger.error("%s", exc)
-        raise
-    except encryption.EncryptionKeyInvalid as exc:
-        logger.error("%s", exc)
-        raise
-
-    app.state.runtime_store = RuntimeStore(RUNTIME_DB_PATH)
-    app.state.chat_runtime = ChatRuntime(app.state.runtime_store)
-
-    # Housekeeping: drop any long-expired auth sessions so the table doesn't grow forever.
-    purged = app.state.runtime_store.purge_expired_auth_sessions()
-    if purged:
-        logger.info("Purged %d expired auth session(s)", purged)
-
-    user_count = app.state.runtime_store.count_users()
-    if user_count == 0:
-        logger.info("No users registered yet — first visitor to the UI will be prompted to create an account.")
-    else:
-        logger.info("%d user account(s) registered", user_count)
-
-        # Ensure an admin exists (safety net for DBs that predate the `role` column).
-        promoted = app.state.runtime_store.ensure_admin_exists()
-        if promoted is not None:
-            logger.info("Promoted user %d to admin (no admin existed yet)", promoted)
-
-        # Orphan-row check: after multi-user is live, any NULL user_id rows are
-        # invisible to scoped queries and therefore inaccessible from the UI.
-        # Should always be {0, 0} in normal operation.
-        orphans = app.state.runtime_store.count_orphan_rows()
-        if any(orphans.values()):
-            logger.warning(
-                "Found orphan rows with NULL user_id — invisible to scoped queries: %s",
-                orphans,
-            )
-
-    # DB checks
-    if DB_PATH.exists():
-        size = format_file_size(DB_PATH.stat().st_size)
-        logger.info("nflverse.db: %s (%s)", DB_PATH, size)
-    else:
-        logger.warning("nflverse.db NOT FOUND at %s — API endpoints will fail", DB_PATH)
-
-    if PBP_DB_PATH.exists():
-        size = format_file_size(PBP_DB_PATH.stat().st_size)
-        logger.info("pbp.db: %s (%s)", PBP_DB_PATH, size)
-    else:
-        logger.warning("pbp.db not found at %s — PBP queries will fail", PBP_DB_PATH)
-
-    # LLM provider checks
-    from provider import list_providers
-    configured = []
-    for info in list_providers():
-        api_key = os.environ.get(info.env_key, "")
-        if api_key:
-            masked = api_key[:8] + "..." + api_key[-4:] if len(api_key) > 12 else "***"
-            logger.info("%s (%s): configured (%s)", info.display_name, info.env_key, masked)
-            configured.append(info.name)
-        else:
-            logger.info("%s (%s): not configured", info.display_name, info.env_key)
-    if not configured:
-        logger.warning("No LLM providers configured — chat endpoints will return 503")
-
-    if RUNTIME_DB_PATH.exists():
-        size = format_file_size(RUNTIME_DB_PATH.stat().st_size)
-        logger.info("runtime db: %s (%s)", RUNTIME_DB_PATH, size)
+    validate_encryption()
+    configure_runtime_state(app)
+    run_housekeeping(app)
+    log_environment_state()
 
     yield
 

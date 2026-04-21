@@ -15,7 +15,7 @@ import json
 
 from jsonschema import Draft202012Validator
 
-from tool.definitions import TOOL_DEFINITIONS
+from tools.definitions import TOOL_DEFINITIONS
 
 
 def _get_tool_definition(name: str) -> dict | None:

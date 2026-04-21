@@ -7,7 +7,7 @@ import logging
 import re
 import time
 
-from tool.sandbox import execute_export_sql
+from tools.sandbox import execute_export_sql
 from config import EXPORTS_DIR, format_file_size
 
 logger = logging.getLogger(__name__)

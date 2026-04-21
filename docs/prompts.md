@@ -6,7 +6,7 @@ The agent has a deliberately slim system prompt and a set of on-demand markdown 
 
 - `agent/system_prompt.py` — base system prompt template + `get_base_prompt()`.
 - `agent/guides/*.md` — seven topic-specific reference docs.
-- `tool/get_guide.py` — guide loader tool.
+- `tools/get_guide.py` — guide loader tool.
 
 ## The split: prompt vs. guide
 

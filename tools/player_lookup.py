@@ -2,8 +2,8 @@
 
 import json
 
-from tool.sandbox import execute_safe_sql
-from tool.truncate import truncate_text, truncate_rows
+from tools.sandbox import execute_safe_sql
+from tools.truncate import truncate_text, truncate_rows
 
 
 def _search_players(input_data: dict, ctx: dict | None = None) -> str:

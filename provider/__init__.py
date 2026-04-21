@@ -43,6 +43,7 @@ class ProviderInfo:
 
 
 _registry: dict[str, ProviderInfo] = {}
+_BUILTINS_REGISTERED = False
 
 
 def register_provider(info: ProviderInfo) -> None:
@@ -53,6 +54,7 @@ def register_provider(info: ProviderInfo) -> None:
 
 def get_provider(name: str) -> ProviderInfo:
     """Get a registered provider by name. Raises KeyError if not found."""
+    ensure_builtin_providers_registered()
     if name not in _registry:
         available = ", ".join(sorted(_registry.keys()))
         raise KeyError(f"Unknown provider '{name}'. Available: {available}")
@@ -61,6 +63,7 @@ def get_provider(name: str) -> ProviderInfo:
 
 def list_providers() -> list[ProviderInfo]:
     """List all registered providers."""
+    ensure_builtin_providers_registered()
     return list(_registry.values())
 
 
@@ -75,6 +78,7 @@ def create_client(
     api_key: str | None = None,
 ) -> BaseLLMClient:
     """Factory: create an LLM client for the given provider."""
+    ensure_builtin_providers_registered()
     provider_name = provider or get_default_provider()
     info = get_provider(provider_name)
 
@@ -109,72 +113,78 @@ def provider_is_available(info: "ProviderInfo") -> bool:
     return bool(info.env_key and os.environ.get(info.env_key))
 
 
-# Register providers on import
-from provider.anthropic import AnthropicClient  # noqa: E402
+def ensure_builtin_providers_registered() -> None:
+    """Register built-in providers exactly once."""
+    global _BUILTINS_REGISTERED
+    if _BUILTINS_REGISTERED:
+        return
 
-register_provider(ProviderInfo(
-    name="anthropic",
-    display_name="Anthropic",
-    env_key="ANTHROPIC_API_KEY",
-    default_model="claude-sonnet-4-6",
-    summarizer_model="claude-haiku-4-5-20251001",
-    models=[
-        "claude-opus-4-7",
-        "claude-opus-4-6",
-        "claude-sonnet-4-6",
-        "claude-sonnet-4-20250514",
-        "claude-haiku-4-5-20251001",
-    ],
-    context_window=200_000,
-    max_output_tokens=64_000,
-    supports_streaming=True,
-    supports_tools=True,
-    client_class=AnthropicClient,
-))
+    from provider.anthropic import AnthropicClient  # noqa: E402
 
-try:
-    from provider.openai import OpenAIClient  # noqa: E402
     register_provider(ProviderInfo(
-        name="openai",
-        display_name="OpenAI",
-        env_key="OPENAI_API_KEY",
-        default_model="gpt-5",
-        summarizer_model="gpt-5-mini",
+        name="anthropic",
+        display_name="Anthropic",
+        env_key="ANTHROPIC_API_KEY",
+        default_model="claude-sonnet-4-6",
+        summarizer_model="claude-haiku-4-5-20251001",
         models=[
-            "gpt-5",
-            "gpt-5-mini",
-            "gpt-4.1",
-            "gpt-4.1-mini",
-            "gpt-4o",
-            "gpt-4o-mini",
-            "o3",
-            "o3-mini",
+            "claude-opus-4-7",
+            "claude-opus-4-6",
+            "claude-sonnet-4-6",
+            "claude-sonnet-4-20250514",
+            "claude-haiku-4-5-20251001",
         ],
-        context_window=128_000,
+        context_window=200_000,
+        max_output_tokens=64_000,
+        supports_streaming=True,
+        supports_tools=True,
+        client_class=AnthropicClient,
+    ))
+
+    try:
+        from provider.openai import OpenAIClient  # noqa: E402
+        register_provider(ProviderInfo(
+            name="openai",
+            display_name="OpenAI",
+            env_key="OPENAI_API_KEY",
+            default_model="gpt-5",
+            summarizer_model="gpt-5-mini",
+            models=[
+                "gpt-5",
+                "gpt-5-mini",
+                "gpt-4.1",
+                "gpt-4.1-mini",
+                "gpt-4o",
+                "gpt-4o-mini",
+                "o3",
+                "o3-mini",
+            ],
+            context_window=128_000,
+            max_output_tokens=16384,
+            supports_streaming=True,
+            supports_tools=True,
+            client_class=OpenAIClient,
+        ))
+    except ImportError:
+        logger.debug("OpenAI SDK not installed — openai provider unavailable")
+
+    from provider.codex import OpenAICodexClient  # noqa: E402
+
+    register_provider(ProviderInfo(
+        name="openai-codex",
+        display_name="OpenAI Codex (ChatGPT)",
+        env_key="",
+        default_model="gpt-5.3-codex",
+        summarizer_model="gpt-5.3-codex",
+        models=["gpt-5.3-codex"],
+        context_window=200_000,
         max_output_tokens=16384,
         supports_streaming=True,
         supports_tools=True,
-        client_class=OpenAIClient,
+        client_class=OpenAICodexClient,
+        credential_shape="codex_oauth",
     ))
-except ImportError:
-    logger.debug("OpenAI SDK not installed — openai provider unavailable")
-
-from provider.codex import OpenAICodexClient  # noqa: E402
-
-register_provider(ProviderInfo(
-    name="openai-codex",
-    display_name="OpenAI Codex (ChatGPT)",
-    env_key="",  # OAuth only — no env-var fallback
-    default_model="gpt-5.3-codex",
-    summarizer_model="gpt-5.3-codex",
-    models=["gpt-5.3-codex"],
-    context_window=200_000,
-    max_output_tokens=16384,
-    supports_streaming=True,
-    supports_tools=True,
-    client_class=OpenAICodexClient,
-    credential_shape="codex_oauth",
-))
+    _BUILTINS_REGISTERED = True
 
 __all__ = [
     "BaseLLMClient", "ContextOverflowError", "CredentialShape", "LLMError",

@@ -10,8 +10,8 @@ Tool implementations live in sibling modules; see `registry.py` for the
 dispatch table.
 """
 
-from tool.definitions import TOOL_DEFINITIONS, TOOLS
-from tool.registry import execute_tool, execute_tool_structured
+from tools.definitions import TOOL_DEFINITIONS, TOOLS
+from tools.registry import execute_tool, execute_tool_structured
 
 __all__ = [
     "TOOL_DEFINITIONS",

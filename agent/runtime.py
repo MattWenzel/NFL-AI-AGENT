@@ -8,7 +8,7 @@ Concerns that used to live here are now in sibling modules:
 - Token estimation + compaction        → compaction.py
 - Doom-loop detection                  → loop_detector.py
 
-Tool schemas + the pre-built TOOLS list live in tool.definitions.
+Tool schemas + the pre-built TOOLS list live in tools.definitions.
 """
 
 from __future__ import annotations
@@ -40,7 +40,8 @@ from agent.system_prompt import get_base_prompt
 from agent.compaction import compact_if_needed
 from agent.events import RuntimeEvent, RuntimeLoopError
 from agent.loop_detector import raise_if_doom_loop
-from tool import execute_tool_structured
+from agent.persistence import RuntimePersistence
+from tools import execute_tool_structured
 
 logger = logging.getLogger(__name__)
 
@@ -49,21 +50,11 @@ TITLE_PREVIEW_CHARS = 80
 TEXT_PERSIST_FLUSH_CHARS = 256
 
 
-class RuntimeStoreAsync:
-    """Async adapter for the synchronous RuntimeStore methods used on the hot path."""
-
-    def __init__(self, store: RuntimeStore):
-        self._store = store
-
-    async def call(self, method_name: str, /, *args, **kwargs):
-        return await self._store.call_async(method_name, *args, **kwargs)
-
-
 class AssistantTextBuffer:
     """Coalesce streamed assistant text before persisting it."""
 
-    def __init__(self, store: RuntimeStoreAsync, session_id: str, turn_id: str):
-        self._store = store
+    def __init__(self, persistence: RuntimePersistence, session_id: str, turn_id: str):
+        self._persistence = persistence
         self._session_id = session_id
         self._turn_id = turn_id
         self._chunks: list[str] = []
@@ -83,10 +74,7 @@ class AssistantTextBuffer:
         text = "".join(self._chunks)
         self._chunks.clear()
         self._char_count = 0
-        await asyncio.gather(
-            self._store.call("append_turn_text", self._turn_id, text),
-            self._store.call("add_part", self._session_id, self._turn_id, "text", text),
-        )
+        await self._persistence.append_assistant_text(self._session_id, self._turn_id, text)
 
 
 class ChatRuntime:
@@ -94,7 +82,7 @@ class ChatRuntime:
 
     def __init__(self, store: RuntimeStore):
         self.store = store
-        self.async_store = RuntimeStoreAsync(store)
+        self.persistence = RuntimePersistence(store)
 
     def prepare_session(
         self,
@@ -150,14 +138,14 @@ class ChatRuntime:
             # follow-ups that re-run the same query ("try again") must not
             # inherit the prior turn's history, so we rebuild from empty.
             user_turn_tool_runs: list = []
-            user_turn = await self.async_store.call(
-                "create_turn", session.id, "user", text=user_text, status="completed"
+            user_turn = await self.persistence.create_user_turn(session.id, user_text)
+            await self.persistence.update_session_metadata(
+                session,
+                provider_name=provider_name,
+                model=client.model,
+                title_preview_chars=TITLE_PREVIEW_CHARS,
+                user_text=user_text,
             )
-            if not session.title:
-                session.title = user_text[:TITLE_PREVIEW_CHARS]
-            session.provider = provider_name
-            session.model = client.model
-            await self.async_store.call("update_session", session)
             yield RuntimeEvent(type="turn_started", session_id=session.id, turn_id=user_turn.id)
             iterations = 0
             # The user's explicit `tool_choice` seeds the first iteration;
@@ -195,11 +183,9 @@ class ChatRuntime:
                             iterations=iterations,
                             meta=compaction_info,
                         )
-                    assistant_turn = await self.async_store.call(
-                        "create_turn", session.id, "assistant", status="running"
-                    )
+                    assistant_turn = await self.persistence.open_assistant_turn(session.id)
                     assistant_text_buffer = AssistantTextBuffer(
-                        self.async_store, session.id, assistant_turn.id
+                        self.persistence, session.id, assistant_turn.id
                     )
                     tool_runs = []
                     yield RuntimeEvent(type="assistant_started", session_id=session.id, turn_id=assistant_turn.id, iterations=iterations)
@@ -212,7 +198,7 @@ class ChatRuntime:
                     force_tool_choice_next_iter = None
                     try:
                         async for event in client.stream_message(
-                            messages=await self.async_store.call("build_model_messages", session.id),
+                            messages=await self.persistence.build_model_messages(session.id),
                             tools=tools,
                             system=get_base_prompt(),
                             tool_choice=iter_tool_choice,
@@ -241,20 +227,15 @@ class ChatRuntime:
                                 )
                             elif isinstance(event, ToolUseEvent):
                                 await assistant_text_buffer.flush()
-                                tool_run = await self.async_store.call(
-                                    "create_tool_run",
-                                    session.id, assistant_turn.id, event.name, event.input,
-                                    status="pending",
-                                    raw_input_text=event.raw_input_json,
-                                )
-                                await self.async_store.call(
-                                    "add_part",
+                                tool_run = await self.persistence.record_tool_call(
                                     session.id,
                                     assistant_turn.id,
-                                    "tool_call",
-                                    json.dumps(event.input, separators=(",", ":"), sort_keys=True),
-                                    name=event.name,
-                                    tool_run_id=tool_run.id,
+                                    tool_name=event.name,
+                                    input_data=event.input,
+                                    raw_input_text=event.raw_input_json,
+                                    tool_call_json=json.dumps(
+                                        event.input, separators=(",", ":"), sort_keys=True
+                                    ),
                                 )
                                 tool_runs.append(tool_run)
                                 user_turn_tool_runs.append(tool_run)
@@ -269,8 +250,7 @@ class ChatRuntime:
                                 )
                         final_usage = client.last_usage
                         await assistant_text_buffer.flush()
-                        await self.async_store.call(
-                            "update_turn",
+                        await self.persistence.update_turn(
                             assistant_turn.id,
                             status="completed",
                             input_tokens=final_usage.input_tokens,
@@ -312,8 +292,7 @@ class ChatRuntime:
                         # one more iteration to compact and retry. One-shot per
                         # user turn — a second overflow falls through to the
                         # generic LLMError branch below.
-                        await self.async_store.call(
-                            "update_turn",
+                        await self.persistence.update_turn(
                             assistant_turn.id,
                             status="error",
                             error=str(exc),
@@ -335,8 +314,7 @@ class ChatRuntime:
                         continue
                     except RuntimeLoopError as exc:
                         failed_turn_id = assistant_turn.id
-                        await self.async_store.call(
-                            "update_turn",
+                        await self.persistence.update_turn(
                             assistant_turn.id,
                             status="error",
                             error=str(exc),
@@ -353,7 +331,7 @@ class ChatRuntime:
                         )
                         return
                     except Exception as exc:
-                        self.store.update_turn(
+                        await self.persistence.update_turn(
                             assistant_turn.id,
                             status="error",
                             error=str(exc),
@@ -371,48 +349,42 @@ class ChatRuntime:
                 if assistant_text_buffer is not None:
                     await assistant_text_buffer.flush()
                 if assistant_turn is not None:
-                    current = await self.async_store.call("get_turn", assistant_turn.id)
+                    current = await self.persistence.get_turn(assistant_turn.id)
                     if current is not None and current.status == "running":
-                        await self.async_store.call(
-                            "update_turn",
+                        await self.persistence.interrupt_turn(
                             assistant_turn.id,
-                            status="interrupted",
-                            error="Assistant turn interrupted before completion",
+                            "Assistant turn interrupted before completion",
                         )
                 for tool_run in tool_runs:
-                    current = await self.async_store.call("get_tool_run", tool_run.id)
+                    current = await self.persistence.get_tool_run(tool_run.id)
                     if current is not None and current.status in {"pending", "running"}:
-                        await self.async_store.call(
-                            "update_tool_run",
+                        await self.persistence.interrupt_tool_run(
                             tool_run.id,
-                            status="interrupted",
-                            error_text="Tool execution interrupted before completion",
+                            "Tool execution interrupted before completion",
                         )
 
     async def _execute_tool(self, session_id: str, assistant_turn: TurnRecord, tool_run) -> dict:
-        await self.async_store.call("update_tool_run", tool_run.id, status="running")
-        await self.async_store.call(
-            "add_part",
+        await self.persistence.begin_tool_execution(
             session_id,
             assistant_turn.id,
-            "tool_status",
-            "running",
-            name=tool_run.tool_name,
-            tool_run_id=tool_run.id,
+            tool_run.id,
+            tool_run.tool_name,
         )
         try:
             tool_input = json.loads(tool_run.input_json) if tool_run.input_json else {}
         except json.JSONDecodeError as exc:
             err = f"Malformed tool input JSON: {exc}"
             logger.warning("tool_run %s has malformed input_json: %s", tool_run.id, exc)
-            await self.async_store.call(
-                "update_tool_run",
-                tool_run.id, status="error", error_text=err, result_text=err
-            )
-            await self.async_store.call(
-                "add_part",
-                session_id, assistant_turn.id, "tool_result", err,
-                name=tool_run.tool_name, tool_run_id=tool_run.id,
+            await self.persistence.complete_tool_execution(
+                session_id,
+                assistant_turn.id,
+                tool_run.id,
+                tool_run.tool_name,
+                result_content=err,
+                status="error",
+                error_text=err,
+                hint=None,
+                duration_ms=None,
             )
             return {"status": "error", "content": err, "error": err}
         # Side-channel hooks tools may use (e.g. create_csv_export registers
@@ -427,22 +399,15 @@ class ChatRuntime:
         }
         result = await execute_tool_structured(tool_run.tool_name, tool_input, ctx=ctx)
         status = "completed" if result["status"] == "completed" else "error"
-        await self.async_store.call(
-            "update_tool_run",
+        await self.persistence.complete_tool_execution(
+            session_id,
+            assistant_turn.id,
             tool_run.id,
+            tool_run.tool_name,
+            result_content=result["content"],
             status=status,
-            result_text=result["content"],
             error_text=result.get("error"),
             hint=result.get("hint"),
             duration_ms=result.get("duration_ms"),
-        )
-        await self.async_store.call(
-            "add_part",
-            session_id,
-            assistant_turn.id,
-            "tool_result",
-            result["content"],
-            name=tool_run.tool_name,
-            tool_run_id=tool_run.id,
         )
         return result

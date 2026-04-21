@@ -6,12 +6,12 @@ The runtime's role in tool calls (concurrent dispatch under `asyncio.gather`, re
 
 ## File map
 
-- `tool/__init__.py` — public surface: `TOOLS`, `TOOL_DEFINITIONS`, `execute_tool`, `execute_tool_structured`.
-- `tool/definitions.py` — Anthropic-format tool schemas + typed `TOOLS` list.
-- `tool/registry.py` — dispatch table, execution helpers, drift guard.
-- `tool/validation.py` — input validation, error-hint injection.
-- `tool/sandbox.py` — read-only SQL runner with row/timeout caps.
-- `tool/` — one file per tool.
+- `tools/__init__.py` — public surface: `TOOLS`, `TOOL_DEFINITIONS`, `execute_tool`, `execute_tool_structured`.
+- `tools/definitions.py` — Anthropic-format tool schemas + typed `TOOLS` list.
+- `tools/registry.py` — dispatch table, execution helpers, drift guard.
+- `tools/validation.py` — input validation, error-hint injection.
+- `tools/sandbox.py` — read-only SQL runner with row/timeout caps.
+- `tools/` — one file per tool.
 
 ## The seven tools
 
@@ -161,7 +161,7 @@ Every handler returns a JSON string. The shape is tool-specific but two conventi
 ## Adding a new tool
 
 1. Add the schema dict to `TOOL_DEFINITIONS` in `definitions.py`.
-2. Write the handler in `tool/<name>.py` with signature `(input_data, ctx) -> str`.
+2. Write the handler in `tools/<name>.py` with signature `(input_data, ctx) -> str`.
 3. Import the handler in `registry.py` and add it to `_TOOL_DISPATCH`. The drift-guard assert will fail otherwise.
 4. If the handler needs runtime state, extend `ctx` in `runtime.py:358`. Otherwise ignore `ctx`.
 5. If tool output can produce novel error strings users should correct, add a `(pattern, hint)` pair to `_ERROR_HINTS` in `validation.py`.

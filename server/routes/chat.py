@@ -19,20 +19,24 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
 from agent.runtime import ChatRuntime
-from tool import TOOLS
+from tools import TOOLS
 from auth.primitives import AuthenticatedUser, get_current_user
 from server.dependencies import (
-    close_client,
-    create_client_for_request,
     get_runtime,
     get_store,
-    resolve_user_credential,
 )
 from server.rate_limit import ConcurrencyLimiter
 from server.schemas.chat import ChatRequest, ChatResponse
+from server.services.chat import (
+    ChatApplicationService,
+    ChatConfigurationError,
+    ChatNotFoundError,
+    ChatServiceError,
+    close_client,
+)
 from server.sse import event_to_sse_payload
 from storage import RuntimeStore
-from provider import BaseLLMClient, LLMError, get_default_provider
+from provider import BaseLLMClient, LLMError
 
 logger = logging.getLogger(__name__)
 
@@ -68,35 +72,6 @@ async def _release_stream_slot(user_id: int) -> None:
     await _stream_limiter.release(user_id)
 
 
-async def _prepare_chat(
-    body: ChatRequest,
-    runtime: ChatRuntime,
-    store: RuntimeStore,
-    user: AuthenticatedUser,
-) -> tuple[BaseLLMClient, str, "SessionRecord"]:
-    """Resolve provider/client/session for a chat request.
-
-    The caller owns closing the returned client. Used by /message and
-    /stream so both endpoints agree on how body params map to a live
-    session.
-    """
-    # IDOR guard: if a conversation_id was supplied, it must belong to the
-    # caller. Without this, get_or_create_session would try to INSERT a new
-    # row with someone else's PK (IntegrityError 500) instead of returning a
-    # clean 404. Same-shape 404 whether the id is unknown or owned by another
-    # user so we don't leak existence.
-    if body.conversation_id and store.get_session(body.conversation_id, user_id=user.id) is None:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-
-    provider_name = body.provider or get_default_provider()
-    user_key = await resolve_user_credential(store, user.id, provider_name)
-    client = create_client_for_request(body.provider, body.model, api_key=user_key)
-    session = runtime.prepare_session(
-        client, provider_name, body.conversation_id, user_id=user.id
-    )
-    return client, provider_name, session
-
-
 @router.post("/message", response_model=ChatResponse)
 async def chat_message(
     body: ChatRequest,
@@ -105,44 +80,16 @@ async def chat_message(
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     """Send a message and get a complete response."""
-    client, provider_name, session = await _prepare_chat(body, runtime, store, user)
-
-    logger.debug("chat/message  session=%s  msg=%s", session.id, body.message[:100])
-
-    response_text = ""
-    tool_calls_log = []
-    hit_limit = False
-    runtime_error = None
+    service = ChatApplicationService(runtime, store)
 
     try:
-        async for event in runtime.run_session(
-            session,
-            body.message,
-            client,
-            tools=TOOLS,
-            provider_name=provider_name,
-            tool_choice=body.tool_choice,
-        ):
-            if event.type == "text_delta" and event.text:
-                response_text += event.text
-            elif event.type == "tool_pending":
-                tool_calls_log.append({
-                    "tool_run_id": event.tool_run_id,
-                    "tool": event.name,
-                    "input": event.input,
-                    "result_preview": "",
-                })
-            elif event.type in {"tool_completed", "tool_failed"} and tool_calls_log:
-                preview = event.result[:500] if event.result and len(event.result) > 500 else event.result or event.error or ""
-                for item in reversed(tool_calls_log):
-                    if item["tool_run_id"] == event.tool_run_id and not item["result_preview"]:
-                        item["result_preview"] = preview
-                        break
-            elif event.type == "runtime_error":
-                runtime_error = event.error or "Runtime error"
-                hit_limit = bool(runtime_error.startswith("Reached maximum tool iterations"))
-        if runtime_error and not hit_limit:
-            raise HTTPException(status_code=500, detail=runtime_error)
+        response = await service.run_message(body, user, tools=TOOLS)
+    except ChatNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ChatConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except ChatServiceError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
     except LLMError as e:
         logger.warning("LLM error in chat/message: %s", e)
         raise HTTPException(status_code=502, detail=str(e))
@@ -151,24 +98,9 @@ async def chat_message(
     except Exception as e:
         logger.exception("Unexpected runtime error in chat/message")
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        await close_client(client)
 
-    logger.debug("chat/message done  session=%s", session.id)
-
-    return ChatResponse(
-        conversation_id=session.id,
-        response=response_text,
-        tool_calls=[
-            {
-                "tool": item["tool"],
-                "input": item["input"],
-                "result_preview": item["result_preview"],
-            }
-            for item in tool_calls_log
-        ],
-        truncated=hit_limit,
-    )
+    logger.debug("chat/message done  session=%s", response.conversation_id)
+    return response
 
 
 _PRODUCER_DONE = object()  # sentinel put on the queue when the producer finishes
@@ -187,8 +119,18 @@ async def chat_stream(
     # hit the request fails with 429 *before* a session is prepared, so
     # we don't churn an LLM client for a rejected request.
     await _acquire_stream_slot(user.id)
+    service = ChatApplicationService(runtime, store)
     try:
-        client, provider_name, session = await _prepare_chat(body, runtime, store, user)
+        prepared = await service.prepare_chat(body, user)
+        client = prepared.client
+        provider_name = prepared.provider_name
+        session = prepared.session
+    except ChatNotFoundError as exc:
+        await _release_stream_slot(user.id)
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ChatConfigurationError as exc:
+        await _release_stream_slot(user.id)
+        raise HTTPException(status_code=503, detail=str(exc))
     except BaseException:
         await _release_stream_slot(user.id)
         raise

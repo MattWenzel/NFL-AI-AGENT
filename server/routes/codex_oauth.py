@@ -20,14 +20,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 import uuid
-from dataclasses import dataclass, field
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from auth.primitives import AuthenticatedUser, get_current_user
 from server.dependencies import CODEX_PROVIDER, get_store
+from server.process_state import InMemoryPendingCodexOAuthFlows
 from server.rate_limit import RateLimiter
 from server.schemas.codex_oauth import CodexOAuthStartResponse, CodexOAuthStatusResponse
 from auth import codex_oauth, encryption
@@ -41,26 +40,7 @@ router = APIRouter(prefix="/settings/oauth/codex", tags=["settings"])
 # generous for a real user (they'd never need more than a handful).
 _start_limiter = RateLimiter(max_attempts=5, window_seconds=60 * 60)
 
-# In-memory pending state. One record per active device-code flow; GC'd
-# when the user reads a terminal status or when it ages past the
-# device-code window. Not persisted — a server restart invalidates
-# in-flight flows (the user just retries).
-@dataclass
-class _Pending:
-    user_id: int
-    device_auth_id: str
-    user_code: str
-    started_at: float  # monotonic
-    task: asyncio.Task | None = None
-    status: str = "pending"  # pending | complete | expired | error
-    email: str | None = None
-    error: str | None = None
-    # Access lock for the rare case of /status and the poller finishing
-    # at the same tick.
-    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-
-
-_pending: dict[str, _Pending] = {}
+_pending_flows = InMemoryPendingCodexOAuthFlows()
 
 # How long we keep a terminal record around for the UI to read. Beyond
 # this we evict; the UI should have polled by then. Matches the
@@ -70,18 +50,12 @@ _MAX_RECORD_AGE_SECONDS = 60 * 20
 
 def _evict_stale() -> None:
     """Drop terminal records older than the window. Called from every handler."""
-    now = time.monotonic()
-    stale = [
-        pid for pid, rec in _pending.items()
-        if rec.status != "pending" and now - rec.started_at > _MAX_RECORD_AGE_SECONDS
-    ]
-    for pid in stale:
-        _pending.pop(pid, None)
+    _pending_flows.evict_terminal_older_than(_MAX_RECORD_AGE_SECONDS)
 
 
 async def _run_device_flow(pending_id: str, store: RuntimeStore) -> None:
     """Poll the device-code endpoint, exchange the code for tokens, persist."""
-    rec = _pending.get(pending_id)
+    rec = _pending_flows.get(pending_id)
     if rec is None:
         return
     try:
@@ -136,13 +110,12 @@ async def start_codex_oauth(
         )
 
     pending_id = uuid.uuid4().hex
-    rec = _Pending(
+    rec = _pending_flows.create(
+        pending_id,
         user_id=user.id,
         device_auth_id=start.device_auth_id,
         user_code=start.user_code,
-        started_at=time.monotonic(),
     )
-    _pending[pending_id] = rec
     rec.task = asyncio.create_task(_run_device_flow(pending_id, store))
     logger.info("Codex OAuth started for user=%d pending=%s", user.id, pending_id)
     return CodexOAuthStartResponse(
@@ -159,7 +132,7 @@ async def status_codex_oauth(
     user: AuthenticatedUser = Depends(get_current_user),
 ) -> CodexOAuthStatusResponse:
     _evict_stale()
-    rec = _pending.get(pending_id)
+    rec = _pending_flows.get(pending_id)
     if rec is None or rec.user_id != user.id:
         # Same-shape 404 whether the id is unknown or belongs to another user.
         raise HTTPException(status_code=404, detail="Unknown pending flow")
@@ -170,7 +143,7 @@ async def status_codex_oauth(
     # If terminal, drop the record so the UI can't re-read it (the UI
     # has everything it needs from this response). Keeps the dict lean.
     if snapshot.status != "pending":
-        _pending.pop(pending_id, None)
+        _pending_flows.pop(pending_id)
     return snapshot
 
 
@@ -182,10 +155,10 @@ async def cancel_codex_oauth(
     # Peek before pop — a cross-user request must leave the legitimate
     # owner's record intact, otherwise one user could wipe another user's
     # in-flight flow by guessing pending_ids.
-    rec = _pending.get(pending_id)
+    rec = _pending_flows.get(pending_id)
     if rec is None or rec.user_id != user.id:
         raise HTTPException(status_code=404, detail="Unknown pending flow")
-    _pending.pop(pending_id, None)
+    _pending_flows.pop(pending_id)
     if rec.task and not rec.task.done():
         rec.task.cancel()
         try:

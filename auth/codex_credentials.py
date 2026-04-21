@@ -27,23 +27,17 @@ import asyncio
 import json
 import logging
 
-from fastapi import HTTPException
-
 from auth import codex_oauth, encryption
+from server.process_state import InMemoryPerUserLockRegistry
 from storage import RuntimeStore
 
 logger = logging.getLogger(__name__)
 
+class CodexCredentialError(Exception):
+    """Raised when a stored Codex connection exists but refresh fails."""
 
-_refresh_locks: dict[int, asyncio.Lock] = {}
 
-
-def _refresh_lock_for(user_id: int) -> asyncio.Lock:
-    lock = _refresh_locks.get(user_id)
-    if lock is None:
-        lock = asyncio.Lock()
-        _refresh_locks[user_id] = lock
-    return lock
+_refresh_locks = InMemoryPerUserLockRegistry()
 
 
 def _load_bundle(
@@ -84,7 +78,7 @@ async def resolve_access_token(
     # Refresh path: serialize across concurrent requests for this user and
     # re-read under the lock — a concurrent request may have already
     # refreshed and persisted while we were waiting.
-    async with _refresh_lock_for(user_id):
+    async with _refresh_locks.for_user(user_id):
         bundle = _load_bundle(store, user_id, provider_name)
         if bundle is None:
             return None
@@ -94,13 +88,7 @@ async def resolve_access_token(
             bundle = await codex_oauth.refresh_access_token(bundle.refresh_token)
         except codex_oauth.CodexOAuthError as exc:
             logger.warning("Codex token refresh failed for user=%d: %s", user_id, exc)
-            # The user IS connected; the refresh just failed. Surface that
-            # explicitly so the caller renders "reconnect" rather than
-            # "configure a key".
-            raise HTTPException(
-                status_code=503,
-                detail="ChatGPT session expired — reconnect in Settings.",
-            )
+            raise CodexCredentialError("ChatGPT session expired — reconnect in Settings.") from exc
         store.upsert_api_key(
             user_id=user_id,
             provider=provider_name,

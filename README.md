@@ -19,7 +19,7 @@ Powered by Claude (Anthropic) or GPT (OpenAI) with tool use. Runs entirely on yo
 Top-level folders are organized by subsystem:
 
 - **`agent/`** — LLM conversation domain: runtime loop, compaction, prompts
-- **`tool/`** — Tool registry + handlers (SQL sandbox, schema discovery, CSV export, etc.)
+- **`tools/`** — Tool registry + handlers (SQL sandbox, schema discovery, CSV export, etc.)
 - **`auth/`** — Auth subsystem: password primitives, encryption, Codex OAuth, credential refresh
 - **`provider/`** — LLM adapters (Anthropic, OpenAI, OpenAI Codex)
 - **`storage/`** — SQLite persistence (`RuntimeStore` facade composed of per-domain mixins)

@@ -69,7 +69,7 @@ agent/                      # LLM conversation domain
     ├── fantasy.md          #   drives.md, games.md, play_by_play.md, player_profile.md,
     └── …                   #   player_stats.md, postseason.md
 
-tool/                       # Tool registry + implementations (flat)
+tools/                      # Tool registry + implementations (flat)
 ├── __init__.py             #   re-exports TOOLS, TOOL_DEFINITIONS, execute_tool*
 ├── definitions.py          #   tool schemas + TOOLS typed list
 ├── registry.py             #   dispatch table + registry drift guard
@@ -158,7 +158,7 @@ python3 NFLVERSE/scripts/build_db_nflreadpy.py --pbp --all # Fallback: PBP via n
 python3 NFLVERSE/scripts/check_updates.py                 # Check which tables/years are stale
 ```
 
-**Note**: Restart the API server (`python3 run.py`) after changing `agent/system_prompt.py` or `tool/*` — the running server caches imports.
+**Note**: Restart the API server (`python3 run.py`) after changing `agent/system_prompt.py` or `tools/*` — the running server caches imports.
 
 ## Auth & multi-user
 

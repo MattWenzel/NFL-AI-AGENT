@@ -128,7 +128,7 @@ The fingerprint uses raw `input_json` string equality. This is intentional: sema
 4. Call `execute_tool_structured(name, input, ctx=ctx)` (see [tools.md](tools.md)).
 5. Persist the result: status, result text, error text, hint, duration, plus a `tool_result` assistant part.
 
-The handler never directly touches the store. Everything flows through `ctx` or the return envelope. This is what keeps `tool/` free of infra dependencies.
+The handler never directly touches the store. Everything flows through `ctx` or the return envelope. This is what keeps `tools/` free of infra dependencies.
 
 ## Cleanup on early exit
 

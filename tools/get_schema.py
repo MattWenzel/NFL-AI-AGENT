@@ -9,7 +9,7 @@ import sqlite3
 from pathlib import Path
 
 from config import DB_PATH, PBP_DB_PATH
-from tool.schema_metadata import (
+from tools.schema_metadata import (
     JOIN_EDGES,
     TABLE_ALIASES,
     TABLE_DATABASE,

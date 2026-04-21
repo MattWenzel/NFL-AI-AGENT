@@ -22,21 +22,21 @@ Top-level folders are organized by subsystem rather than layer:
 
 ```
 agent/     LLM conversation domain (runtime loop, compaction, prompts)
-tool/      Tool registry + handlers (SQL sandbox, schema, CSV export, ...)
+tools/     Tool registry + handlers (SQL sandbox, schema, CSV export, ...)
 auth/      Auth primitives, encryption, Codex OAuth, credential refresh
 provider/  LLM adapters             (Anthropic, OpenAI, OpenAI Codex)
 storage/   SQLite persistence       (RuntimeStore facade composed of mixins)
 server/    HTTP transport           (FastAPI app factory, routes, schemas)
 ```
 
-Dependencies flow from `server/` and `cli.py` (entry points) → `agent/` (domain) → `tool/`, `provider/`, `storage/`, `auth/` (subsystems). Subsystems don't import from `server/` or each other except where noted (e.g. `auth/codex_credentials.py` uses `storage` to persist refreshed bundles).
+Dependencies flow from `server/` and `cli.py` (entry points) → `agent/` (domain) → `tools/`, `provider/`, `storage/`, `auth/` (subsystems). Subsystems don't import from `server/` or each other except where noted (e.g. `auth/codex_credentials.py` uses `storage` to persist refreshed bundles).
 
 `cli.py` is a second entry point that drives `agent/` directly, bypassing `server/`. Same runtime, same tools; no HTTP.
 
 | Dir | Contents | Doc |
 |-----|----------|-----|
 | `agent/` | `ChatRuntime`, event types, compaction, system prompt, guides | [runtime.md](runtime.md), [compaction.md](compaction.md), [prompts.md](prompts.md) |
-| `tool/` | Tool definitions, registry/dispatch, validation, SQL sandbox, handlers | [tools.md](tools.md) |
+| `tools/` | Tool definitions, registry/dispatch, validation, SQL sandbox, handlers | [tools.md](tools.md) |
 | `auth/` | Password hashing, bearer-token issuance, Fernet encryption, Codex OAuth | [auth.md](auth.md) |
 | `provider/` | `BaseLLMClient`, Anthropic + OpenAI + OpenAI Codex adapters, retry/overflow helpers | [providers.md](providers.md) |
 | `storage/` | SQLite store (sessions, turns, tool runs, users, keys, exports) | [persistence.md](persistence.md) |
@@ -86,7 +86,7 @@ Following a single message from the browser back to the browser:
                 │
                 │ (each tool call)
                 ▼
- ┌── tool/ ───────────────────┐
+ ┌── tools/ ──────────────────┐
  │ execute_tool_structured           │        registry.py:86
  │  ├─ validate_tool_input           │
  │  ├─ dispatch → handler            │
@@ -116,7 +116,7 @@ Common "where does X happen" questions:
 | Model selects a tool | Streamed `ToolUseEvent` from the provider adapter ([providers.md](providers.md#streaming)) |
 | Tool call actually runs | `ChatRuntime._execute_tool` → `execute_tool_structured` ([tools.md](tools.md#data-flow-for-one-tool-call)) |
 | SQL query limits | `sandbox.py` — 500 rows, ~30s, PBP auto-attach ([tools.md](tools.md#the-sql-sandbox)) |
-| Which tools are available? | `tool/definitions.py` — 7 tools ([tools.md](tools.md#the-seven-tools)) |
+| Which tools are available? | `tools/definitions.py` — 7 tools ([tools.md](tools.md#the-seven-tools)) |
 | What the model sees as system prompt | `get_base_prompt()` in `agent/system_prompt.py` ([prompts.md](prompts.md#the-base-prompt)) |
 | Topic-specific query templates | `agent/guides/*.md`, loaded via `get_guide` tool ([prompts.md](prompts.md#guide-system)) |
 | Why the conversation doesn't blow past the context window | `compact_if_needed` ([compaction.md](compaction.md)) |
@@ -134,7 +134,7 @@ The places where swapping a component is cheap:
 
 New LLM SDK? Subclass `BaseLLMClient`, translate canonical `Message` / `ToolUseEvent` / `TextEvent` both directions, register in `__init__.py`. Nothing in `server/` or `agent/` changes. See [providers.md](providers.md#adding-a-provider).
 
-### Tool handler (`tool/`)
+### Tool handler (`tools/`)
 
 New tool? One schema in `definitions.py`, one handler function, one line in `registry.py`. Handlers are plain `(input, ctx) -> str`; no registration decorators. The drift guard catches missing entries at import time. See [tools.md](tools.md#adding-a-new-tool).
 

@@ -171,7 +171,7 @@ def _ensure_limit(sql: str, max_rows: int) -> str:
 
     Parameterized LIMITs (`?` or `:name`) are passed through untouched.
     No internal handler currently emits parameterized LIMITs (search:
-    `tool/`), so the contract is enforced by convention,
+    `tools/`), so the contract is enforced by convention,
     not by code: if a future handler wants to use `?` for LIMIT, it must
     clamp the bound value to `MAX_ROWS` / `EXPORT_MAX_ROWS` itself
     before calling _run_sql, otherwise the row cap is bypassable.

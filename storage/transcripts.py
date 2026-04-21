@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 
+from agent.message_builder import build_model_messages as _build_model_messages
 from provider.base import Message, ToolUseEvent
 from storage._rows import (
     row_to_part,
@@ -281,6 +282,49 @@ class TranscriptsMixin:
             raise KeyError(f"Unknown turn {turn_id}")
         return self.update_turn(turn_id, text=turn.text + text)
 
+    def append_assistant_text(self, session_id: str, turn_id: str, text: str) -> TurnRecord:
+        """Append assistant text and persist its matching assistant_part atomically."""
+        turn = self.get_turn(turn_id)
+        if turn is None:
+            raise KeyError(f"Unknown turn {turn_id}")
+        now = utcnow()
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE turns SET text = ?, updated_at = ? WHERE id = ?",
+                (turn.text + text, now, turn_id),
+            )
+            row = conn.execute(
+                "SELECT COALESCE(MAX(order_index), -1) + 1 FROM assistant_parts WHERE turn_id = ?",
+                (turn_id,),
+            ).fetchone()
+            order_index = int(row[0]) if row else 0
+            part = AssistantPartRecord(
+                id=new_id(),
+                session_id=session_id,
+                turn_id=turn_id,
+                kind="text",
+                order_index=order_index,
+                content=text,
+            )
+            conn.execute(
+                """
+                INSERT INTO assistant_parts (id, session_id, turn_id, kind, order_index, content, name, tool_run_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    part.id,
+                    part.session_id,
+                    part.turn_id,
+                    part.kind,
+                    part.order_index,
+                    part.content,
+                    part.name,
+                    part.tool_run_id,
+                    part.created_at,
+                ),
+            )
+        return self.get_turn(turn_id)
+
     def get_turn(self, turn_id: str) -> TurnRecord | None:
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM turns WHERE id = ?", (turn_id,)).fetchone()
@@ -523,81 +567,5 @@ class TranscriptsMixin:
         )
 
     def build_model_messages(self, session_id: str) -> list[Message]:
-        """Build the wire message sequence for the next model call.
-
-        Summary turns are always emitted FIRST, regardless of when they
-        were created. A compaction summary represents compacted *prior*
-        turns, so it belongs at the top of the active window as context
-        — not wherever the summary turn happens to fall in created_at
-        order. Emitting it chronologically would leave an assistant-role
-        message after the most recent user turn on any iteration where
-        compaction fires mid-session, which Anthropic rejects with
-        "conversation must end with a user message".
-        """
-        transcript = self.get_transcript(session_id)
-        messages: list[Message] = []
-
-        summary_turns = [
-            t for t in transcript.turns
-            if not t.compacted and t.role == "summary"
-        ]
-        if summary_turns:
-            messages.append(Message(
-                role="assistant",
-                text=wrap_summaries_for_prompt(summary_turns),
-            ))
-
-        for turn in transcript.turns:
-            if turn.compacted or turn.role == "summary":
-                continue
-            if turn.role == "user":
-                messages.append(Message(role="user", text=turn.text))
-                continue
-            if turn.role == "assistant":
-                parts = transcript.parts_by_turn.get(turn.id, [])
-                text = turn.text
-                if not text:
-                    text = "".join(part.content for part in parts if part.kind == "text")
-                # Anthropic rejects messages whose final assistant content
-                # ends with trailing whitespace ("messages: final assistant
-                # content cannot end with trailing whitespace", 400). Models
-                # stream text that ends with \n frequently; strip before
-                # replay so a single past turn doesn't wedge every future
-                # call on the session.
-                text = (text or "").rstrip()
-                tool_calls = []
-                for tool_run in transcript.tool_runs_by_turn.get(turn.id, []):
-                    tool_calls.append(
-                        ToolUseEvent(
-                            id=tool_run.id,
-                            name=tool_run.tool_name,
-                            input=safe_load_tool_input(tool_run.input_json, tool_run_id=tool_run.id),
-                        )
-                    )
-                if text or tool_calls:
-                    messages.append(
-                        Message(
-                            role="assistant",
-                            text=text or None,
-                            tool_calls=tool_calls or None,
-                        )
-                    )
-                for tool_run in transcript.tool_runs_by_turn.get(turn.id, []):
-                    if tool_run.compacted:
-                        continue
-                    content = tool_run.result_text or json.dumps(
-                        {
-                            "status": tool_run.status,
-                            "error": tool_run.error_text or "Tool run incomplete",
-                            "hint": tool_run.hint,
-                        },
-                        separators=(",", ":"),
-                    )
-                    messages.append(
-                        Message(
-                            role="tool_result",
-                            tool_use_id=tool_run.id,
-                            tool_content=content,
-                        )
-                    )
-        return messages
+        """Backward-compatible wrapper around the runtime's message builder."""
+        return _build_model_messages(self.get_transcript(session_id))
