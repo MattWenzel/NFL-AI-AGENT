@@ -2,8 +2,8 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from auth.primitives import AuthenticatedUser, get_current_user
-from server.repository_dependencies import get_store
+from auth.primitives import AuthenticatedUser
+from server.dependencies import get_current_user, get_store
 from server.schemas.exports import (
     ExportDetail,
     ExportInfo,

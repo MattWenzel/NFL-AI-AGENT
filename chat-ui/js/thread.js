@@ -1,4 +1,12 @@
-function renderProviderControls() {
+import { state } from "./state.js";
+import { openCsv, renderCsvList, renderCsvViewer } from "./csv.js";
+import { setInspectorOpen, renderInspector } from "./inspector.js";
+import { setSidebarView, renderConversationList } from "./sidebar.js";
+import { sendMessage } from "./streaming.js";
+import { destroyAllCharts, mountPendingCharts } from "./charts.js";
+import { downloadCSV, escapeHtml, formatTime, groupBy, preview, renderMarkdown, statusLabel } from "./utils.js";
+
+export function renderProviderControls() {
   const providerSelect = document.getElementById("providerSelect");
   providerSelect.innerHTML = "";
   const providers = [...state.providers].sort((a, b) => Number(b.available) - Number(a.available));
@@ -30,7 +38,7 @@ function renderProviderControls() {
   modelSelect.value = state.selectedModel;
 }
 
-function onProviderChange(event) {
+export function onProviderChange(event) {
   state.selectedProvider = event.target.value;
   state.selectedModel = "";
   localStorage.setItem("nfl_chat_provider", state.selectedProvider);
@@ -39,19 +47,19 @@ function onProviderChange(event) {
   renderSessionHeader();
 }
 
-function onModelChange(event) {
+export function onModelChange(event) {
   state.selectedModel = event.target.value;
   localStorage.setItem("nfl_chat_model", state.selectedModel);
   renderSessionHeader();
 }
 
-function onToolChoiceChange(event) {
+export function onToolChoiceChange(event) {
   state.toolChoice = event.target.value;
   localStorage.setItem("nfl_chat_tool_choice", state.toolChoice);
 }
 
 
-function render() {
+export function render() {
   // Destroy existing Chart.js instances before the DOM swap that follows —
   // otherwise they leak (Chart.js holds a ref to the canvas element).
   destroyAllCharts();
@@ -476,15 +484,14 @@ function renderWelcome() {
     </div>`;
 }
 
-function fillSuggestion(text) {
+export function fillSuggestion(text) {
   const input = document.getElementById("input");
   input.value = text;
   autoResize();
   input.focus();
 }
 
-function sendSuggestion(text) {
+export function sendSuggestion(text) {
   fillSuggestion(text);
   sendMessage();
 }
-

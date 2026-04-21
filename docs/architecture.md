@@ -116,7 +116,7 @@ Common "where does X happen" questions:
 | SQL query limits | `sandbox.py` — 500 rows, ~30s, PBP auto-attach ([tools.md](tools.md#the-sql-sandbox)) |
 | Which tools are available? | `tools/definitions.py` — 7 tools ([tools.md](tools.md#the-seven-tools)) |
 | What the model sees as system prompt | `get_base_prompt()` in `agent/system_prompt.py` ([prompts.md](prompts.md#the-base-prompt)) |
-| Topic-specific query templates | `agent/guides/*.md`, loaded via `get_guide` tool ([prompts.md](prompts.md#guide-system)) |
+| Topic-specific query templates | `tools/guides/*.md`, loaded via `get_guide` tool ([prompts.md](prompts.md#guide-system)) |
 | Why the conversation doesn't blow past the context window | `compact_if_needed` ([compaction.md](compaction.md)) |
 | Infinite tool loops | `raise_if_doom_loop` ([runtime.md](runtime.md#doom-loop-detector)) |
 | Server crash mid-turn | `finally` cleanup + `reconcile_interrupted_runs` at startup ([runtime.md](runtime.md#cleanup-on-early-exit), [persistence.md](persistence.md#startup-reconciliation)) |
@@ -136,9 +136,9 @@ New LLM SDK? Subclass `BaseLLMClient`, translate canonical `Message` / `ToolUseE
 
 New tool? One schema in `definitions.py`, one handler function, one line in `registry.py`. Handlers are plain `(input, ctx) -> str`; no registration decorators. The drift guard catches missing entries at import time. See [tools.md](tools.md#adding-a-new-tool).
 
-### Guide (`agent/guides/`)
+### Guide (`tools/guides/`)
 
-New topic? Drop a markdown file, add the topic name to `_TOPICS` (`get_guide.py`) and the `enum` in `definitions.py`, add a row to the system prompt's Guide Index. No code changes. See [prompts.md](prompts.md#adding-or-changing-content).
+New topic? Drop a markdown file into `tools/guides/`, add the topic name to `GUIDE_TOPICS` in `tools/guide_registry.py`, and add a row to the system prompt's Guide Index via `GUIDE_INDEX_ROWS`. No further code changes. See [prompts.md](prompts.md#adding-or-changing-content).
 
 ### Transport
 

@@ -154,19 +154,6 @@
   // overrides for split-hosting or legacy file:// dev.
   window.API_BASE = new URLSearchParams(location.search).get("api") || "";
 </script>
-<!-- Load order matters: state first, pure helpers next, I/O, features, main last. -->
-<script src="chat-ui/js/state.js"></script>
-<script src="chat-ui/js/utils.js"></script>
-<script src="chat-ui/js/confirm.js"></script>
-<script src="chat-ui/js/auth.js"></script>
-<script src="chat-ui/js/api.js"></script>
-<script src="chat-ui/js/charts.js"></script>
-<script src="chat-ui/js/streaming.js"></script>
-<script src="chat-ui/js/thread.js"></script>
-<script src="chat-ui/js/sidebar.js"></script>
-<script src="chat-ui/js/csv.js"></script>
-<script src="chat-ui/js/inspector.js"></script>
-<script src="chat-ui/js/settings.js"></script>
-<script src="chat-ui/js/main.js"></script>
+<script type="module" src="chat-ui/js/main.js"></script>
 </body>
 </html>

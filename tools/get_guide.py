@@ -2,22 +2,12 @@
 
 import json
 
-from agent import GUIDES_DIR
-
-_TOPICS = [
-    "fantasy",
-    "player_stats",
-    "play_by_play",
-    "drives",
-    "postseason",
-    "player_profile",
-    "games",
-]
+from tools.guide_registry import GUIDES_DIR, GUIDE_TOPICS
 
 
 def _load_all() -> dict[str, str]:
     out = {}
-    for topic in _TOPICS:
+    for topic in GUIDE_TOPICS:
         path = GUIDES_DIR / f"{topic}.md"
         out[topic] = path.read_text() if path.exists() else ""
     return out
@@ -28,9 +18,9 @@ _GUIDES = _load_all()
 
 def _load_guide(input_data: dict, ctx: dict | None = None) -> str:
     topic = input_data.get("topic", "")
-    if topic not in _TOPICS:
+    if topic not in GUIDE_TOPICS:
         return json.dumps({
-            "error": f"Unknown topic: {topic!r}. Available topics: {_TOPICS}",
+            "error": f"Unknown topic: {topic!r}. Available topics: {list(GUIDE_TOPICS)}",
         })
     content = _GUIDES.get(topic) or ""
     if not content:

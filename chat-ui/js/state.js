@@ -1,6 +1,6 @@
-const API_BASE = window.API_BASE;
+export const API_BASE = window.API_BASE;
 
-const state = {
+export const state = {
   conversations: [],
   transcripts: new Map(),
   activeSessionId: localStorage.getItem("nfl_runtime_active_session") || null,

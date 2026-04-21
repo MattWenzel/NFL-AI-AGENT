@@ -1,6 +1,8 @@
 // Chart rendering — shared by the CSV viewer builder and inline tool results
 // -----------------------------------------------------------------------
 
+import { state } from "./state.js";
+
 const CHART_PALETTE = [
   "#4F46E5", "#059669", "#B45309", "#BE185D", "#0891B2",
   "#7C3AED", "#DC2626", "#CA8A04", "#2563EB", "#65A30D",
@@ -12,7 +14,7 @@ function asNumber(v) {
   return Number.isFinite(n) ? n : null;
 }
 
-function destroyAllCharts() {
+export function destroyAllCharts() {
   for (const chart of state.chartInstances.values()) {
     try { chart.destroy(); } catch (err) { console.warn("chart.destroy failed:", err); }
   }
@@ -22,7 +24,7 @@ function destroyAllCharts() {
 // Walk the DOM for every <canvas data-chart-id="…">, look up its queued
 // spec+rows in state.pendingCharts, and bind a Chart.js instance. Called
 // after any innerHTML write that would orphan previously-tracked charts.
-function mountPendingCharts(root) {
+export function mountPendingCharts(root) {
   const canvases = (root || document).querySelectorAll("canvas[data-chart-id]");
   for (const canvas of canvases) {
     const id = canvas.dataset.chartId;
@@ -122,4 +124,3 @@ function renderChart(canvas, spec, rows) {
     return null;
   }
 }
-

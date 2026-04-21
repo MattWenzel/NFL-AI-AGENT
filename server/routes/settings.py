@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from auth.primitives import AuthenticatedUser, get_current_user
-from server.repository_dependencies import get_store
+from auth.primitives import AuthenticatedUser
+from server.dependencies import get_current_user, get_store
 from server.schemas.settings import ApiKeyStatus, ApiKeyUpdate
 from server.services.settings import (
     SettingsApplicationService,
@@ -23,7 +23,19 @@ async def list_api_key_status(
     store: RuntimeStore = Depends(get_store),
 ) -> list[ApiKeyStatus]:
     service = SettingsApplicationService(store)
-    return await service.list_api_key_status(user.id)
+    items = await service.list_api_key_status(user.id)
+    return [
+        ApiKeyStatus(
+            provider=item.provider,
+            display_name=item.display_name,
+            has_key=item.has_key,
+            updated_at=item.updated_at,
+            credential_shape=item.credential_shape,
+            email=item.email,
+            expires_at=item.expires_at,
+        )
+        for item in items
+    ]
 
 
 @router.put("/api-keys/{provider}", response_model=ApiKeyStatus)
@@ -35,10 +47,19 @@ async def update_api_key(
 ) -> ApiKeyStatus:
     service = SettingsApplicationService(store)
     try:
-        return await service.update_api_key(
+        item = await service.update_api_key(
             user_id=user.id,
             provider=provider,
             api_key=payload.api_key,
+        )
+        return ApiKeyStatus(
+            provider=item.provider,
+            display_name=item.display_name,
+            has_key=item.has_key,
+            updated_at=item.updated_at,
+            credential_shape=item.credential_shape,
+            email=item.email,
+            expires_at=item.expires_at,
         )
     except SettingsNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))

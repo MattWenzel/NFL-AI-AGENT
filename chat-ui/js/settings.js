@@ -6,6 +6,11 @@
 // show the user_code + verification URL, poll /status until the user
 // completes sign-in on auth.openai.com/codex/device.
 
+import { fetchJSON, escapeHtml, formatTime } from "./utils.js";
+import { getCurrentUser, signOut } from "./auth.js";
+import { confirmDialog } from "./confirm.js";
+import { loadProviders } from "./api.js";
+
 const CODEX_POLL_MS = 2000;
 
 // Tracks the in-flight device-code flow so we can cancel it when the
@@ -14,7 +19,7 @@ let codexFlowState = null; // { pendingId, timer, cancelled }
 
 let settingsActiveTab = "providers";
 
-async function openSettingsModal() {
+export async function openSettingsModal() {
   const modal = document.getElementById("settingsModal");
   const backdrop = document.getElementById("settingsBackdrop");
   if (!modal || !backdrop) return;
@@ -59,7 +64,7 @@ function updateSettingsTabActiveState({ focus = false } = {}) {
   if (focus && activeTabEl) activeTabEl.focus();
 }
 
-function closeSettingsModal() {
+export function closeSettingsModal() {
   const modal = document.getElementById("settingsModal");
   const backdrop = document.getElementById("settingsBackdrop");
   if (modal) modal.classList.remove("open");

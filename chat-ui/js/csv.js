@@ -1,4 +1,11 @@
-function renderCsvList() {
+import { API_BASE, state } from "./state.js";
+import { confirmDialog } from "./confirm.js";
+import { loadTranscript, refreshConversations } from "./api.js";
+import { applySidebarView } from "./sidebar.js";
+import { fetchJSON, downloadCSV, escapeHtml, formatTime } from "./utils.js";
+import { render } from "./thread.js";
+
+export function renderCsvList() {
   const list = document.getElementById("csvList");
   const countEl = document.getElementById("sidebarSearchCount");
   list.innerHTML = "";
@@ -93,7 +100,7 @@ function formatFileSize(bytes) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-async function openCsv(csvId) {
+export async function openCsv(csvId) {
   state.activeCsvId = csvId;
   localStorage.setItem("nfl_csv_active_id", csvId);
   if (!state.csvDetails.has(csvId)) {
@@ -173,7 +180,7 @@ function beginCsvRename(item, csv) {
   input.addEventListener("blur", save);
 }
 
-function renderCsvViewer() {
+export function renderCsvViewer() {
   const thread = document.getElementById("thread");
   const detail = state.csvDetails.get(state.activeCsvId);
   const summary = state.csvs.find(c => c.id === state.activeCsvId);
@@ -273,4 +280,3 @@ async function startChatFromCsv(csvId) {
   applySidebarView();
   await loadTranscript(newId);
 }
-

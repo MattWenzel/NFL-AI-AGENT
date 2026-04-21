@@ -1,15 +1,14 @@
-"""FastAPI dependencies for service-layer factories.
-
-Store + repository getters live in `server.repository_dependencies` so
-`auth.primitives` can import them without pulling the service layer (and
-therefore itself) into a circular import.
-"""
+"""FastAPI dependencies for auth, persistence, and service factories."""
 
 from __future__ import annotations
 
-from fastapi import Depends, Request
+from datetime import datetime, timezone
+
+from fastapi import Depends, HTTPException, Request, status
 
 from agent.runtime import ChatRuntime
+from auth.primitives import AuthenticatedUser, _extract_bearer
+from config import AUTH_SESSION_TOUCH_INTERVAL_SECONDS
 from server.process_state import (
     PendingCodexOAuthFlowStore,
     PerUserLockRegistry,
@@ -17,14 +16,66 @@ from server.process_state import (
     get_codex_refresh_locks,
 )
 from server.repositories import ConversationRepository
-from server.repository_dependencies import (
-    get_conversation_repository,
-    get_store,
-)
 from server.services.chat import ChatApplicationService
 from server.services.codex_oauth import CodexOAuthApplicationService
 from server.services.conversations import ConversationApplicationService
 from storage import RuntimeStore
+
+
+def get_store(request: Request) -> RuntimeStore:
+    store = getattr(request.app.state, "store", None)
+    if store is None:
+        raise RuntimeError(
+            "store not attached to app.state — the FastAPI lifespan must set it before requests run."
+        )
+    return store
+
+
+def get_conversation_repository(request: Request) -> ConversationRepository:
+    return ConversationRepository(get_store(request))
+
+
+async def _resolve_user(request: Request, store: RuntimeStore) -> AuthenticatedUser | None:
+    token = _extract_bearer(request)
+    if not token:
+        return None
+    session = await store.get_auth_session_async(token)
+    if session is None:
+        return None
+    if session.expires_at < datetime.now(timezone.utc).isoformat():
+        await store.delete_auth_session_async(token)
+        return None
+    user = await store.get_user_by_id_async(session.user_id)
+    if user is None:
+        await store.delete_auth_session_async(token)
+        return None
+    await store.touch_auth_session_async(
+        token,
+        min_interval_seconds=AUTH_SESSION_TOUCH_INTERVAL_SECONDS,
+        last_used_at=session.last_used_at,
+    )
+    return AuthenticatedUser.from_record(user)
+
+
+async def get_current_user(
+    request: Request,
+    store: RuntimeStore = Depends(get_store),
+) -> AuthenticatedUser:
+    user = await _resolve_user(request, store)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return user
+
+
+async def get_current_user_optional(
+    request: Request,
+    store: RuntimeStore = Depends(get_store),
+) -> AuthenticatedUser | None:
+    return await _resolve_user(request, store)
 
 
 def get_runtime(request: Request) -> ChatRuntime:

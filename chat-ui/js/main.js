@@ -1,3 +1,14 @@
+import { state } from "./state.js";
+import { bootAuth, getCurrentUser, setPostLoginInit, signOut } from "./auth.js";
+import { loadProviders, loadTranscript, refreshConversations, refreshCsvs } from "./api.js";
+import { openCsv, renderCsvList } from "./csv.js";
+import { setInspectorOpen } from "./inspector.js";
+import { applySidebarView, renderConversationList, setSidebarView, startNewSession } from "./sidebar.js";
+import { openSettingsModal, closeSettingsModal } from "./settings.js";
+import { sendMessage } from "./streaming.js";
+import { fillSuggestion, onModelChange, onProviderChange, onToolChoiceChange, render, sendSuggestion } from "./thread.js";
+import { copyTextFromNode, escapeHtml } from "./utils.js";
+
 document.getElementById("themeToggle").addEventListener("click", () => {
   const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
   document.documentElement.dataset.theme = next;
@@ -131,7 +142,7 @@ function renderUserWidget(user) {
   name.textContent = user.email;
 }
 
-async function init() {
+export async function init() {
   renderUserWidget(getCurrentUser());
   await loadProviders();
   await Promise.all([refreshConversations(), refreshCsvs()]);
@@ -176,7 +187,7 @@ function handleInputKeydown(event) {
   }
 }
 
-function autoResize() {
+export function autoResize() {
   const input = document.getElementById("input");
   input.style.height = "auto";
   input.style.height = Math.min(input.scrollHeight, 220) + "px";
@@ -184,6 +195,7 @@ function autoResize() {
 
 window.fillSuggestion = fillSuggestion;
 window.sendSuggestion = sendSuggestion;
+setPostLoginInit(init);
 
 (async function boot() {
   try {

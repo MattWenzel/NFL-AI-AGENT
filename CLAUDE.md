@@ -64,7 +64,7 @@ agent/                      # LLM conversation domain
 ├── summarizer.py           #   LLM-backed summarization for compaction
 ├── token_counting.py       #   cl100k token estimator for compaction decisions
 ├── system_prompt.py        #   slim base prompt (~2.3K tokens: rules + guide index)
-├── __init__.py             #   exposes GUIDES_DIR constant
+├── __init__.py             #   package marker
 └── guides/                 #   topic-specific markdown loaded via get_guide tool
     ├── fantasy.md          #   drives.md, games.md, play_by_play.md, player_profile.md,
     └── …                   #   player_stats.md, postseason.md

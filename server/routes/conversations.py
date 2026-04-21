@@ -1,9 +1,11 @@
 """Conversation CRUD endpoints."""
 
+from dataclasses import asdict
+
 from fastapi import APIRouter, Depends, HTTPException
 
-from auth.primitives import AuthenticatedUser, get_current_user
-from server.dependencies import get_conversation_service
+from auth.primitives import AuthenticatedUser
+from server.dependencies import get_conversation_service, get_current_user
 from server.schemas.conversations import ConversationInfo, ConversationTranscriptResponse, ConversationUpdate
 from server.services.conversations import ConversationApplicationService, ConversationNotFoundError
 
@@ -15,7 +17,10 @@ async def list_conversations(
     service: ConversationApplicationService = Depends(get_conversation_service),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
-    return await service.list_conversations(user.id)
+    return [
+        ConversationInfo.model_validate(asdict(item))
+        for item in await service.list_conversations(user.id)
+    ]
 
 
 @router.get("/conversations/{conversation_id}/transcript", response_model=ConversationTranscriptResponse)
@@ -25,7 +30,9 @@ async def get_conversation_transcript(
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     try:
-        return await service.get_transcript(conversation_id, user.id)
+        return ConversationTranscriptResponse.model_validate(
+            asdict(await service.get_transcript(conversation_id, user.id))
+        )
     except ConversationNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
@@ -40,11 +47,15 @@ async def update_conversation(
     if body.title is None and body.pinned is None:
         raise HTTPException(status_code=400, detail="Provide title and/or pinned")
     try:
-        return await service.update_conversation(
-            conversation_id,
-            user_id=user.id,
-            title=body.title,
-            pinned=body.pinned,
+        return ConversationInfo.model_validate(
+            asdict(
+                await service.update_conversation(
+                    conversation_id,
+                    user_id=user.id,
+                    title=body.title,
+                    pinned=body.pinned,
+                )
+            )
         )
     except ConversationNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))

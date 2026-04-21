@@ -1,23 +1,7 @@
 """Codex OAuth token resolution with refresh locking.
 
-Exposes `resolve_access_token(users, user_id, provider)` — the single entry
-point used by HTTP-level credential resolution. Encapsulates:
-
-- Reading and decrypting the stored token bundle (tolerant of tampered
-  ciphertext, malformed JSON, or missing records — all collapse to None
-  so callers treat the state as "not connected").
-- Near-expiry refresh via OpenAI's token endpoint, under a per-user lock
-  so two concurrent requests don't race and leave the loser's refresh
-  token stale.
-- Persisting the refreshed bundle back through the user repository.
-
-Raises `CodexCredentialError` if the refresh call itself fails. Returns
-None for the "never connected / unreadable" cases so callers can
-surface a distinct configure-a-key error.
-
-In-process only — the refresh lock registry is per-worker. Fine on the
-single-worker deploy (same constraint as the in-memory rate limiter);
-if this ever needs multiple workers, swap for a DB-level lock.
+Service-layer orchestration over storage, decryption, token refresh, and
+per-user coordination locks.
 """
 
 from __future__ import annotations
@@ -30,6 +14,7 @@ from server.process_state import PerUserLockRegistry
 from storage import RuntimeStore
 
 logger = logging.getLogger(__name__)
+
 
 class CodexCredentialError(Exception):
     """Raised when a stored Codex connection exists but refresh fails."""
@@ -60,20 +45,11 @@ async def resolve_access_token(
     *,
     refresh_locks: PerUserLockRegistry,
 ) -> str | None:
-    """Return a valid bearer access token for the user's Codex connection.
-
-    Refreshes under a per-user lock if the bundle is within 30s of expiry.
-    Returns None when the user is not connected; raises
-    `CodexCredentialError` when refresh fails.
-    """
     bundle = await _load_bundle_async(store, user_id, provider_name)
     if bundle is None:
         return None
     if not codex_oauth.is_near_expiry(bundle):
         return bundle.access_token
-    # Refresh path: serialize across concurrent requests for this user and
-    # re-read under the lock — a concurrent request may have already
-    # refreshed and persisted while we were waiting.
     async with refresh_locks.for_user(user_id):
         bundle = await _load_bundle_async(store, user_id, provider_name)
         if bundle is None:

@@ -1,11 +1,14 @@
-function setInspectorOpen(open) {
+import { state } from "./state.js";
+import { escapeHtml, formatTime, renderMarkdown } from "./utils.js";
+
+export function setInspectorOpen(open) {
   state.inspectorOpen = open;
   document.getElementById("inspector").classList.toggle("open", open);
   document.getElementById("inspectorBackdrop").classList.toggle("open", open);
   document.getElementById("inspectorToggle").classList.toggle("hidden", open);
 }
 
-function renderInspector() {
+export function renderInspector() {
   const root = document.getElementById("inspectorBody");
   const transcript = state.activeSessionId ? state.transcripts.get(state.activeSessionId) : null;
   const live = state.liveTurn;
@@ -127,4 +130,3 @@ function renderInspector() {
   }
   root.innerHTML = cards.join("");
 }
-

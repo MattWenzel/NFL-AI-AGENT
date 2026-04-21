@@ -2,31 +2,35 @@
 // inline login/register screens. Must be loaded before api.js / main.js since
 // they depend on `authHeaders()` and `handleUnauthorized()`.
 
+import { API_BASE } from "./state.js";
+import { escapeHtml } from "./utils.js";
+
 const AUTH_TOKEN_KEY = "nfl_auth_token";
 
 let _currentUser = null;
 // Populated by bootAuth() from /auth/status. When true, the register form
 // renders an "Invite code" input and the server enforces the match.
 let _inviteRequired = false;
+let postLoginInitHook = null;
 
-function getAuthToken() {
+export function getAuthToken() {
   return localStorage.getItem(AUTH_TOKEN_KEY) || "";
 }
 
-function setAuthToken(token) {
+export function setAuthToken(token) {
   if (token) localStorage.setItem(AUTH_TOKEN_KEY, token);
   else localStorage.removeItem(AUTH_TOKEN_KEY);
 }
 
-function clearAuthToken() {
+export function clearAuthToken() {
   localStorage.removeItem(AUTH_TOKEN_KEY);
 }
 
-function getCurrentUser() {
+export function getCurrentUser() {
   return _currentUser;
 }
 
-function authHeaders(extra) {
+export function authHeaders(extra) {
   const token = getAuthToken();
   const headers = { ...(extra || {}) };
   if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -36,7 +40,7 @@ function authHeaders(extra) {
 // Called by fetchJSON when a protected request returns 401. Drops the dead token
 // and returns the page to the login screen without a full reload so we don't
 // lose any draft text the user was typing.
-async function handleUnauthorized() {
+export async function handleUnauthorized() {
   clearAuthToken();
   _currentUser = null;
   await showAuthScreen();
@@ -59,7 +63,7 @@ window.addEventListener("storage", (event) => {
   }
 });
 
-async function bootAuth() {
+export async function bootAuth() {
   let status;
   try {
     const resp = await fetch(`${API_BASE}/auth/status`, { headers: authHeaders() });
@@ -80,21 +84,21 @@ async function bootAuth() {
   return false;
 }
 
-function showAuthScreen() {
+export function showAuthScreen() {
   const el = document.getElementById("authScreen");
   if (el) el.hidden = false;
   const shell = document.querySelector(".shell");
   if (shell) shell.hidden = true;
 }
 
-function hideAuthScreen() {
+export function hideAuthScreen() {
   const el = document.getElementById("authScreen");
   if (el) el.hidden = true;
   const shell = document.querySelector(".shell");
   if (shell) shell.hidden = false;
 }
 
-function renderAuthScreen(mode) {
+export function renderAuthScreen(mode) {
   const el = document.getElementById("authScreen");
   if (!el) return;
   showAuthScreen();
@@ -199,7 +203,7 @@ function renderAuthScreen(mode) {
   });
 }
 
-function showAuthError(message) {
+export function showAuthError(message) {
   const el = document.getElementById("authScreen");
   if (!el) return;
   showAuthScreen();
@@ -212,7 +216,7 @@ function showAuthError(message) {
   `;
 }
 
-async function signOut() {
+export async function signOut() {
   try {
     await fetch(`${API_BASE}/auth/logout`, {
       method: "POST",
@@ -229,8 +233,12 @@ async function signOut() {
 
 // Hook that main.js calls after a successful login to boot the chat UI.
 // Defined in main.js; we just reference it here so the flow stays linear.
+export function setPostLoginInit(fn) {
+  postLoginInitHook = fn;
+}
+
 async function postLoginInit() {
-  if (typeof init === "function") {
-    await init();
+  if (typeof postLoginInitHook === "function") {
+    await postLoginInitHook();
   }
 }

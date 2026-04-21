@@ -9,16 +9,15 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from auth.primitives import (
     AuthenticatedUser,
     _extract_bearer,
-    get_current_user,
-    get_current_user_optional,
 )
 from config import EXPORTS_DIR
-from server.repository_dependencies import get_store
+from server.dependencies import get_current_user, get_current_user_optional, get_store
 from server.process_state import AppProcessState, get_process_state
 from server.schemas.auth import (
     AuthOkResponse,
     AuthStatusResponse,
     AuthTokenResponse,
+    AuthUser,
     DeleteAccountRequest,
     LoginRequest,
     PasswordChangeRequest,
@@ -43,7 +42,13 @@ async def auth_status(
     user: AuthenticatedUser | None = Depends(get_current_user_optional),
 ) -> AuthStatusResponse:
     service = AuthApplicationService(store, EXPORTS_DIR)
-    return await service.auth_status(user)
+    result = await service.auth_status(user)
+    return AuthStatusResponse(
+        has_users=result.has_users,
+        authenticated=result.authenticated,
+        invite_required=result.invite_required,
+        user=AuthUser(id=result.user.id, email=result.user.email, role=result.user.role) if result.user else None,
+    )
 
 
 @router.post("/register", response_model=AuthTokenResponse, status_code=status.HTTP_201_CREATED)
@@ -56,10 +61,14 @@ async def register(
     process_state.register_limiter.check(request)
     service = AuthApplicationService(store, EXPORTS_DIR)
     try:
-        return await service.register(
+        result = await service.register(
             email=payload.email,
             password=payload.password,
             invite_code=payload.invite_code,
+        )
+        return AuthTokenResponse(
+            token=result.token,
+            user=AuthUser(id=result.user.id, email=result.user.email, role=result.user.role),
         )
     except AuthConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
@@ -79,7 +88,11 @@ async def login(
     process_state.login_limiter.check(request)
     service = AuthApplicationService(store, EXPORTS_DIR)
     try:
-        return await service.login(email=payload.email, password=payload.password)
+        result = await service.login(email=payload.email, password=payload.password)
+        return AuthTokenResponse(
+            token=result.token,
+            user=AuthUser(id=result.user.id, email=result.user.email, role=result.user.role),
+        )
     except AuthCredentialsError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
 

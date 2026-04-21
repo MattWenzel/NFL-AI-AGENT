@@ -5,7 +5,7 @@
 // Usage:
 //   if (!(await confirmDialog({ title: "Delete?", message: "...", destructive: true }))) return;
 
-function confirmDialog({
+export function confirmDialog({
   title = "Are you sure?",
   message = "",
   confirmText = "Confirm",

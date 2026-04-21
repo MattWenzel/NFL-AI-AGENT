@@ -26,7 +26,8 @@ import time
 import httpx
 import pytest
 from cryptography.fernet import Fernet
-from auth.primitives import AuthenticatedUser, get_current_user
+from auth.primitives import AuthenticatedUser
+from server.dependencies import get_current_user
 from tests.app_factory import build_test_app, managed_test_client
 from server.routes.codex_oauth import router as codex_router
 from auth import codex_oauth, encryption

@@ -156,7 +156,7 @@ Two things are happening here:
 1. **Tag wrapping** — gives the model a clean delimiter so it can distinguish "memory" from "live conversation".
 2. **Anti-mimic note** — the summary's format (dashes, "tool X (completed): input=" lines) is exactly the kind of pattern LLMs will copy into their replies if not told otherwise. The note heads that off. Users reported early versions where the assistant's reply started with bullet lists echoing the memo; the note + a matching rule in the system prompt fixed it.
 
-The `Conversation Memory` section of the system prompt (`system.py:20`) reinforces this — both the wrapping note and the system prompt tell the model to treat the summary as private memory.
+The `Conversation Memory` section of the system prompt (`agent/system_prompt.py`) reinforces this — both the wrapping note and the system prompt tell the model to treat the summary as private memory.
 
 ## Interaction with the iteration loop
 

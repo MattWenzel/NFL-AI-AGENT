@@ -23,7 +23,7 @@ This doc covers the password flow, token scheme, rate limiting, API-key encrypti
 | `PUT` | `/auth/password` | Rotate password; invalidates all other sessions for this user. |
 | `DELETE` | `/auth/me` | Cascade delete — user, sessions, API keys, conversations, exports, on-disk CSVs. |
 
-All protected endpoints across the app depend on `get_current_user` (`auth/primitives.py:88`), which resolves the bearer token or raises 401. `/auth/status` uses the optional variant (`get_current_user_optional`, `auth/primitives.py:102`) so an unauthenticated caller gets a useful response instead of 401.
+All protected endpoints across the app depend on `get_current_user` in `server/dependencies.py`, which resolves the bearer token or raises 401. `/auth/status` uses the optional variant (`get_current_user_optional`) so an unauthenticated caller gets a useful response instead of 401.
 
 ## The password flow
 

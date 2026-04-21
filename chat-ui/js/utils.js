@@ -1,4 +1,7 @@
-async function fetchJSON(path, init) {
+import { API_BASE } from "./state.js";
+import { authHeaders, handleUnauthorized } from "./auth.js";
+
+export async function fetchJSON(path, init) {
   const options = { ...(init || {}) };
   // Opt-out for endpoints where a 401 means "the password you just typed is
   // wrong" rather than "your session expired" (change-password, delete-account).
@@ -21,24 +24,24 @@ async function fetchJSON(path, init) {
   return resp.json();
 }
 
-function preview(text, maxChars) {
+export function preview(text, maxChars) {
   return text.length > maxChars ? text.slice(0, maxChars) + "..." : text;
 }
 
-function statusLabel(status) {
+export function statusLabel(status) {
   if (status === "tooling") return "Running tools...";
   if (status === "thinking") return "Synthesizing answer...";
   if (status === "error") return "Turn ended with an error.";
   return "Starting response...";
 }
 
-function escapeHtml(value) {
+export function escapeHtml(value) {
   const div = document.createElement("div");
   div.textContent = value == null ? "" : String(value);
   return div.innerHTML;
 }
 
-function renderMarkdown(text) {
+export function renderMarkdown(text) {
   // Codex/ChatGPT sometimes prefixes links to files it produced with
   // `sandbox:` — an artifact of its training environment. Strip it before
   // `marked` parses, so the downstream /exports/ rewrite sees a plain path
@@ -61,7 +64,7 @@ function renderMarkdown(text) {
   return html;
 }
 
-function copyTextFromNode(btn) {
+export function copyTextFromNode(btn) {
   const wrap = btn.closest(".copy-wrap");
   if (!wrap) return "";
   const kind = btn.dataset.copyAction;
@@ -79,7 +82,7 @@ function copyTextFromNode(btn) {
   return "";
 }
 
-function groupBy(items, keyFn) {
+export function groupBy(items, keyFn) {
   const map = new Map();
   for (const item of items) {
     const key = keyFn(item);
@@ -89,14 +92,14 @@ function groupBy(items, keyFn) {
   return map;
 }
 
-function formatTime(value) {
+export function formatTime(value) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-async function downloadCSV(url, filename) {
+export async function downloadCSV(url, filename) {
   const resp = await fetch(url, { headers: authHeaders() });
   if (resp.status === 401 && typeof handleUnauthorized === "function") {
     await handleUnauthorized();
@@ -113,4 +116,3 @@ async function downloadCSV(url, filename) {
   link.remove();
   URL.revokeObjectURL(objectUrl);
 }
-

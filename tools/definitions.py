@@ -1,6 +1,7 @@
 """Declarative tool schemas (Anthropic tool_use format) + typed exports."""
 
 from provider.base import ToolDefinition
+from tools.guide_registry import GUIDE_TOPICS
 
 TOOL_DEFINITIONS = [
     {
@@ -57,15 +58,7 @@ TOOL_DEFINITIONS = [
             "properties": {
                 "topic": {
                     "type": "string",
-                    "enum": [
-                        "fantasy",
-                        "player_stats",
-                        "play_by_play",
-                        "drives",
-                        "postseason",
-                        "player_profile",
-                        "games",
-                    ],
+                    "enum": list(GUIDE_TOPICS),
                     "description": "Which guide to load.",
                 },
             },

@@ -20,8 +20,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from tools import TOOLS
-from auth.primitives import AuthenticatedUser, get_current_user
-from server.dependencies import get_chat_service
+from auth.primitives import AuthenticatedUser
+from server.dependencies import get_chat_service, get_current_user
 from server.process_state import ChatStreamGate, get_chat_stream_gate
 from server.schemas.chat import ChatRequest, ChatResponse
 from server.services.chat import (

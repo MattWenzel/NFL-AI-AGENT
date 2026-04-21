@@ -1,4 +1,11 @@
-function applySidebarView() {
+import { state } from "./state.js";
+import { confirmDialog } from "./confirm.js";
+import { openCsv } from "./csv.js";
+import { loadTranscript, refreshConversations } from "./api.js";
+import { fetchJSON, escapeHtml, formatTime } from "./utils.js";
+import { render } from "./thread.js";
+
+export function applySidebarView() {
   const view = state.sidebarView === "csvs" ? "csvs" : "chats";
   document.getElementById("pane-chats").hidden = view !== "chats";
   document.getElementById("pane-csvs").hidden = view !== "csvs";
@@ -8,7 +15,7 @@ function applySidebarView() {
   search.placeholder = view === "csvs" ? "Search reports" : "Search conversations";
 }
 
-function setSidebarView(view) {
+export function setSidebarView(view) {
   const next = view === "csvs" ? "csvs" : "chats";
   state.sidebarView = next;
   localStorage.setItem("nfl_sidebar_view", next);
@@ -19,7 +26,7 @@ function setSidebarView(view) {
 }
 
 
-function startNewSession() {
+export function startNewSession() {
   state.activeSessionId = null;
   state.selectedTurnId = null;
   state.liveTurn = null;
@@ -70,7 +77,7 @@ async function togglePinned(sessionId, shouldPin) {
 }
 
 
-function renderConversationList() {
+export function renderConversationList() {
   const list = document.getElementById("conversationList");
   const countEl = document.getElementById("sidebarSearchCount");
   list.innerHTML = "";
@@ -253,4 +260,3 @@ function beginRename(item, session) {
   });
   input.addEventListener("blur", save);
 }
-

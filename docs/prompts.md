@@ -5,7 +5,7 @@ The agent has a deliberately slim system prompt and a set of on-demand markdown 
 ## File map
 
 - `agent/system_prompt.py` — base system prompt template + `get_base_prompt()`.
-- `agent/guides/*.md` — seven topic-specific reference docs.
+- `tools/guides/*.md` — seven topic-specific reference docs.
 - `tools/get_guide.py` — guide loader tool.
 
 ## The split: prompt vs. guide
@@ -21,7 +21,7 @@ Why: a typical "how many TDs did Mahomes throw in 2024" question doesn't need th
 
 ## The base prompt
 
-`agent/system_prompt.py:5`. A single f-string template with one variable: `{today}`. `get_base_prompt()` (`system.py:122`) evaluates it at call time, so "today's date" in the prompt matches the server's clock on the day of the request.
+`agent/system_prompt.py`. A single template with one variable: `{today}` plus the generated guide index. `get_base_prompt()` evaluates it at call time, so "today's date" in the prompt matches the server's clock on the day of the request.
 
 Structure (in order):
 
@@ -49,7 +49,7 @@ The prompt is intentionally prescriptive. This is not a general-purpose system p
 
 ## Guide system
 
-Seven markdown files in `agent/guides/` (`get_guide.py:9`):
+Seven markdown files in `tools/guides/` (`tools/get_guide.py`):
 
 | Topic | When to load |
 |-------|--------------|
@@ -79,9 +79,9 @@ This means:
 
 ### Serving
 
-`get_guide.py:31`. Topic validation against the static `_TOPICS` list, then return `{"topic": ..., "content": ...}` as a JSON string. Same pattern as every other tool handler — JSON in, JSON out.
+`tools/get_guide.py`. Topic validation against `GUIDE_TOPICS`, then return `{"topic": ..., "content": ...}` as a JSON string. Same pattern as every other tool handler — JSON in, JSON out.
 
-The **topic enum** lives in two places: `_TOPICS` in `get_guide.py` and the `enum` field of the `get_guide` input schema in `definitions.py`. These must match; there is no runtime guard, so adding a topic means editing both. (This is a narrower drift surface than the dispatch/definitions split, which does have a guard — see [tools.md](tools.md#registry-drift-guard).)
+The **topic enum** is owned by `GUIDE_TOPICS` in `tools/guide_registry.py`, and `definitions.py` derives the `get_guide` schema enum from that shared source. Adding a topic is now a one-source change instead of a manual sync across files.
 
 ## How guides reach the model
 
@@ -111,5 +111,5 @@ Without this instruction, models tend to fetch one guide, wait, fetch another, w
 ## Adding or changing content
 
 - **Edit a guide**: change the `.md` file, restart the server. No code changes.
-- **Add a new guide**: (1) drop `newtopic.md` into `agent/guides/`, (2) add `"newtopic"` to `_TOPICS` in `get_guide.py`, (3) add `"newtopic"` to the `enum` in `definitions.py`, (4) add a row to the Guide Index in `system.py`. Restart.
+- **Add a new guide**: (1) drop `newtopic.md` into `tools/guides/`, (2) add `"newtopic"` to `GUIDE_TOPICS` in `tools/guide_registry.py`, (3) add a row to `GUIDE_INDEX_ROWS` there so the system prompt stays aligned. Restart.
 - **Tune the base prompt**: edit `_SYSTEM_PROMPT_TEMPLATE`. Restart the running API server so the change is picked up.

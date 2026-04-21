@@ -1,4 +1,11 @@
-async function sendMessage() {
+import { API_BASE, state } from "./state.js";
+import { loadTranscript, refreshConversations, refreshCsvs } from "./api.js";
+import { authHeaders, handleUnauthorized } from "./auth.js";
+import { renderMarkdown } from "./utils.js";
+import { render } from "./thread.js";
+import { autoResize } from "./main.js";
+
+export async function sendMessage() {
   const input = document.getElementById("input");
   const text = input.value.trim();
   if (!text || state.isStreaming) return;
@@ -169,4 +176,3 @@ async function finishLiveTurn() {
     render();
   }
 }
-

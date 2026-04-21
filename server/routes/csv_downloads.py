@@ -5,9 +5,9 @@ import re
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
-from auth.primitives import AuthenticatedUser, get_current_user
+from auth.primitives import AuthenticatedUser
 from config import EXPORTS_DIR
-from server.repository_dependencies import get_store
+from server.dependencies import get_current_user, get_store
 from server.services.exports import ExportApplicationService, ExportNotFoundError
 from storage import RuntimeStore
 

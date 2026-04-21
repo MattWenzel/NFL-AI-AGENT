@@ -1,4 +1,8 @@
-async function loadProviders() {
+import { state } from "./state.js";
+import { fetchJSON } from "./utils.js";
+import { renderProviderControls, render } from "./thread.js";
+
+export async function loadProviders() {
   try {
     state.providers = await fetchJSON("/chat/providers");
   } catch {
@@ -17,7 +21,7 @@ async function loadProviders() {
 }
 
 
-async function refreshConversations() {
+export async function refreshConversations() {
   state.conversations = await fetchJSON("/chat/conversations");
   if (state.activeSessionId && !state.conversations.some(c => c.id === state.activeSessionId)) {
     state.activeSessionId = null;
@@ -25,7 +29,7 @@ async function refreshConversations() {
   }
 }
 
-async function refreshCsvs() {
+export async function refreshCsvs() {
   try {
     state.csvs = await fetchJSON("/chat/exports");
   } catch (err) {
@@ -35,7 +39,7 @@ async function refreshCsvs() {
 }
 
 
-async function loadTranscript(sessionId) {
+export async function loadTranscript(sessionId) {
   const transcript = await fetchJSON(`/chat/conversations/${sessionId}/transcript`);
   state.transcripts.set(sessionId, transcript);
   state.activeSessionId = sessionId;
@@ -49,4 +53,3 @@ function pickDefaultTurn(transcript) {
   const preferred = [...turns].reverse().find(turn => turn.role !== "user");
   return preferred ? preferred.id : (turns[0] ? turns[0].id : null);
 }
-

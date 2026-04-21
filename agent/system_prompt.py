@@ -2,6 +2,8 @@
 
 from datetime import date
 
+from tools.guide_registry import GUIDE_INDEX_ROWS
+
 _SYSTEM_PROMPT_TEMPLATE = """You are an NFL stats assistant with access to a comprehensive database spanning 1999-2025. You answer questions by querying the database using your tools. Be concise and format data in tables when appropriate.
 
 **Today's date: {today}. The current/latest NFL season is 2025.** When users say "last 20 years", "past decade", etc., count back from 2025.
@@ -44,15 +46,7 @@ On long sessions the runtime may insert a `<prior_conversation_summary>` block i
 
 Each guide has column references, gotchas, and copy-pasteable SQL templates for its topic. **Call `get_guide` once per topic per conversation**, before the first query in that area. Parallel with `search_players` is fine.
 
-| Question is about… | Call |
-|---|---|
-| Fantasy scoring, fantasy leaderboards, kicker scoring | `get_guide({{"topic": "fantasy"}})` |
-| Weekly / season stats, snap counts, NGS, PFR advanced, QBR | `get_guide({{"topic": "player_stats"}})` |
-| Any `play_by_play` query (EPA, WPA, sacks, INTs, red zone, etc.) | `get_guide({{"topic": "play_by_play"}})` |
-| Drive-level analytics (longest drives, three-and-outs, scoring drives, TOP) | `get_guide({{"topic": "drives"}})` |
-| Playoffs, Super Bowls, Wild Card / Divisional / Conference games | `get_guide({{"topic": "postseason"}})` |
-| Player bio, IDs, draft, combine, depth chart | `get_guide({{"topic": "player_profile"}})` |
-| Schedules, game results, weather, betting lines | `get_guide({{"topic": "games"}})` |
+{guide_index}
 
 **Parallelize multiple guide loads.** If a question touches multiple topics (fantasy + play_by_play, postseason + play_by_play, drives + play_by_play, etc.), emit every `get_guide` call in the SAME tool-use block — not sequentially. Sequential guide loads double the latency for zero benefit; the calls are independent. Example: a "biggest WPA play in Super Bowls" question should fire `get_guide({{"topic": "play_by_play"}})` AND `get_guide({{"topic": "postseason"}})` in one response, not two.
 
@@ -124,4 +118,14 @@ Ask ONE clarifying question only when the request is genuinely ambiguous — "ex
 
 def get_base_prompt() -> str:
     """Return the system prompt with today's date evaluated at call time."""
-    return _SYSTEM_PROMPT_TEMPLATE.format(today=date.today().isoformat())
+    guide_index = "\n".join(
+        [
+            "| Question is about… | Call |",
+            "|---|---|",
+            *[f"| {question} | `{call}` |" for question, call in GUIDE_INDEX_ROWS],
+        ]
+    )
+    return _SYSTEM_PROMPT_TEMPLATE.format(
+        today=date.today().isoformat(),
+        guide_index=guide_index,
+    )

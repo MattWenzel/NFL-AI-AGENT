@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from auth import encryption
-from auth.codex_credentials import (
+from server.services.codex_credentials import (
     CodexCredentialError,
     resolve_access_token as resolve_codex_access_token,
 )

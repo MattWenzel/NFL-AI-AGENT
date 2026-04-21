@@ -1,5 +1,4 @@
-"""Auth primitives: password hashing, token generation, and the
-`get_current_user` FastAPI dependency used by every protected router.
+"""Auth primitives: password hashing, token generation, and bearer parsing.
 
 Multi-user password auth. Registration is open; first registrant becomes
 the admin (see `server/routes/auth.py`). OAuth is not implemented — when
@@ -13,14 +12,11 @@ from __future__ import annotations
 import logging
 import secrets
 from dataclasses import dataclass
-from datetime import datetime, timezone
 
 import bcrypt
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Request
 
-from config import AUTH_SESSION_TOUCH_INTERVAL_SECONDS
-from server.repository_dependencies import get_store
-from storage import RuntimeStore, UserRecord
+from storage import UserRecord
 
 logger = logging.getLogger(__name__)
 
@@ -64,50 +60,3 @@ def _extract_bearer(request: Request) -> str | None:
     if len(parts) != 2 or parts[0].lower() != "bearer":
         return None
     return parts[1].strip() or None
-
-
-async def _resolve_user(request: Request, store: RuntimeStore) -> AuthenticatedUser | None:
-    token = _extract_bearer(request)
-    if not token:
-        return None
-    session = await store.get_auth_session_async(token)
-    if session is None:
-        return None
-    # Expiry check (string-lex ISO 8601 compare — safe because both have the same format)
-    if session.expires_at < datetime.now(timezone.utc).isoformat():
-        await store.delete_auth_session_async(token)
-        return None
-    user = await store.get_user_by_id_async(session.user_id)
-    if user is None:
-        # Orphaned session — user deleted.
-        await store.delete_auth_session_async(token)
-        return None
-    await store.touch_auth_session_async(
-        token,
-        min_interval_seconds=AUTH_SESSION_TOUCH_INTERVAL_SECONDS,
-        last_used_at=session.last_used_at,
-    )
-    return AuthenticatedUser.from_record(user)
-
-
-async def get_current_user(
-    request: Request,
-    store: RuntimeStore = Depends(get_store),
-) -> AuthenticatedUser:
-    user = await _resolve_user(request, store)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return user
-
-
-async def get_current_user_optional(
-    request: Request,
-    store: RuntimeStore = Depends(get_store),
-) -> AuthenticatedUser | None:
-    """Variant for endpoints that tolerate both authenticated and anonymous
-    callers (e.g. /auth/status which reports who you are or that you aren't logged in)."""
-    return await _resolve_user(request, store)
