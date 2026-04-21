@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 
-from provider.base import ToolUseEvent
 from storage._rows import (
     row_to_part,
     row_to_session,
