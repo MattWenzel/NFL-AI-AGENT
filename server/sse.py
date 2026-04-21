@@ -4,12 +4,29 @@ Translates a domain `RuntimeEvent` into the wire dict that the browser
 receives over SSE. Kept separate from the router so the mapping between
 runtime events and client-visible event types is easy to audit.
 
-Returning `None` means "suppress this event" — used for internal
-signals (assistant_started, turn_started, etc.) that the client doesn't
-need.
+Returning `None` means "suppress this event". The suppression list is
+explicit (see `_INTERNAL_EVENTS`) so that a new runtime event type can't
+be silently dropped on the floor after a refactor — unmapped events
+fall through to a `logger.warning` and still return `None` so the
+stream stays intact.
 """
 
+import logging
+
 from agent.events import RuntimeEvent
+
+logger = logging.getLogger(__name__)
+
+
+# Runtime events that drive server-side loop state (turn lifecycle,
+# followup iteration) and deliberately don't surface to the browser.
+# Listed explicitly so any NEW event type added to the runtime without a
+# matching SSE mapping trips the warning below instead of vanishing.
+_INTERNAL_EVENTS = frozenset({
+    "turn_started",
+    "turn_finished",
+    "assistant_requires_followup",
+})
 
 
 def event_to_sse_payload(event: RuntimeEvent) -> dict | None:
@@ -34,4 +51,7 @@ def event_to_sse_payload(event: RuntimeEvent) -> dict | None:
         return {"type": "tool_failed", "tool_run_id": event.tool_run_id, "name": event.name, "message": event.error or f"{event.name} failed"}
     if event.type == "runtime_error":
         return {"type": "error", "message": event.error or "Runtime error"}
+    if event.type in _INTERNAL_EVENTS:
+        return None
+    logger.warning("Unmapped runtime event type %r dropped from SSE stream", event.type)
     return None
