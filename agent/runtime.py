@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from typing import AsyncIterator
+from typing import AsyncGenerator
 
 from storage import (
     RuntimeStore,
@@ -36,6 +36,7 @@ from provider.base import ContextOverflowError
 
 from agent.system_prompt import get_base_prompt
 from agent.events import RuntimeEvent, RuntimeLoopError
+from agent.message_builder import build_model_messages
 from agent.persistence import RuntimePersistence
 from agent.runtime_policy import RuntimeLoopState
 from agent.runtime_repositories import RuntimeRepositoryBundle
@@ -127,7 +128,7 @@ class ChatRuntime:
         tools: list[ToolDefinition],
         provider_name: str,
         tool_choice: ToolChoice | None = None,
-    ) -> AsyncIterator[RuntimeEvent]:
+    ) -> AsyncGenerator[RuntimeEvent, None]:
         """Drive one user turn through the model, tool loop, and persistence.
 
         Always consumes `client.stream_message` — the streamed events are
@@ -171,8 +172,9 @@ class ChatRuntime:
                     client.last_usage = Usage()
                     client.last_stop_reason = None
                     try:
+                        transcript = await self.conversations.get_transcript(session.id)
                         async for event in client.stream_message(
-                            messages=await self.persistence.build_model_messages(session.id),
+                            messages=build_model_messages(transcript),
                             tools=tools,
                             system=get_base_prompt(),
                             tool_choice=iter_tool_choice,

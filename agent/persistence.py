@@ -1,10 +1,15 @@
-"""Explicit runtime persistence boundary over RuntimeStore."""
+"""Explicit runtime persistence boundary over RuntimeStore.
+
+Owns the write-side runtime semantics — creating turns, recording tool
+calls, marking tool-run lifecycle transitions. Pure transforms like
+assembling the wire message sequence live in `agent.message_builder`,
+not here.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from agent.message_builder import build_model_messages
 from agent.runtime_repositories import RuntimeConversationRepository
 from storage import SessionRecord, ToolRunRecord, TurnRecord
 
@@ -84,10 +89,6 @@ class RuntimePersistence:
 
     async def get_tool_run(self, tool_run_id: str) -> ToolRunRecord | None:
         return await self.conversations.get_tool_run(tool_run_id)
-
-    async def build_model_messages(self, session_id: str):
-        transcript = await self.conversations.get_transcript(session_id)
-        return build_model_messages(transcript)
 
     async def begin_tool_execution(self, session_id: str, turn_id: str, tool_run_id: str, tool_name: str) -> None:
         await self.conversations.update_tool_run(tool_run_id, status="running")

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from typing import AsyncGenerator
 
 from auth.primitives import AuthenticatedUser
+from agent.events import RuntimeEvent
 from agent.runtime import ChatRuntime
 from provider import (
     BaseLLMClient,
@@ -131,6 +133,31 @@ class ChatApplicationService:
             raise
         return PreparedChat(client=client, provider_name=provider_name, session=session)
 
+    def stream_events(
+        self,
+        prepared: PreparedChat,
+        body: ChatRequest,
+        *,
+        tools,
+    ) -> AsyncGenerator[RuntimeEvent, None]:
+        """Return the runtime event source for a prepared chat turn.
+
+        Wraps `ChatRuntime.run_session` so route code can drive the stream
+        without knowing the service holds a runtime. The return type is an
+        async generator — callers can both iterate and `aclose()` to force
+        the runtime's `finally` block (releases the session lock, reconciles
+        pending tool runs) rather than waiting on GC. Callers also own
+        closing `prepared.client`.
+        """
+        return self.runtime.run_session(
+            prepared.session,
+            body.message,
+            prepared.client,
+            tools=tools,
+            provider_name=prepared.provider_name,
+            tool_choice=body.tool_choice,
+        )
+
     async def run_message(
         self,
         body: ChatRequest,
@@ -145,14 +172,7 @@ class ChatApplicationService:
         runtime_error = None
 
         try:
-            async for event in self.runtime.run_session(
-                prepared.session,
-                body.message,
-                prepared.client,
-                tools=tools,
-                provider_name=prepared.provider_name,
-                tool_choice=body.tool_choice,
-            ):
+            async for event in self.stream_events(prepared, body, tools=tools):
                 if event.type == "text_delta" and event.text:
                     response_text += event.text
                 elif event.type == "tool_pending":
