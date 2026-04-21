@@ -14,19 +14,16 @@ Tool schemas + the pre-built TOOLS list live in tools.definitions.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from typing import AsyncIterator
 
 from storage import (
     RuntimeStore,
     SessionRecord,
-    TurnRecord,
 )
 from provider import (
     BaseLLMClient,
     RetryingEvent,
-    StopReason,
     TextEvent,
     ToolChoice,
     ToolDefinition,
@@ -37,52 +34,37 @@ from provider import (
 from provider.base import ContextOverflowError
 
 from agent.system_prompt import get_base_prompt
-from agent.compaction import compact_if_needed
 from agent.events import RuntimeEvent, RuntimeLoopError
-from agent.loop_detector import raise_if_doom_loop
 from agent.persistence import RuntimePersistence
+from agent.runtime_policy import RuntimeLoopState
+from agent.runtime_repositories import RuntimeRepositoryBundle
+from agent.tool_execution import ToolExecutionService
+from agent.turn_manager import AssistantTurnContext, AssistantTurnManager, TITLE_PREVIEW_CHARS
 from tools import execute_tool_structured
 
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_ITERATIONS = 10
-TITLE_PREVIEW_CHARS = 80
-TEXT_PERSIST_FLUSH_CHARS = 256
-
-
-class AssistantTextBuffer:
-    """Coalesce streamed assistant text before persisting it."""
-
-    def __init__(self, persistence: RuntimePersistence, session_id: str, turn_id: str):
-        self._persistence = persistence
-        self._session_id = session_id
-        self._turn_id = turn_id
-        self._chunks: list[str] = []
-        self._char_count = 0
-
-    async def append(self, text: str) -> None:
-        if not text:
-            return
-        self._chunks.append(text)
-        self._char_count += len(text)
-        if self._char_count >= TEXT_PERSIST_FLUSH_CHARS:
-            await self.flush()
-
-    async def flush(self) -> None:
-        if not self._chunks:
-            return
-        text = "".join(self._chunks)
-        self._chunks.clear()
-        self._char_count = 0
-        await self._persistence.append_assistant_text(self._session_id, self._turn_id, text)
 
 
 class ChatRuntime:
     """Shared runtime used by API and CLI."""
 
-    def __init__(self, store: RuntimeStore):
-        self.store = store
-        self.persistence = RuntimePersistence(store)
+    def __init__(self, repositories: RuntimeRepositoryBundle):
+        self.repositories = repositories
+        self.conversations = repositories.conversations
+        self.exports = repositories.exports
+        self.persistence = RuntimePersistence(self.conversations)
+        self.turns = AssistantTurnManager(self.persistence)
+        self.tools = ToolExecutionService(
+            self.exports,
+            self.persistence,
+            execute_tool=lambda *args, **kwargs: execute_tool_structured(*args, **kwargs),
+        )
+
+    @classmethod
+    def from_store(cls, store: RuntimeStore) -> "ChatRuntime":
+        return cls(RuntimeRepositoryBundle.from_store(store))
 
     def prepare_session(
         self,
@@ -102,7 +84,7 @@ class ChatRuntime:
         it since it bypasses auth.
         """
         info = get_provider(provider_name)
-        return self.store.get_or_create_session(
+        return self.conversations.get_or_create_session(
             conversation_id,
             provider=provider_name,
             model=client.model,
@@ -119,7 +101,7 @@ class ChatRuntime:
         user_id: int | None = None,
     ) -> SessionRecord:
         info = get_provider(provider_name)
-        return await self.store.get_or_create_session_async(
+        return await self.conversations.get_or_create_session_async(
             conversation_id,
             provider=provider_name,
             model=client.model,
@@ -145,16 +127,9 @@ class ChatRuntime:
         with Vercel's `streamText` and keeps a single code path through the
         runtime.
         """
-        lock = self.store.lock(session.id)
+        lock = self.conversations.lock(session.id)
         async with lock:
-            assistant_turn: TurnRecord | None = None
-            assistant_text_buffer: AssistantTextBuffer | None = None
-            tool_runs = []
-            # Doom-loop scope: this list accumulates every tool_run emitted
-            # across the inner iterations of THIS user message only. Legit
-            # follow-ups that re-run the same query ("try again") must not
-            # inherit the prior turn's history, so we rebuild from empty.
-            user_turn_tool_runs: list = []
+            active_turn: AssistantTurnContext | None = None
             user_turn = await self.persistence.create_user_turn(session.id, user_text)
             await self.persistence.update_session_metadata(
                 session,
@@ -164,55 +139,28 @@ class ChatRuntime:
                 user_text=user_text,
             )
             yield RuntimeEvent(type="turn_started", session_id=session.id, turn_id=user_turn.id)
-            iterations = 0
-            # The user's explicit `tool_choice` seeds the first iteration;
-            # later iterations fall back to the provider's default so the
-            # follow-up turn after a tool result isn't forced into another
-            # tool call when it should be presenting results as text.
-            force_tool_choice_next_iter: ToolChoice | None = tool_choice
-            # Set when the provider rejects the prompt as too long; the next
-            # iteration forces a compaction with a tightened retention budget
-            # before re-trying the same model call. One-shot per user turn —
-            # if the forced compaction doesn't free enough, we surface the
-            # overflow as a normal error.
-            force_overflow_compaction = False
-            overflow_retry_used = False
+            loop_state = RuntimeLoopState(initial_tool_choice=tool_choice)
             try:
                 for _ in range(MAX_TOOL_ITERATIONS):
-                    iterations += 1
-                    if force_overflow_compaction:
-                        compaction_info = await compact_if_needed(
-                            self.store, session, client,
-                            provider_name=provider_name,
-                            force=True,
-                            retention_budget_override=session.context_window // 4,
-                        )
-                        force_overflow_compaction = False
-                    else:
-                        compaction_info = await compact_if_needed(
-                            self.store, session, client, provider_name=provider_name
-                        )
-                    if compaction_info is not None:
-                        yield RuntimeEvent(
-                            type="compaction_started",
-                            session_id=session.id,
-                            turn_id=compaction_info["summary_turn_id"],
-                            iterations=iterations,
-                            meta=compaction_info,
-                        )
-                    assistant_turn = await self.persistence.open_assistant_turn(session.id)
-                    assistant_text_buffer = AssistantTextBuffer(
-                        self.persistence, session.id, assistant_turn.id
+                    iterations, iter_tool_choice = loop_state.begin_iteration()
+                    compaction_info = await loop_state.compact_if_needed(
+                        self.conversations,
+                        session,
+                        client,
+                        provider_name=provider_name,
                     )
-                    tool_runs = []
-                    yield RuntimeEvent(type="assistant_started", session_id=session.id, turn_id=assistant_turn.id, iterations=iterations)
+                    if compaction_info is not None:
+                        yield loop_state.compaction_event(session.id, compaction_info)
+                    active_turn, start_event = await self.turns.open_turn(
+                        session.id,
+                        iterations=iterations,
+                    )
+                    yield start_event
 
                     # Reset per-turn usage so a prior turn's tokens don't leak into
                     # this one's accounting if the provider never emits a usage event.
                     client.last_usage = Usage()
                     client.last_stop_reason = None
-                    iter_tool_choice = force_tool_choice_next_iter
-                    force_tool_choice_next_iter = None
                     try:
                         async for event in client.stream_message(
                             messages=await self.persistence.build_model_messages(session.id),
@@ -227,71 +175,51 @@ class ChatRuntime:
                                 yield RuntimeEvent(
                                     type="retrying",
                                     session_id=session.id,
-                                    turn_id=assistant_turn.id,
+                                    turn_id=active_turn.assistant_turn.id,
                                     error=event.error_message,
                                     attempt=event.attempt,
                                     delay_seconds=event.delay_seconds,
                                     iterations=iterations,
                                 )
                             elif isinstance(event, TextEvent):
-                                await assistant_text_buffer.append(event.text)
-                                yield RuntimeEvent(
-                                    type="text_delta",
-                                    session_id=session.id,
-                                    turn_id=assistant_turn.id,
-                                    text=event.text,
+                                yield await self.turns.record_text_delta(
+                                    active_turn,
+                                    session.id,
+                                    event.text,
                                     iterations=iterations,
                                 )
                             elif isinstance(event, ToolUseEvent):
-                                await assistant_text_buffer.flush()
-                                tool_run = await self.persistence.record_tool_call(
+                                yield await self.turns.record_tool_call(
+                                    active_turn,
                                     session.id,
-                                    assistant_turn.id,
-                                    tool_name=event.name,
-                                    input_data=event.input,
-                                    raw_input_text=event.raw_input_json,
-                                    tool_call_json=json.dumps(
-                                        event.input, separators=(",", ":"), sort_keys=True
-                                    ),
-                                )
-                                tool_runs.append(tool_run)
-                                user_turn_tool_runs.append(tool_run)
-                                yield RuntimeEvent(
-                                    type="tool_pending",
-                                    session_id=session.id,
-                                    turn_id=assistant_turn.id,
-                                    tool_run_id=tool_run.id,
-                                    name=event.name,
-                                    input=event.input,
+                                    event,
                                     iterations=iterations,
                                 )
                         final_usage = client.last_usage
-                        await assistant_text_buffer.flush()
-                        await self.persistence.update_turn(
-                            assistant_turn.id,
-                            status="completed",
-                            input_tokens=final_usage.input_tokens,
-                            output_tokens=final_usage.output_tokens,
+                        finished_event = await self.turns.complete_turn(
+                            active_turn,
+                            session.id,
+                            usage=final_usage,
+                            stop_reason=client.last_stop_reason,
+                            iterations=iterations,
                         )
-                        if not tool_runs:
-                            if client.last_stop_reason == StopReason.MAX_TOKENS:
-                                raise RuntimeLoopError(
-                                    "Response truncated — the model hit its output token limit "
-                                    "mid-turn without emitting a tool call. Ask a more focused "
-                                    "question, or reply 'continue' to resume."
-                                )
-                            yield RuntimeEvent(type="turn_finished", session_id=session.id, turn_id=assistant_turn.id, iterations=iterations)
-                            assistant_turn = None
+                        if finished_event is not None:
+                            yield finished_event
+                            active_turn = None
                             return
 
-                        raise_if_doom_loop(user_turn_tool_runs)
+                        loop_state.record_tool_runs(active_turn.tool_runs)
 
-                        results = await asyncio.gather(*(self._execute_tool(session.id, assistant_turn, tool_run) for tool_run in tool_runs))
-                        for tool_run, result in zip(tool_runs, results):
+                        results = await self.tools.execute_many(
+                            session.id,
+                            active_turn.assistant_turn,
+                            active_turn.tool_runs,
+                        )
+                        for tool_run, result in zip(active_turn.tool_runs, results):
                             yield RuntimeEvent(
                                 type="tool_completed" if result["status"] == "completed" else "tool_failed",
                                 session_id=session.id,
-                                turn_id=assistant_turn.id,
+                                turn_id=active_turn.assistant_turn.id,
                                 tool_run_id=tool_run.id,
                                 name=tool_run.tool_name,
                                 result=result["content"],
@@ -299,9 +227,13 @@ class ChatRuntime:
                                 iterations=iterations,
                             )
 
-                        yield RuntimeEvent(type="assistant_requires_followup", session_id=session.id, turn_id=assistant_turn.id, iterations=iterations)
-                        assistant_turn = None
-                        tool_runs = []
+                        yield RuntimeEvent(
+                            type="assistant_requires_followup",
+                            session_id=session.id,
+                            turn_id=active_turn.assistant_turn.id,
+                            iterations=iterations,
+                        )
+                        active_turn = None
                     except ContextOverflowError as exc:
                         # Provider says the prompt is too long even though our
                         # estimator was happy. Mark this attempt as errored, set
@@ -309,16 +241,13 @@ class ChatRuntime:
                         # one more iteration to compact and retry. One-shot per
                         # user turn — a second overflow falls through to the
                         # generic LLMError branch below.
-                        await self.persistence.update_turn(
-                            assistant_turn.id,
-                            status="error",
+                        await self.turns.mark_turn_error(
+                            active_turn,
                             error=str(exc),
-                            input_tokens=client.last_usage.input_tokens,
-                            output_tokens=client.last_usage.output_tokens,
+                            usage=client.last_usage,
                         )
-                        assistant_turn = None
-                        tool_runs = []
-                        if overflow_retry_used:
+                        active_turn = None
+                        if not loop_state.handle_overflow():
                             yield RuntimeEvent(
                                 type="runtime_error",
                                 session_id=session.id,
@@ -326,19 +255,15 @@ class ChatRuntime:
                                 iterations=iterations,
                             )
                             return
-                        overflow_retry_used = True
-                        force_overflow_compaction = True
                         continue
                     except RuntimeLoopError as exc:
-                        failed_turn_id = assistant_turn.id
-                        await self.persistence.update_turn(
-                            assistant_turn.id,
-                            status="error",
+                        failed_turn_id = active_turn.assistant_turn.id
+                        await self.turns.mark_turn_error(
+                            active_turn,
                             error=str(exc),
-                            input_tokens=client.last_usage.input_tokens,
-                            output_tokens=client.last_usage.output_tokens,
+                            usage=client.last_usage,
                         )
-                        assistant_turn = None
+                        active_turn = None
                         yield RuntimeEvent(
                             type="runtime_error",
                             session_id=session.id,
@@ -348,83 +273,14 @@ class ChatRuntime:
                         )
                         return
                     except Exception as exc:
-                        await self.persistence.update_turn(
-                            assistant_turn.id,
-                            status="error",
+                        await self.turns.mark_turn_error(
+                            active_turn,
                             error=str(exc),
-                            input_tokens=client.last_usage.input_tokens,
-                            output_tokens=client.last_usage.output_tokens,
+                            usage=client.last_usage,
                         )
+                        active_turn = None
                         raise
-                yield RuntimeEvent(
-                    type="runtime_error",
-                    session_id=session.id,
-                    error=f"Reached maximum tool iterations ({MAX_TOOL_ITERATIONS})",
-                    iterations=MAX_TOOL_ITERATIONS,
-                )
+                yield loop_state.max_iterations_event(session.id, MAX_TOOL_ITERATIONS)
             finally:
-                if assistant_text_buffer is not None:
-                    await assistant_text_buffer.flush()
-                if assistant_turn is not None:
-                    current = await self.persistence.get_turn(assistant_turn.id)
-                    if current is not None and current.status == "running":
-                        await self.persistence.interrupt_turn(
-                            assistant_turn.id,
-                            "Assistant turn interrupted before completion",
-                        )
-                for tool_run in tool_runs:
-                    current = await self.persistence.get_tool_run(tool_run.id)
-                    if current is not None and current.status in {"pending", "running"}:
-                        await self.persistence.interrupt_tool_run(
-                            tool_run.id,
-                            "Tool execution interrupted before completion",
-                        )
-
-    async def _execute_tool(self, session_id: str, assistant_turn: TurnRecord, tool_run) -> dict:
-        await self.persistence.begin_tool_execution(
-            session_id,
-            assistant_turn.id,
-            tool_run.id,
-            tool_run.tool_name,
-        )
-        try:
-            tool_input = json.loads(tool_run.input_json) if tool_run.input_json else {}
-        except json.JSONDecodeError as exc:
-            err = f"Malformed tool input JSON: {exc}"
-            logger.warning("tool_run %s has malformed input_json: %s", tool_run.id, exc)
-            await self.persistence.complete_tool_execution(
-                session_id,
-                assistant_turn.id,
-                tool_run.id,
-                tool_run.tool_name,
-                result_content=err,
-                status="error",
-                error_text=err,
-                hint=None,
-                duration_ms=None,
-            )
-            return {"status": "error", "content": err, "error": err}
-        # Side-channel hooks tools may use (e.g. create_csv_export registers
-        # the file in the export library). Closure captures session + tool_run
-        # so the handler doesn't need to know about persistence.
-        ctx = {
-            "register_export": lambda meta: self.store.register_export(
-                **meta,
-                source_session_id=session_id,
-                source_tool_run_id=tool_run.id,
-            ),
-        }
-        result = await execute_tool_structured(tool_run.tool_name, tool_input, ctx=ctx)
-        status = "completed" if result["status"] == "completed" else "error"
-        await self.persistence.complete_tool_execution(
-            session_id,
-            assistant_turn.id,
-            tool_run.id,
-            tool_run.tool_name,
-            result_content=result["content"],
-            status=status,
-            error_text=result.get("error"),
-            hint=result.get("hint"),
-            duration_ms=result.get("duration_ms"),
-        )
-        return result
+                if active_turn is not None:
+                    await self.turns.cleanup_interrupted(active_turn)

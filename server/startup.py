@@ -12,6 +12,7 @@ from config import DB_PATH, PBP_DB_PATH, RUNTIME_DB_PATH, format_file_size
 from provider import list_providers
 from server.process_state import AppProcessState
 from server.repositories import RepositoryBundle
+from agent.runtime_repositories import RuntimeRepositoryBundle
 from storage import RuntimeStore
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,8 @@ logger = logging.getLogger(__name__)
 def configure_runtime_state(app: FastAPI) -> None:
     app.state.runtime_store = RuntimeStore(RUNTIME_DB_PATH)
     app.state.repositories = RepositoryBundle.from_store(app.state.runtime_store)
-    app.state.chat_runtime = ChatRuntime(app.state.runtime_store)
+    app.state.runtime_repositories = RuntimeRepositoryBundle.from_store(app.state.runtime_store)
+    app.state.chat_runtime = ChatRuntime(app.state.runtime_repositories)
     app.state.process_state = AppProcessState()
 
 
