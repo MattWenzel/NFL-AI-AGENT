@@ -1,7 +1,7 @@
 """GET /chat/providers — enumerate configured LLM providers.
 
 `available` is true when either (a) the server has the provider's env-var
-key set (CLI/admin fallback) or (b) the authenticated user has stored
+key set (server-configured fallback) or (b) the authenticated user has stored
 their own key via /settings/api-keys.
 """
 

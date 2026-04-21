@@ -40,7 +40,7 @@ _fernet: Fernet | None = None
 
 
 def _get_fernet() -> Fernet:
-    """Lazy-load the Fernet instance so env-var-less contexts (CLI, tests) don't break on import."""
+    """Lazy-load the Fernet instance so env-var-less contexts (tests, tooling) don't break on import."""
     global _fernet
     if _fernet is not None:
         return _fernet

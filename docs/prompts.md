@@ -112,4 +112,4 @@ Without this instruction, models tend to fetch one guide, wait, fetch another, w
 
 - **Edit a guide**: change the `.md` file, restart the server. No code changes.
 - **Add a new guide**: (1) drop `newtopic.md` into `agent/guides/`, (2) add `"newtopic"` to `_TOPICS` in `get_guide.py`, (3) add `"newtopic"` to the `enum` in `definitions.py`, (4) add a row to the Guide Index in `system.py`. Restart.
-- **Tune the base prompt**: edit `_SYSTEM_PROMPT_TEMPLATE`. No restart needed for the CLI (it re-imports per invocation), but the running API server caches imports — restart.
+- **Tune the base prompt**: edit `_SYSTEM_PROMPT_TEMPLATE`. Restart the running API server so the change is picked up.

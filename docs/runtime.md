@@ -1,6 +1,6 @@
 # Runtime
 
-The runtime is the heart of the agent: one class, `ChatRuntime`, drives every user turn through the model → tool loop → persistence pipeline. It is transport-agnostic — the same runtime powers `/chat/stream`, `/chat/message`, and `python3 cli.py`.
+The runtime is the heart of the agent: one class, `ChatRuntime`, drives every user turn through the model → tool loop → persistence pipeline. It is transport-agnostic — the same runtime powers `/chat/stream`, `/chat/message`, and any future non-HTTP entry point.
 
 This doc covers the iteration loop, the event stream, the session lock, the doom-loop guard, and where errors surface. Compaction and tools have their own docs ([compaction.md](compaction.md), [tools.md](tools.md)).
 
@@ -15,7 +15,7 @@ This doc covers the iteration loop, the event stream, the session lock, the doom
 
 Defined at `agent/runtime.py:51`. Two public entry points:
 
-- `prepare_session(client, provider_name, conversation_id, user_id) -> SessionRecord` (`runtime.py:57`) — resolve or create the session. Called from the transport layer before `run_session` so the API and CLI key sessions the same way (by provider, model, and context window).
+- `prepare_session(client, provider_name, conversation_id, user_id) -> SessionRecord` (`runtime.py:57`) — resolve or create the session. Called from the transport layer before `run_session` so all callers key sessions the same way (by provider, model, and context window).
 - `run_session(session, user_text, client, *, tools, provider_name) -> AsyncIterator[RuntimeEvent]` (`runtime.py:83`) — drive one user turn. Always consumes `client.stream_message`; non-streaming callers buffer events at the transport boundary.
 
 The runtime holds a single dependency: a `RuntimeStore` ([persistence.md](persistence.md)). It does not reach into SQLite directly — every persistence concern is a store call.
@@ -145,6 +145,6 @@ Not here. `ChatRuntime.run_session` is always an async generator. Callers choose
 
 - `/chat/stream` — iterate and forward each event as SSE.
 - `/chat/message` — iterate, collect into a response object, return once `turn_finished` or `runtime_error` arrives.
-- CLI — iterate and print to stdout.
+- any future non-HTTP caller — iterate and handle events directly.
 
 This means streaming semantics (heartbeats, backpressure, disconnects) live in the transport layer, not in the runtime. See [transport.md](transport.md) for the producer/consumer queue that wraps this generator into SSE.

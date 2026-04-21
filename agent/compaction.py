@@ -129,7 +129,7 @@ def _estimate_turn_tokens(turn: TurnRecord) -> int:
     is its output text, captured in `output_tokens`.
 
     We still fall back to tiktoken-on-text when the provider didn't
-    report usage (mid-stream errors, CLI stub clients), so the estimator
+    report usage (mid-stream errors, test stub clients), so the estimator
     stays meaningful in those cases.
     """
     if turn.role == "assistant" and turn.output_tokens:
@@ -289,8 +289,8 @@ async def _compact_if_needed_inner(
     When `client` is provided, attempts an LLM-generated summary using
     the provider's `summarizer_model` override (falls back to the
     heuristic on any error). Without a client, the heuristic summary is
-    used directly — keeps the CLI and offline tests working without
-    hitting the network.
+    used directly — keeps offline tests and other non-network contexts
+    working without hitting the network.
     """
     if not session.context_window:
         return None

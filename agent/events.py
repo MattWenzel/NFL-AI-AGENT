@@ -3,7 +3,7 @@
 A single `RuntimeEvent` dataclass carries every signal the loop emits:
 assistant text deltas, tool calls, tool completions/failures, compaction
 notices, runtime errors, and turn lifecycle events. The `type` field
-discriminates between them so downstream transports (SSE, CLI printer)
+discriminates between them so downstream transports
 can branch on one field.
 """
 

@@ -45,8 +45,8 @@ def _create_csv_export(input_data: dict, ctx: dict | None = None) -> str:
     file_size = csv_path.stat().st_size
     size_display = format_file_size(file_size)
 
-    # Register in the CSV library if a store hook was supplied (API/CLI both
-    # pass one; a missing hook means the tool is being invoked outside the
+    # Register in the CSV library if a store hook was supplied by the
+    # runtime; a missing hook means the tool is being invoked outside the
     # runtime, in which case we still return the download info but skip
     # library registration). If the registry write fails we delete the file
     # so the user doesn't end up with an orphaned CSV they can't manage.

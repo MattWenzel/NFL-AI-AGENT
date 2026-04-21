@@ -1,7 +1,7 @@
 """Persisted runtime loop for the NFL stats agent.
 
 Drives one user turn through the model → tool loop → persistence
-pipeline. Shared by the FastAPI router and the CLI.
+pipeline. Shared by the FastAPI transport and any future non-HTTP entry point.
 
 Concerns that used to live here are now in sibling modules:
 - RuntimeEvent, RuntimeLoopError       → events.py
@@ -58,7 +58,7 @@ class PendingToolCallLog:
 
 
 class ChatRuntime:
-    """Shared runtime used by API and CLI."""
+    """Shared runtime used by the API and any future non-HTTP caller."""
 
     def __init__(self, repositories: RuntimeRepositoryBundle):
         self.repositories = repositories
@@ -86,12 +86,11 @@ class ChatRuntime:
     ) -> SessionRecord:
         """Resolve (or create) the session backing a chat turn.
 
-        Called by both the API router and the CLI before `run_session` so
-        the two entry points agree on how sessions are keyed to providers
-        and how the context window is derived from the provider's
-        effective window. `user_id` is threaded through from the HTTP layer
-        so new sessions are owned by the authenticated user; the CLI omits
-        it since it bypasses auth.
+        Called by the transport layer before `run_session` so all callers
+        agree on how sessions are keyed to providers and how the context
+        window is derived from the provider's effective window. `user_id`
+        is threaded through from the HTTP layer so new sessions are owned
+        by the authenticated user.
         """
         info = get_provider(provider_name)
         return self.conversations.get_or_create_session(

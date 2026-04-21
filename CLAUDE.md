@@ -47,7 +47,7 @@ Natural language interface to the database. Supports Anthropic Claude and OpenAI
 | Anthropic | `ANTHROPIC_API_KEY` | `claude-sonnet-4-6` | 200K |
 | OpenAI | `OPENAI_API_KEY` | `gpt-5` | 128K |
 
-Select via `CHAT_PROVIDER` env var (default: `anthropic`), CLI `--provider` flag, or UI dropdown.
+Select via `CHAT_PROVIDER` env var (default: `anthropic`) or the UI dropdown.
 
 The chat runtime is transcript-backed: sessions, turns, assistant parts, tool runs, and compaction summaries are persisted in `data/runtime.sqlite3`. Long conversations are compacted by summarizing older turns and excluding older raw tool output from active prompt context while keeping the full transcript in storage.
 
@@ -132,7 +132,6 @@ server/                     # HTTP transport (FastAPI)
     ├── csv_library.py      #   CSV export library CRUD (/chat/exports)
     └── csv_downloads.py    #   GET /exports/{filename} download endpoint
 
-cli.py                      # CLI entry point (python3 cli.py)
 run.py                      # HTTP server entry point (python3 run.py)
 config.py                   # DB paths, runtime db path, load_dotenv()
 chat.html                   # Browser UI (SSE streaming, provider selection)
@@ -144,8 +143,6 @@ data/                       # Runtime data (runtime.sqlite3 — ignored)
 
 ```bash
 python3 run.py                    # API server (port 8001)
-python3 cli.py                    # AI chat agent (default: Anthropic)
-python3 cli.py -p openai          # Use OpenAI
 open chat.html                    # Chat UI
 python3 -m pytest tests/          # Run tests
 

@@ -18,7 +18,7 @@ The 2.3GB nflverse and pbp SQLite files are a separate concern — they're read-
 - Hand out per-session async locks (`lock(session_id)` → `asyncio.Lock`). Shared with `ChatRuntime` for turn serialization.
 - Reconcile interrupted runs on startup.
 
-Constructed once during FastAPI lifespan (see [transport.md](transport.md#lifespan)) and stashed on `app.state.runtime_store`. The CLI constructs its own instance — same class, different process.
+Constructed once during FastAPI lifespan (see [transport.md](transport.md#lifespan)) and used as the backing store for the app's repository/runtime wiring.
 
 ## Connection pattern
 
@@ -216,7 +216,7 @@ Every user-owned query takes a `user_id` keyword argument:
 | `delete_session` | Only if owned | Delete any — internal |
 | `get_export` / `list_exports` / `get_export_by_filename` | filtered | Any |
 
-Passing `user_id=None` bypasses the filter. This is a **trust boundary** — the HTTP layer must always pass the authenticated user's id on user-facing endpoints. The CLI passes nothing (no auth). See [transport.md](transport.md#idor-protection) for where this is enforced.
+Passing `user_id=None` bypasses the filter. This is a **trust boundary** — the HTTP layer must always pass the authenticated user's id on user-facing endpoints. See [transport.md](transport.md#idor-protection) for where this is enforced.
 
 ## `SessionTranscript`
 

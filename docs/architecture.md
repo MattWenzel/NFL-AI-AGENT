@@ -29,9 +29,7 @@ storage/   SQLite persistence       (RuntimeStore facade composed of mixins)
 server/    HTTP transport           (FastAPI app factory, routes, schemas)
 ```
 
-Dependencies flow from `server/` and `cli.py` (entry points) → `agent/` (domain) → `tools/`, `provider/`, `storage/`, `auth/` (subsystems). Subsystems don't import from `server/` or each other except where noted (e.g. `auth/codex_credentials.py` uses `storage` to persist refreshed bundles).
-
-`cli.py` is a second entry point that drives `agent/` directly, bypassing `server/`. Same runtime, same tools; no HTTP.
+Dependencies flow from `server/` (entry point) → `agent/` (domain) → `tools/`, `provider/`, `storage/`, `auth/` (subsystems). Subsystems don't import from `server/` or each other except where noted (e.g. `auth/codex_credentials.py` uses `storage` to persist refreshed bundles).
 
 | Dir | Contents | Doc |
 |-----|----------|-----|
@@ -144,7 +142,7 @@ New topic? Drop a markdown file, add the topic name to `_TOPICS` (`get_guide.py`
 
 ### Transport
 
-New entry point (CLI, MCP server, etc.)? Build a `RuntimeStore` and a `ChatRuntime`, construct a `BaseLLMClient`, call `run_session` and consume its events. The runtime is transport-agnostic — no HTTP assumptions leak into it. See `cli.py` for the minimal example.
+New entry point (MCP server, background worker, etc.)? Build a `RuntimeStore`, create a runtime via `ChatRuntime.from_store(store)`, construct a `BaseLLMClient`, call `run_session`, and consume its events. The runtime is transport-agnostic — no HTTP assumptions leak into it.
 
 ## Concurrency model
 

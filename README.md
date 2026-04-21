@@ -24,7 +24,6 @@ Top-level folders are organized by subsystem:
 - **`provider/`** — LLM adapters (Anthropic, OpenAI, OpenAI Codex)
 - **`storage/`** — SQLite persistence (`RuntimeStore` facade composed of per-domain mixins)
 - **`server/`** — FastAPI HTTP layer (app factory, routes, dependencies, schemas)
-- **`cli.py`** — alternate entry point: `python3 cli.py` (drives the same `agent/` runtime)
 - **`chat.html`** — browser UI (SSE streaming, provider picker)
 
 For a deeper walkthrough see [CLAUDE.md](CLAUDE.md).
@@ -77,13 +76,6 @@ python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().
 
 ```bash
 python3 run.py               # API server + UI on http://localhost:8001
-```
-
-Or use the CLI:
-
-```bash
-python3 cli.py
-python3 cli.py --provider openai
 ```
 
 ## Providers

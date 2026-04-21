@@ -14,7 +14,7 @@ This doc covers the trigger, the retention policy, how the summary is generated 
 
 `compaction.py:160`. Called once per loop iteration from `ChatRuntime.run_session` (see [runtime.md](runtime.md#the-iteration-loop)). Sequence:
 
-1. Session must have a `context_window` set — otherwise compaction is off (e.g., CLI with no provider configured).
+1. Session must have a `context_window` set — otherwise compaction is off.
 2. `estimate_active_tokens(store, session_id)` counts what the next call will cost.
 3. If the total is at or under the window, return `None` and proceed.
 4. Otherwise build a retention policy, summarize the oldest turns, and write the summary turn.
@@ -35,7 +35,7 @@ The returned dict is surfaced as a `compaction_started` `RuntimeEvent` with fiel
 
 The subtle bit is **assistant turns use `output_tokens`, not `input_tokens`** (`compaction.py:86`). `input_tokens` is what the provider billed — which includes every earlier message — so summing input_tokens across turns double-counts massively. An 11-turn session would read as ~150K "transcript tokens" when the real transcript is ~15K. Using output_tokens counts only what each turn *added*; tool calls and tool results are summed separately in the same function.
 
-tiktoken is used as the fallback when the provider didn't report usage (mid-stream errors, CLI stub clients). Not byte-perfect across providers but accurate enough for a threshold decision. Not meant for billing — only for deciding *when* to compact.
+tiktoken is used as the fallback when the provider didn't report usage (mid-stream errors, test stub clients). Not byte-perfect across providers but accurate enough for a threshold decision. Not meant for billing — only for deciding *when* to compact.
 
 ## Retention policy
 
@@ -106,7 +106,7 @@ The heuristic is strictly worse than the LLM summary for continued-investigation
 
 Fallback triggers:
 
-- No client supplied (CLI, offline tests): `_build_summary` returns heuristic directly.
+- No client supplied (offline tests, non-network contexts): `_build_summary` returns heuristic directly.
 - Any exception in `summarize_for_compaction` (API error, timeout, unknown provider, etc.): the caller at `compaction.py:240` logs a warning and falls back.
 
 ## Persisting a summary

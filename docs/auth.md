@@ -140,7 +140,7 @@ Users can bring their own Anthropic / OpenAI keys via the Settings modal. Storag
 - `decrypt(ciphertext) -> str` — raises `ValueError` on auth failure (wrong key, tampered ciphertext).
 - `require_configured()` — lifespan calls this at startup; fails fast with a generate-me hint if the key is missing or malformed.
 
-The Fernet instance is lazily loaded (`encryption.py:42`) so CLI contexts without the env var don't blow up on import.
+The Fernet instance is lazily loaded (`encryption.py:42`) so import-only contexts without the env var don't blow up on import.
 
 ### Storage
 
