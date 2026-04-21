@@ -8,7 +8,7 @@ import uuid
 from dataclasses import dataclass
 
 from auth import codex_oauth, encryption
-from server.process_state import AppProcessState
+from server.process_state import PendingCodexOAuthFlowStore
 from server.repositories import UserRepository
 from server.schemas.codex_oauth import CodexOAuthStartResponse, CodexOAuthStatusResponse
 
@@ -26,13 +26,17 @@ class CodexOAuthUnknownFlowError(CodexOAuthServiceError):
     pass
 
 
+class CodexOAuthUpstreamError(CodexOAuthServiceError):
+    pass
+
+
 @dataclass
 class CodexOAuthApplicationService:
     users: UserRepository
-    process_state: AppProcessState
+    pending_flows: PendingCodexOAuthFlowStore
 
     async def run_device_flow(self, pending_id: str) -> None:
-        rec = self.process_state.codex_pending_flows.get(pending_id)
+        rec = self.pending_flows.get(pending_id)
         if rec is None:
             return
         try:
@@ -52,17 +56,20 @@ class CodexOAuthApplicationService:
                 rec.status = "expired"
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except (codex_oauth.CodexOAuthError, ValueError):
             logger.exception("Codex OAuth failed for user=%d", rec.user_id)
             async with rec.lock:
                 rec.status = "error"
                 rec.error = "Sign-in failed — try again."
 
     async def start(self, *, user_id: int) -> CodexOAuthStartResponse:
-        self.process_state.codex_pending_flows.evict_terminal_older_than(MAX_RECORD_AGE_SECONDS)
-        start = await codex_oauth.request_device_code()
+        self.pending_flows.evict_terminal_older_than(MAX_RECORD_AGE_SECONDS)
+        try:
+            start = await codex_oauth.request_device_code()
+        except codex_oauth.CodexOAuthError as exc:
+            raise CodexOAuthUpstreamError(str(exc)) from exc
         pending_id = uuid.uuid4().hex
-        rec = self.process_state.codex_pending_flows.create(
+        rec = self.pending_flows.create(
             pending_id,
             user_id=user_id,
             device_auth_id=start.device_auth_id,
@@ -77,24 +84,24 @@ class CodexOAuthApplicationService:
         )
 
     async def status(self, *, pending_id: str, user_id: int) -> CodexOAuthStatusResponse:
-        self.process_state.codex_pending_flows.evict_terminal_older_than(MAX_RECORD_AGE_SECONDS)
-        rec = self.process_state.codex_pending_flows.get(pending_id)
+        self.pending_flows.evict_terminal_older_than(MAX_RECORD_AGE_SECONDS)
+        rec = self.pending_flows.get(pending_id)
         if rec is None or rec.user_id != user_id:
             raise CodexOAuthUnknownFlowError("Unknown pending flow")
         async with rec.lock:
             snapshot = CodexOAuthStatusResponse(status=rec.status, email=rec.email, error=rec.error)
         if snapshot.status != "pending":
-            self.process_state.codex_pending_flows.pop(pending_id)
+            self.pending_flows.pop(pending_id)
         return snapshot
 
     async def cancel(self, *, pending_id: str, user_id: int) -> None:
-        rec = self.process_state.codex_pending_flows.get(pending_id)
+        rec = self.pending_flows.get(pending_id)
         if rec is None or rec.user_id != user_id:
             raise CodexOAuthUnknownFlowError("Unknown pending flow")
-        self.process_state.codex_pending_flows.pop(pending_id)
+        self.pending_flows.pop(pending_id)
         if rec.task and not rec.task.done():
             rec.task.cancel()
             try:
                 await rec.task
-            except (asyncio.CancelledError, Exception):
+            except asyncio.CancelledError:
                 pass

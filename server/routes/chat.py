@@ -26,7 +26,12 @@ from server.dependencies import (
     get_runtime,
     get_user_repository,
 )
-from server.process_state import AppProcessState, get_process_state
+from server.process_state import (
+    ChatStreamGate,
+    PerUserLockRegistry,
+    get_chat_stream_gate,
+    get_codex_refresh_locks,
+)
 from server.repositories import ConversationRepository, UserRepository
 from server.schemas.chat import ChatRequest, ChatResponse
 from server.services.chat import (
@@ -51,8 +56,8 @@ SSE_HEARTBEAT_SECONDS = 15
 MAX_CONCURRENT_STREAMS_PER_USER = 3
 
 
-async def _acquire_stream_slot(process_state: AppProcessState, user_id: int) -> None:
-    await process_state.chat_stream_limiter.acquire(
+async def _acquire_stream_slot(stream_gate: ChatStreamGate, user_id: int) -> None:
+    await stream_gate.acquire(
         user_id,
         detail=(
             f"Too many concurrent chat streams (max "
@@ -62,8 +67,8 @@ async def _acquire_stream_slot(process_state: AppProcessState, user_id: int) -> 
     )
 
 
-async def _release_stream_slot(process_state: AppProcessState, user_id: int) -> None:
-    await process_state.chat_stream_limiter.release(user_id)
+async def _release_stream_slot(stream_gate: ChatStreamGate, user_id: int) -> None:
+    await stream_gate.release(user_id)
 
 
 @router.post("/message", response_model=ChatResponse)
@@ -72,7 +77,7 @@ async def chat_message(
     runtime: ChatRuntime = Depends(get_runtime),
     users: UserRepository = Depends(get_user_repository),
     conversations: ConversationRepository = Depends(get_conversation_repository),
-    process_state: AppProcessState = Depends(get_process_state),
+    refresh_locks: PerUserLockRegistry = Depends(get_codex_refresh_locks),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     """Send a message and get a complete response."""
@@ -80,7 +85,7 @@ async def chat_message(
         runtime,
         users,
         conversations,
-        refresh_locks=process_state.codex_refresh_locks,
+        refresh_locks=refresh_locks,
     )
 
     try:
@@ -114,19 +119,20 @@ async def chat_stream(
     runtime: ChatRuntime = Depends(get_runtime),
     users: UserRepository = Depends(get_user_repository),
     conversations: ConversationRepository = Depends(get_conversation_repository),
-    process_state: AppProcessState = Depends(get_process_state),
+    stream_gate: ChatStreamGate = Depends(get_chat_stream_gate),
+    refresh_locks: PerUserLockRegistry = Depends(get_codex_refresh_locks),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     """Send a message and stream the response via SSE."""
     # Reserve a slot before we touch any provider state. If the cap is
     # hit the request fails with 429 *before* a session is prepared, so
     # we don't churn an LLM client for a rejected request.
-    await _acquire_stream_slot(process_state, user.id)
+    await _acquire_stream_slot(stream_gate, user.id)
     service = ChatApplicationService(
         runtime,
         users,
         conversations,
-        refresh_locks=process_state.codex_refresh_locks,
+        refresh_locks=refresh_locks,
     )
     try:
         prepared = await service.prepare_chat(body, user)
@@ -134,13 +140,13 @@ async def chat_stream(
         provider_name = prepared.provider_name
         session = prepared.session
     except ChatNotFoundError as exc:
-        await _release_stream_slot(process_state, user.id)
+        await _release_stream_slot(stream_gate, user.id)
         raise HTTPException(status_code=404, detail=str(exc))
     except ChatConfigurationError as exc:
-        await _release_stream_slot(process_state, user.id)
+        await _release_stream_slot(stream_gate, user.id)
         raise HTTPException(status_code=503, detail=str(exc))
     except BaseException:
-        await _release_stream_slot(process_state, user.id)
+        await _release_stream_slot(stream_gate, user.id)
         raise
 
     async def event_generator():
@@ -218,7 +224,7 @@ async def chat_stream(
             except Exception:
                 logger.exception("Failed to close runtime source  session=%s", session.id)
             await close_client(client)
-            await _release_stream_slot(process_state, user.id)
+            await _release_stream_slot(stream_gate, user.id)
 
     return StreamingResponse(
         event_generator(),

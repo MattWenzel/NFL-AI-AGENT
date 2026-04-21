@@ -125,6 +125,10 @@ class ChatStreamGate(Protocol):
     async def release(self, key: str | int) -> None: ...
 
 
+class RequestRateLimiter(Protocol):
+    def check(self, request: Request) -> None: ...
+
+
 @dataclass
 class AppProcessState:
     """Process-local coordination state composed at app startup."""
@@ -162,3 +166,19 @@ def get_process_state(request: Request) -> AppProcessState:
             "process_state not attached to app.state — the FastAPI lifespan must set it before requests run."
         )
     return state
+
+
+def get_chat_stream_gate(request: Request) -> ChatStreamGate:
+    return get_process_state(request).chat_stream_limiter
+
+
+def get_codex_start_limiter(request: Request) -> RequestRateLimiter:
+    return get_process_state(request).codex_start_limiter
+
+
+def get_codex_pending_flows(request: Request) -> PendingCodexOAuthFlowStore:
+    return get_process_state(request).codex_pending_flows
+
+
+def get_codex_refresh_locks(request: Request) -> PerUserLockRegistry:
+    return get_process_state(request).codex_refresh_locks

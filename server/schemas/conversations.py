@@ -1,7 +1,7 @@
 """Conversation list / transcript / update shapes.
 
 The nested transcript models (TurnModel, TurnPartModel, ToolRunModel,
-SummaryModel) mirror the dataclasses in `storage/runtime_store.py` so
+SummaryModel) mirror the storage dataclasses so
 OpenAPI exposes concrete schemas (not `object`) for codegen and
 frontend autocomplete.
 """

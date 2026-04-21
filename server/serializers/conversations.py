@@ -2,20 +2,21 @@
 
 from __future__ import annotations
 
+from server.repositories import ConversationListEntry
 from server.schemas.conversations import ConversationInfo, ConversationTranscriptResponse
 from storage import SessionTranscript, safe_load_tool_input
 
 
-def conversation_info_from_row(item: dict) -> ConversationInfo:
+def conversation_info_from_row(item: ConversationListEntry) -> ConversationInfo:
     return ConversationInfo(
-        id=item["id"],
-        message_count=item["turn_count"],
-        title=item["title"],
-        provider=item.get("provider"),
-        model=item.get("model"),
-        updated_at=item.get("updated_at"),
-        pinned_at=item.get("pinned_at"),
-        source_csv_id=item.get("source_csv_id"),
+        id=item.id,
+        message_count=item.turn_count,
+        title=item.title,
+        provider=item.provider,
+        model=item.model,
+        updated_at=item.updated_at,
+        pinned_at=item.pinned_at,
+        source_csv_id=item.source_csv_id,
     )
 
 

@@ -8,6 +8,31 @@ from storage import RuntimeStore, SessionRecord, UserApiKeyRecord
 
 
 @dataclass(frozen=True)
+class ConversationListEntry:
+    id: str
+    turn_count: int
+    title: str
+    provider: str | None
+    model: str | None
+    updated_at: str | None
+    pinned_at: str | None
+    source_csv_id: str | None
+
+    @classmethod
+    def from_row(cls, row: dict) -> "ConversationListEntry":
+        return cls(
+            id=row["id"],
+            turn_count=row["turn_count"],
+            title=row["title"],
+            provider=row.get("provider"),
+            model=row.get("model"),
+            updated_at=row.get("updated_at"),
+            pinned_at=row.get("pinned_at"),
+            source_csv_id=row.get("source_csv_id"),
+        )
+
+
+@dataclass(frozen=True)
 class UserRepository:
     _store: RuntimeStore
 
@@ -131,7 +156,8 @@ class ConversationRepository:
         return await self._store.get_session_async(session_id, user_id=user_id)
 
     async def list_sessions(self, *, user_id: int | None = None):
-        return await self._store.list_sessions_async(user_id=user_id)
+        rows = await self._store.list_sessions_async(user_id=user_id)
+        return [ConversationListEntry.from_row(row) for row in rows]
 
     async def get_transcript(self, session_id: str):
         return await self._store.get_transcript_async(session_id)
@@ -173,9 +199,9 @@ class ConversationRepository:
         session_id: str,
         *,
         user_id: int | None = None,
-    ) -> dict | None:
+    ) -> ConversationListEntry | None:
         rows = await self.list_sessions(user_id=user_id)
-        return next((row for row in rows if row["id"] == session_id), None)
+        return next((row for row in rows if row.id == session_id), None)
 
 
 @dataclass(frozen=True)

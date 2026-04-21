@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from server.repositories import ConversationRepository
+from server.repositories import ConversationListEntry, ConversationRepository
 from server.schemas.conversations import ConversationInfo, ConversationTranscriptResponse
 from server.serializers.conversations import conversation_info_from_row, transcript_response
 
@@ -20,6 +20,19 @@ class ConversationNotFoundError(ConversationServiceError):
 @dataclass
 class ConversationApplicationService:
     conversations: ConversationRepository
+
+    @staticmethod
+    def _fallback_entry(session) -> ConversationListEntry:
+        return ConversationListEntry(
+            id=session.id,
+            turn_count=0,
+            title=session.title or "New conversation",
+            provider=session.provider,
+            model=session.model,
+            updated_at=session.updated_at,
+            pinned_at=session.pinned_at,
+            source_csv_id=session.source_csv_id,
+        )
 
     async def list_conversations(self, user_id: int) -> list[ConversationInfo]:
         rows = await self.conversations.list_sessions(user_id=user_id)
@@ -59,16 +72,7 @@ class ConversationApplicationService:
             user_id=user_id,
         )
         if entry is None:
-            entry = {
-                "id": session.id,
-                "turn_count": 0,
-                "title": session.title or "New conversation",
-                "provider": session.provider,
-                "model": session.model,
-                "updated_at": session.updated_at,
-                "pinned_at": session.pinned_at,
-                "source_csv_id": session.source_csv_id,
-            }
+            entry = self._fallback_entry(session)
         return conversation_info_from_row(entry)
 
     async def delete_conversation(self, conversation_id: str, user_id: int) -> None:

@@ -15,7 +15,7 @@ Raises `CodexCredentialError` if the refresh call itself fails. Returns
 None for the "never connected / unreadable" cases so callers can
 surface a distinct configure-a-key error.
 
-In-process only — the refresh lock dict is per-worker. Fine on the
+In-process only — the refresh lock registry is per-worker. Fine on the
 single-worker deploy (same constraint as the in-memory rate limiter);
 if this ever needs multiple workers, swap for a DB-level lock.
 """

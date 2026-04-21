@@ -19,9 +19,9 @@ logger = logging.getLogger(__name__)
 
 
 def configure_runtime_state(app: FastAPI) -> None:
-    app.state.runtime_store = RuntimeStore(RUNTIME_DB_PATH)
-    app.state.repositories = RepositoryBundle.from_store(app.state.runtime_store)
-    app.state.runtime_repositories = RuntimeRepositoryBundle.from_store(app.state.runtime_store)
+    store = RuntimeStore(RUNTIME_DB_PATH)
+    app.state.repositories = RepositoryBundle.from_store(store)
+    app.state.runtime_repositories = RuntimeRepositoryBundle.from_store(store)
     app.state.chat_runtime = ChatRuntime(app.state.runtime_repositories)
     app.state.process_state = AppProcessState()
 

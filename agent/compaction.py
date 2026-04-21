@@ -25,7 +25,7 @@ from storage import (
     TurnRecord,
     safe_load_tool_input,
 )
-from provider import BaseLLMClient, get_provider
+from provider import BaseLLMClient, LLMError, get_provider
 from agent.token_counting import count_text_tokens
 
 from agent.summarizer import summarize_for_compaction
@@ -394,7 +394,7 @@ async def _build_summary(
             tool_runs_by_turn=tool_runs_by_turn,
         )
         return summary_text, "llm"
-    except Exception as exc:
+    except (LLMError, RuntimeError, asyncio.TimeoutError) as exc:
         logger.warning(
             "LLM compaction summary failed (%s) — falling back to heuristic",
             exc,
