@@ -137,7 +137,7 @@ The `finally` block at `runtime.py:314` marks any still-running assistant turn o
 - The client disconnects mid-stream (FastAPI cancels the generator).
 - An unexpected exception propagates past the loop body.
 
-On next startup, `RuntimeStore.reconcile_interrupted_runs` (see [persistence.md](persistence.md)) catches anything the finally block missed — e.g., if the process is killed.
+On next startup, `RuntimeStore.reconcile_interrupted_runs` (`storage/schema.py:183`, see [persistence.md](persistence.md#startup-reconciliation)) catches anything the `finally` block missed — e.g., if the process is SIGKILL'd, OOM-killed, or loses power mid-turn. It sweeps any tool run in `pending`/`running` and any assistant turn in `running` to `interrupted`, then logs the count. Load-bearing for crash recovery: without it, killed-mid-turn rows would appear "running" forever in the UI.
 
 ## Where streaming vs buffering is decided
 
