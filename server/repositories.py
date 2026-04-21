@@ -64,5 +64,12 @@ class ConversationRepository:
         *,
         user_id: int | None = None,
     ) -> ConversationListEntry | None:
-        rows = await self.list_sessions(user_id=user_id)
-        return next((row for row in rows if row.id == session_id), None)
+        """Fetch the single `ConversationListEntry` for this session, or
+        None if it doesn't exist (or isn't owned by the user when scoped).
+
+        Uses `RuntimeStore.get_session_list_row_async` — one SELECT by id
+        with the same projection `list_sessions` applies — so None
+        cleanly means "session gone" rather than "filter miss."
+        """
+        row = await self._store.get_session_list_row_async(session_id, user_id=user_id)
+        return ConversationListEntry.from_row(row) if row else None

@@ -54,6 +54,9 @@ class RuntimeStore(UsersMixin, TranscriptsMixin, ExportsMixin):
     async def list_sessions_async(self, *args, **kwargs):
         return await asyncio.to_thread(self.list_sessions, *args, **kwargs)
 
+    async def get_session_list_row_async(self, *args, **kwargs):
+        return await asyncio.to_thread(self.get_session_list_row, *args, **kwargs)
+
     async def delete_session_async(self, *args, **kwargs):
         return await asyncio.to_thread(self.delete_session, *args, **kwargs)
 

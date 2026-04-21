@@ -101,19 +101,6 @@ class ConversationApplicationService:
     store: RuntimeStore
     conversations: ConversationRepository  # slim, for list mapping only
 
-    @staticmethod
-    def _fallback_entry(session) -> ConversationListEntry:
-        return ConversationListEntry(
-            id=session.id,
-            turn_count=0,
-            title=session.title or "New conversation",
-            provider=session.provider,
-            model=session.model,
-            updated_at=session.updated_at,
-            pinned_at=session.pinned_at,
-            source_csv_id=session.source_csv_id,
-        )
-
     async def list_conversations(self, user_id: int) -> list[ConversationInfo]:
         rows = await self.conversations.list_sessions(user_id=user_id)
         return [_conversation_info_from_row(item) for item in rows]
@@ -152,7 +139,10 @@ class ConversationApplicationService:
             user_id=user_id,
         )
         if entry is None:
-            entry = self._fallback_entry(session)
+            # Session existed when we read it at the top, so None here means
+            # a concurrent delete landed between our mutation and the re-read.
+            # Surface it honestly rather than returning stale synthesized data.
+            raise ConversationNotFoundError("Conversation not found")
         return _conversation_info_from_row(entry)
 
     async def delete_conversation(self, conversation_id: str, user_id: int) -> None:

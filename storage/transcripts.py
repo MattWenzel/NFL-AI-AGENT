@@ -170,53 +170,56 @@ class TranscriptsMixin:
                 row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
         return row_to_session(row) if row else None
 
+    # SELECT clause shared between list_sessions and get_session_list_row so
+    # both return rows shaped identically for ConversationListEntry.from_row.
+    _SESSION_LIST_SELECT = """
+        s.id,
+        s.updated_at,
+        s.pinned_at,
+        s.source_csv_id,
+        COALESCE(s.title, (
+            SELECT SUBSTR(text, 1, 60)
+            FROM turns t
+            WHERE t.session_id = s.id AND t.role = 'user'
+            ORDER BY t.created_at
+            LIMIT 1
+        ), 'New conversation') AS title,
+        s.provider,
+        s.model,
+        (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id) AS turn_count
+    """
+
     def list_sessions(self, *, user_id: int | None = None) -> list[dict]:
+        sql = (
+            f"SELECT {self._SESSION_LIST_SELECT} FROM sessions s "
+            + ("WHERE s.user_id = ? " if user_id is not None else "")
+            + "ORDER BY s.pinned_at DESC, s.updated_at DESC"
+        )
+        params: tuple = (user_id,) if user_id is not None else ()
         with self._connect() as conn:
-            if user_id is not None:
-                rows = conn.execute(
-                    """
-                    SELECT s.id,
-                           s.updated_at,
-                           s.pinned_at,
-                           s.source_csv_id,
-                           COALESCE(s.title, (
-                               SELECT SUBSTR(text, 1, 60)
-                               FROM turns t
-                               WHERE t.session_id = s.id AND t.role = 'user'
-                               ORDER BY t.created_at
-                               LIMIT 1
-                           ), 'New conversation') AS title,
-                           s.provider,
-                           s.model,
-                           (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id) AS turn_count
-                    FROM sessions s
-                    WHERE s.user_id = ?
-                    ORDER BY s.pinned_at DESC, s.updated_at DESC
-                    """,
-                    (user_id,),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    """
-                    SELECT s.id,
-                           s.updated_at,
-                           s.pinned_at,
-                           s.source_csv_id,
-                           COALESCE(s.title, (
-                               SELECT SUBSTR(text, 1, 60)
-                               FROM turns t
-                               WHERE t.session_id = s.id AND t.role = 'user'
-                               ORDER BY t.created_at
-                               LIMIT 1
-                           ), 'New conversation') AS title,
-                           s.provider,
-                           s.model,
-                           (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id) AS turn_count
-                    FROM sessions s
-                    ORDER BY s.pinned_at DESC, s.updated_at DESC
-                    """
-                ).fetchall()
+            rows = conn.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
+
+    def get_session_list_row(
+        self, session_id: str, *, user_id: int | None = None
+    ) -> dict | None:
+        """Single-row sibling of `list_sessions`: return the same projection
+        shape for one session, or None if it doesn't exist (or isn't owned
+        by the user when `user_id` is scoped).
+
+        Exists so callers that already know a session id don't have to list
+        every session and filter in Python — used by the conversations
+        service after a mutation to re-read the updated row.
+        """
+        if user_id is not None:
+            sql = f"SELECT {self._SESSION_LIST_SELECT} FROM sessions s WHERE s.id = ? AND s.user_id = ?"
+            params: tuple = (session_id, user_id)
+        else:
+            sql = f"SELECT {self._SESSION_LIST_SELECT} FROM sessions s WHERE s.id = ?"
+            params = (session_id,)
+        with self._connect() as conn:
+            row = conn.execute(sql, params).fetchone()
+        return dict(row) if row else None
 
     def delete_session(self, session_id: str, *, user_id: int | None = None) -> bool:
         with self._connect() as conn:
