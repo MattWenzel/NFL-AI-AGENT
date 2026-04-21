@@ -9,8 +9,7 @@ from dataclasses import dataclass
 from typing import Literal, Protocol
 
 from agent.persistence import RuntimePersistence
-from agent.runtime_repositories import RuntimeExportRegistry
-from storage import TurnRecord
+from storage import RuntimeStore, TurnRecord
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +33,7 @@ class ToolExecutionResult:
 
 @dataclass
 class ToolExecutionService:
-    exports: RuntimeExportRegistry
+    store: RuntimeStore
     persistence: RuntimePersistence
     execute_tool: ToolExecutor
 
@@ -79,7 +78,7 @@ class ToolExecutionService:
             return ToolExecutionResult(status="error", content=err, error=err)
 
         ctx = {
-            "register_export": lambda meta: self.exports.register_export(
+            "register_export": lambda meta: self.store.register_export(
                 **meta,
                 source_session_id=session_id,
                 source_tool_run_id=tool_run.id,

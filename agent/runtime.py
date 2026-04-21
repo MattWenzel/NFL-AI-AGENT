@@ -37,7 +37,6 @@ from agent.events import RuntimeEvent, RuntimeLoopError
 from agent.message_builder import build_model_messages
 from agent.persistence import RuntimePersistence
 from agent.runtime_policy import RuntimeLoopState
-from agent.runtime_repositories import RuntimeRepositoryBundle
 from agent.tool_execution import ToolExecutionService
 from agent.turn_manager import AssistantTurnContext, AssistantTurnManager, TITLE_PREVIEW_CHARS
 from tools import execute_tool_structured
@@ -49,21 +48,15 @@ MAX_TOOL_ITERATIONS = 10
 class ChatRuntime:
     """Shared runtime used by the API and any future non-HTTP caller."""
 
-    def __init__(self, repositories: RuntimeRepositoryBundle):
-        self.repositories = repositories
-        self.conversations = repositories.conversations
-        self.exports = repositories.exports
-        self.persistence = RuntimePersistence(self.conversations)
+    def __init__(self, store: RuntimeStore):
+        self.store = store
+        self.persistence = RuntimePersistence(store)
         self.turns = AssistantTurnManager(self.persistence)
         self.tools = ToolExecutionService(
-            self.exports,
+            store,
             self.persistence,
             execute_tool=lambda *args, **kwargs: execute_tool_structured(*args, **kwargs),
         )
-
-    @classmethod
-    def from_store(cls, store: RuntimeStore) -> "ChatRuntime":
-        return cls(RuntimeRepositoryBundle.from_store(store))
 
     async def prepare_session_async(
         self,
@@ -74,7 +67,7 @@ class ChatRuntime:
         user_id: int | None = None,
     ) -> SessionRecord:
         info = get_provider(provider_name)
-        return await self.conversations.get_or_create_session_async(
+        return await self.store.get_or_create_session_async(
             conversation_id,
             provider=provider_name,
             model=client.model,
@@ -100,7 +93,7 @@ class ChatRuntime:
         with Vercel's `streamText` and keeps a single code path through the
         runtime.
         """
-        lock = self.conversations.lock(session.id)
+        lock = self.store.lock(session.id)
         async with lock:
             active_turn: AssistantTurnContext | None = None
             user_turn = await self.persistence.create_user_turn(session.id, user_text)
@@ -117,7 +110,7 @@ class ChatRuntime:
                 for _ in range(MAX_TOOL_ITERATIONS):
                     iterations, iter_tool_choice = loop_state.begin_iteration()
                     compaction_info = await loop_state.compact_if_needed(
-                        self.conversations,
+                        self.store,
                         session,
                         client,
                         provider_name=provider_name,
@@ -135,7 +128,7 @@ class ChatRuntime:
                     client.last_usage = Usage()
                     client.last_stop_reason = None
                     try:
-                        transcript = await self.conversations.get_transcript(session.id)
+                        transcript = await self.store.get_transcript_async(session.id)
                         async for event in client.stream_message(
                             messages=build_model_messages(transcript),
                             tools=tools,

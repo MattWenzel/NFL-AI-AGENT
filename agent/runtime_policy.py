@@ -7,9 +7,8 @@ from dataclasses import dataclass, field
 from agent.compaction import compact_if_needed
 from agent.events import RuntimeEvent
 from agent.loop_detector import raise_if_doom_loop
-from agent.runtime_repositories import RuntimeConversationRepository
 from provider import BaseLLMClient, ToolChoice
-from storage import SessionRecord
+from storage import RuntimeStore, SessionRecord
 
 
 @dataclass
@@ -32,7 +31,7 @@ class RuntimeLoopState:
 
     async def compact_if_needed(
         self,
-        conversations: RuntimeConversationRepository,
+        store: RuntimeStore,
         session: SessionRecord,
         client: BaseLLMClient,
         *,
@@ -40,7 +39,7 @@ class RuntimeLoopState:
     ) -> dict | None:
         if self.force_overflow_compaction:
             info = await compact_if_needed(
-                conversations,
+                store,
                 session,
                 client,
                 provider_name=provider_name,
@@ -50,7 +49,7 @@ class RuntimeLoopState:
             self.force_overflow_compaction = False
             return info
         return await compact_if_needed(
-            conversations,
+            store,
             session,
             client,
             provider_name=provider_name,
