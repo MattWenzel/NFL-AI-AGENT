@@ -34,7 +34,12 @@ async def lifespan(app: FastAPI):
     run_housekeeping(app)
     log_environment_state()
 
-    yield
+    try:
+        yield
+    finally:
+        process_state = getattr(app.state, "process_state", None)
+        if process_state is not None:
+            await process_state.aclose()
 
 
 def create_app() -> FastAPI:

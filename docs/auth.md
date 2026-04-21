@@ -31,7 +31,7 @@ All protected endpoints across the app depend on `get_current_user` (`auth/primi
 
 `auth.py:141`. Steps:
 
-1. Rate-limit check (`_register_limiter`: 5 attempts per 15 min per IP).
+1. Rate-limit check (app process-state register limiter: 5 attempts per 15 min per IP).
 2. If `REGISTRATION_INVITE_CODE` env var is set, require a matching `invite_code` in the body. `secrets.compare_digest` avoids timing leaks on the code comparison.
 3. Validate email shape (basic regex at `auth.py:47`) and normalize to lowercase.
 4. `_create_user_from_verified_identity` — uniqueness check (409 on conflict), first-user → admin logic, insert row.
@@ -44,7 +44,7 @@ Pydantic (`RegisterRequest` in `server/schemas/`) enforces password minimum leng
 
 `auth.py:169`. Steps:
 
-1. Rate-limit check (`_login_limiter`: 10 attempts per 15 min per IP).
+1. Rate-limit check (app process-state login limiter: 10 attempts per 15 min per IP).
 2. Lookup by lowercased email.
 3. **Constant-time check even on unknown users.** If the user exists, verify against their hash; if not, verify against a dummy bcrypt hash (`auth.py:182`). Bcrypt's `checkpw` dominates the request latency either way, so an attacker can't time-probe whether an email is registered.
 4. On mismatch or missing user → 401 with generic "Invalid email or password". Don't distinguish the two cases.
@@ -118,9 +118,9 @@ Three limiters on the auth router:
 
 | Limiter | Max | Window | Protects |
 |---------|-----|--------|----------|
-| `_register_limiter` | 5 | 15 min | Registration spam / invite-code brute force |
-| `_login_limiter` | 10 | 15 min | Credential stuffing |
-| `_account_limiter` | 20 | 15 min | Password change / account delete (defense in depth; caller already holds a valid token) |
+| `process_state.register_limiter` | 5 | 15 min | Registration spam / invite-code brute force |
+| `process_state.login_limiter` | 10 | 15 min | Credential stuffing |
+| `process_state.account_limiter` | 20 | 15 min | Password change / account delete (defense in depth; caller already holds a valid token) |
 
 IP is derived from `request.client.host` (`rate_limit.py:21`). When deployed behind a reverse proxy, uvicorn's `proxy_headers=True` + `forwarded_allow_ips` populates `request.client.host` from `X-Forwarded-For` (see [transport.md](transport.md#running-the-server)). Without that, all traffic looks like it comes from the proxy IP and gets rate-limited as one.
 

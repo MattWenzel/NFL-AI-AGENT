@@ -8,33 +8,18 @@ their own key via /settings/api-keys.
 from fastapi import APIRouter, Depends
 
 from auth.primitives import AuthenticatedUser, get_current_user
-from server.dependencies import get_store
+from server.dependencies import get_user_repository
+from server.repositories import UserRepository
 from server.schemas.providers import ProviderResponse
-from storage import RuntimeStore
-from provider import list_providers, provider_is_available
+from server.services.settings import SettingsApplicationService
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
 @router.get("/providers", response_model=list[ProviderResponse])
 async def get_providers(
-    store: RuntimeStore = Depends(get_store),
+    users: UserRepository = Depends(get_user_repository),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     """List available LLM providers and their configuration for the current user."""
-    return [
-        ProviderResponse(
-            name=info.name,
-            display_name=info.display_name,
-            models=info.models,
-            default_model=info.default_model,
-            available=(
-                provider_is_available(info)
-                or store.user_has_api_key(user_id=user.id, provider=info.name)
-            ),
-            context_window=info.context_window,
-            supports_streaming=info.supports_streaming,
-            supports_tools=info.supports_tools,
-        )
-        for info in list_providers()
-    ]
+    return await SettingsApplicationService(users).list_provider_responses(user.id)

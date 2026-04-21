@@ -5,6 +5,10 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
+from typing import Protocol
+from fastapi import Request
+
+from server.rate_limit import ConcurrencyLimiter, RateLimiter
 
 
 class InMemoryPerUserLockRegistry:
@@ -78,3 +82,83 @@ class InMemoryPendingCodexOAuthFlows:
 
     def reset(self) -> None:
         self._flows.clear()
+
+    async def cancel_all(self) -> None:
+        for flow in list(self._flows.values()):
+            task = flow.task
+            if task and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
+        self._flows.clear()
+
+
+class PerUserLockRegistry(Protocol):
+    def for_user(self, user_id: int) -> asyncio.Lock: ...
+
+
+class PendingCodexOAuthFlowStore(Protocol):
+    def create(
+        self,
+        pending_id: str,
+        *,
+        user_id: int,
+        device_auth_id: str,
+        user_code: str,
+    ) -> PendingCodexOAuthFlow: ...
+    def get(self, pending_id: str) -> PendingCodexOAuthFlow | None: ...
+    def pop(self, pending_id: str) -> PendingCodexOAuthFlow | None: ...
+    def evict_terminal_older_than(self, max_age_seconds: float) -> None: ...
+    async def cancel_all(self) -> None: ...
+
+
+class AuthLimiterSet(Protocol):
+    register_limiter: RateLimiter
+    login_limiter: RateLimiter
+    account_limiter: RateLimiter
+
+
+class ChatStreamGate(Protocol):
+    async def acquire(self, key: str | int, *, detail: str) -> None: ...
+    async def release(self, key: str | int) -> None: ...
+
+
+@dataclass
+class AppProcessState:
+    """Process-local coordination state composed at app startup."""
+
+    register_limiter: RateLimiter = field(
+        default_factory=lambda: RateLimiter(max_attempts=5, window_seconds=15 * 60)
+    )
+    login_limiter: RateLimiter = field(
+        default_factory=lambda: RateLimiter(max_attempts=10, window_seconds=15 * 60)
+    )
+    account_limiter: RateLimiter = field(
+        default_factory=lambda: RateLimiter(max_attempts=20, window_seconds=15 * 60)
+    )
+    codex_start_limiter: RateLimiter = field(
+        default_factory=lambda: RateLimiter(max_attempts=5, window_seconds=60 * 60)
+    )
+    chat_stream_limiter: ChatStreamGate = field(
+        default_factory=lambda: ConcurrencyLimiter(max_active=3)
+    )
+    codex_pending_flows: PendingCodexOAuthFlowStore = field(
+        default_factory=InMemoryPendingCodexOAuthFlows
+    )
+    codex_refresh_locks: PerUserLockRegistry = field(
+        default_factory=InMemoryPerUserLockRegistry
+    )
+
+    async def aclose(self) -> None:
+        await self.codex_pending_flows.cancel_all()
+
+
+def get_process_state(request: Request) -> AppProcessState:
+    state = getattr(request.app.state, "process_state", None)
+    if state is None:
+        raise RuntimeError(
+            "process_state not attached to app.state — the FastAPI lifespan must set it before requests run."
+        )
+    return state

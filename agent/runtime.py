@@ -110,6 +110,23 @@ class ChatRuntime:
             user_id=user_id,
         )
 
+    async def prepare_session_async(
+        self,
+        client: BaseLLMClient,
+        provider_name: str,
+        conversation_id: str | None = None,
+        *,
+        user_id: int | None = None,
+    ) -> SessionRecord:
+        info = get_provider(provider_name)
+        return await self.store.get_or_create_session_async(
+            conversation_id,
+            provider=provider_name,
+            model=client.model,
+            context_window=info.effective_context_window,
+            user_id=user_id,
+        )
+
     async def run_session(
         self,
         session: SessionRecord,

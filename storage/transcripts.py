@@ -290,8 +290,8 @@ class TranscriptsMixin:
         now = utcnow()
         with self._connect() as conn:
             conn.execute(
-                "UPDATE turns SET text = ?, updated_at = ? WHERE id = ?",
-                (turn.text + text, now, turn_id),
+                "UPDATE turns SET text = COALESCE(text, '') || ?, updated_at = ? WHERE id = ?",
+                (text, now, turn_id),
             )
             row = conn.execute(
                 "SELECT COALESCE(MAX(order_index), -1) + 1 FROM assistant_parts WHERE turn_id = ?",

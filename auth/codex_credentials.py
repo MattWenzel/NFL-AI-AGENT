@@ -37,9 +37,6 @@ class CodexCredentialError(Exception):
     """Raised when a stored Codex connection exists but refresh fails."""
 
 
-_refresh_locks = InMemoryPerUserLockRegistry()
-
-
 def _load_bundle(
     store: RuntimeStore, user_id: int, provider_name: str
 ) -> codex_oauth.TokenBundle | None:
@@ -61,8 +58,30 @@ def _load_bundle(
         return None
 
 
-async def resolve_access_token(
+async def _load_bundle_async(
     store: RuntimeStore, user_id: int, provider_name: str
+) -> codex_oauth.TokenBundle | None:
+    rec = await store.get_api_key_async(user_id=user_id, provider=provider_name)
+    if rec is None:
+        return None
+    try:
+        blob_json = encryption.decrypt(rec.encrypted_key)
+    except ValueError:
+        logger.error("Failed to decrypt stored Codex bundle for user=%d", user_id)
+        return None
+    try:
+        return codex_oauth.bundle_from_json(blob_json)
+    except (KeyError, ValueError, json.JSONDecodeError) as exc:
+        logger.error("Malformed Codex bundle for user=%d: %s", user_id, exc)
+        return None
+
+
+async def resolve_access_token(
+    store: RuntimeStore,
+    user_id: int,
+    provider_name: str,
+    *,
+    refresh_locks: InMemoryPerUserLockRegistry,
 ) -> str | None:
     """Return a valid bearer access token for the user's Codex connection.
 
@@ -70,7 +89,7 @@ async def resolve_access_token(
     Returns None when the user is not connected; raises HTTPException(503)
     when refresh fails.
     """
-    bundle = _load_bundle(store, user_id, provider_name)
+    bundle = await _load_bundle_async(store, user_id, provider_name)
     if bundle is None:
         return None
     if not codex_oauth.is_near_expiry(bundle):
@@ -78,8 +97,8 @@ async def resolve_access_token(
     # Refresh path: serialize across concurrent requests for this user and
     # re-read under the lock — a concurrent request may have already
     # refreshed and persisted while we were waiting.
-    async with _refresh_locks.for_user(user_id):
-        bundle = _load_bundle(store, user_id, provider_name)
+    async with refresh_locks.for_user(user_id):
+        bundle = await _load_bundle_async(store, user_id, provider_name)
         if bundle is None:
             return None
         if not codex_oauth.is_near_expiry(bundle):
@@ -89,7 +108,7 @@ async def resolve_access_token(
         except codex_oauth.CodexOAuthError as exc:
             logger.warning("Codex token refresh failed for user=%d: %s", user_id, exc)
             raise CodexCredentialError("ChatGPT session expired — reconnect in Settings.") from exc
-        store.upsert_api_key(
+        await store.upsert_api_key_async(
             user_id=user_id,
             provider=provider_name,
             encrypted_key=encryption.encrypt(codex_oauth.bundle_to_json(bundle)),

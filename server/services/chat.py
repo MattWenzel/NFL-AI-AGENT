@@ -15,12 +15,13 @@ from provider import (
     provider_is_available,
 )
 from server.schemas.chat import ChatRequest, ChatResponse
-from storage import RuntimeStore
+from server.repositories import ConversationRepository, UserRepository
 from auth import encryption
 from auth.codex_credentials import (
     CodexCredentialError,
     resolve_access_token as _resolve_codex_access_token,
 )
+from server.process_state import InMemoryPerUserLockRegistry
 
 
 class ChatServiceError(Exception):
@@ -43,7 +44,11 @@ class PreparedChat:
 
 
 async def resolve_user_credential(
-    store: RuntimeStore, user_id: int, provider_name: str
+    users: UserRepository,
+    user_id: int,
+    provider_name: str,
+    *,
+    refresh_locks: InMemoryPerUserLockRegistry,
 ) -> str | None:
     try:
         info = get_provider(provider_name)
@@ -51,10 +56,15 @@ async def resolve_user_credential(
         return None
     if info.credential_shape == "codex_oauth":
         try:
-            return await _resolve_codex_access_token(store, user_id, provider_name)
+            return await _resolve_codex_access_token(
+                users.store,
+                user_id,
+                provider_name,
+                refresh_locks=refresh_locks,
+            )
         except CodexCredentialError as exc:
             raise ChatConfigurationError(str(exc)) from exc
-    rec = store.get_api_key(user_id=user_id, provider=provider_name)
+    rec = await users.get_api_key(user_id=user_id, provider=provider_name)
     if rec is None:
         return None
     try:
@@ -101,27 +111,48 @@ async def close_client(client: BaseLLMClient) -> None:
 class ChatApplicationService:
     """Owns chat request preparation and non-streaming response aggregation."""
 
-    def __init__(self, runtime: ChatRuntime, store: RuntimeStore):
+    def __init__(
+        self,
+        runtime: ChatRuntime,
+        users: UserRepository,
+        conversations: ConversationRepository,
+        *,
+        refresh_locks: InMemoryPerUserLockRegistry,
+    ):
         self.runtime = runtime
-        self.store = store
+        self.users = users
+        self.conversations = conversations
+        self.refresh_locks = refresh_locks
 
     async def prepare_chat(
         self,
         body: ChatRequest,
         user: AuthenticatedUser,
     ) -> PreparedChat:
-        if body.conversation_id and self.store.get_session(body.conversation_id, user_id=user.id) is None:
+        if (
+            body.conversation_id
+            and await self.conversations.get_session(body.conversation_id, user_id=user.id) is None
+        ):
             raise ChatNotFoundError("Conversation not found")
 
         provider_name = body.provider or get_default_provider()
-        user_key = await resolve_user_credential(self.store, user.id, provider_name)
-        client = create_client_for_request(body.provider, body.model, api_key=user_key)
-        session = self.runtime.prepare_session(
-            client,
+        user_key = await resolve_user_credential(
+            self.users,
+            user.id,
             provider_name,
-            body.conversation_id,
-            user_id=user.id,
+            refresh_locks=self.refresh_locks,
         )
+        client = create_client_for_request(body.provider, body.model, api_key=user_key)
+        try:
+            session = await self.runtime.prepare_session_async(
+                client,
+                provider_name,
+                body.conversation_id,
+                user_id=user.id,
+            )
+        except Exception:
+            await close_client(client)
+            raise
         return PreparedChat(client=client, provider_name=provider_name, session=session)
 
     async def run_message(
