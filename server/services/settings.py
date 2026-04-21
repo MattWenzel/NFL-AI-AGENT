@@ -82,17 +82,14 @@ class SettingsApplicationService:
 
     async def list_provider_responses(self, user_id: int) -> list[ProviderResponse]:
         infos = list_providers()
-        provider_keys = {
-            info.name: await self.users.user_has_api_key(user_id=user_id, provider=info.name)
-            for info in infos
-        }
+        existing_keys = {rec.provider for rec in await self.users.list_api_keys(user_id)}
         return [
             ProviderResponse(
                 name=info.name,
                 display_name=info.display_name,
                 models=info.models,
                 default_model=info.default_model,
-                available=provider_is_available(info) or provider_keys[info.name],
+                available=provider_is_available(info) or info.name in existing_keys,
                 context_window=info.context_window,
                 supports_streaming=info.supports_streaming,
                 supports_tools=info.supports_tools,

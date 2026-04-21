@@ -54,8 +54,10 @@ class ConversationApplicationService:
                 pinned,
                 user_id=user_id,
             ) or session
-        rows = await self.conversations.list_sessions(user_id=user_id)
-        entry = next((s for s in rows if s["id"] == conversation_id), None)
+        entry = await self.conversations.get_session_list_entry(
+            conversation_id,
+            user_id=user_id,
+        )
         if entry is None:
             entry = {
                 "id": session.id,

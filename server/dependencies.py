@@ -3,18 +3,7 @@
 from fastapi import Request
 
 from agent.runtime import ChatRuntime
-from storage import RuntimeStore
 from server.repositories import ConversationRepository, ExportRepository, RepositoryBundle, UserRepository
-
-
-def get_store(request: Request) -> RuntimeStore:
-    store = getattr(request.app.state, "runtime_store", None)
-    if store is None:
-        raise RuntimeError(
-            "runtime_store not attached to app.state — the FastAPI lifespan must set it before requests run."
-        )
-    return store
-
 
 def get_runtime(request: Request) -> ChatRuntime:
     runtime = getattr(request.app.state, "chat_runtime", None)

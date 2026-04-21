@@ -36,20 +36,22 @@ def validate_encryption() -> None:
 
 
 def run_housekeeping(app: FastAPI) -> None:
-    purged = app.state.runtime_store.purge_expired_auth_sessions()
+    users = app.state.repositories.users
+
+    purged = users.purge_expired_auth_sessions_sync()
     if purged:
         logger.info("Purged %d expired auth session(s)", purged)
 
-    user_count = app.state.runtime_store.count_users()
+    user_count = users.count_users_sync()
     if user_count == 0:
         logger.info("No users registered yet — first visitor to the UI will be prompted to create an account.")
         return
 
     logger.info("%d user account(s) registered", user_count)
-    promoted = app.state.runtime_store.ensure_admin_exists()
+    promoted = users.ensure_admin_exists_sync()
     if promoted is not None:
         logger.info("Promoted user %d to admin (no admin existed yet)", promoted)
-    orphans = app.state.runtime_store.count_orphan_rows()
+    orphans = users.count_orphan_rows_sync()
     if any(orphans.values()):
         logger.warning(
             "Found orphan rows with NULL user_id — invisible to scoped queries: %s",

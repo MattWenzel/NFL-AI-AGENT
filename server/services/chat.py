@@ -15,13 +15,9 @@ from provider import (
     provider_is_available,
 )
 from server.schemas.chat import ChatRequest, ChatResponse
+from server.process_state import PerUserLockRegistry
 from server.repositories import ConversationRepository, UserRepository
-from auth import encryption
-from auth.codex_credentials import (
-    CodexCredentialError,
-    resolve_access_token as _resolve_codex_access_token,
-)
-from server.process_state import InMemoryPerUserLockRegistry
+from server.services.credentials import CredentialServiceError, ProviderCredentialService
 
 
 class ChatServiceError(Exception):
@@ -41,36 +37,6 @@ class PreparedChat:
     client: BaseLLMClient
     provider_name: str
     session: "SessionRecord"
-
-
-async def resolve_user_credential(
-    users: UserRepository,
-    user_id: int,
-    provider_name: str,
-    *,
-    refresh_locks: InMemoryPerUserLockRegistry,
-) -> str | None:
-    try:
-        info = get_provider(provider_name)
-    except KeyError:
-        return None
-    if info.credential_shape == "codex_oauth":
-        try:
-            return await _resolve_codex_access_token(
-                users.store,
-                user_id,
-                provider_name,
-                refresh_locks=refresh_locks,
-            )
-        except CodexCredentialError as exc:
-            raise ChatConfigurationError(str(exc)) from exc
-    rec = await users.get_api_key(user_id=user_id, provider=provider_name)
-    if rec is None:
-        return None
-    try:
-        return encryption.decrypt(rec.encrypted_key)
-    except ValueError:
-        return None
 
 
 def create_client_for_request(
@@ -117,12 +83,12 @@ class ChatApplicationService:
         users: UserRepository,
         conversations: ConversationRepository,
         *,
-        refresh_locks: InMemoryPerUserLockRegistry,
+        refresh_locks: PerUserLockRegistry,
     ):
         self.runtime = runtime
         self.users = users
         self.conversations = conversations
-        self.refresh_locks = refresh_locks
+        self.credentials = ProviderCredentialService(users, refresh_locks)
 
     async def prepare_chat(
         self,
@@ -136,12 +102,13 @@ class ChatApplicationService:
             raise ChatNotFoundError("Conversation not found")
 
         provider_name = body.provider or get_default_provider()
-        user_key = await resolve_user_credential(
-            self.users,
-            user.id,
-            provider_name,
-            refresh_locks=self.refresh_locks,
-        )
+        try:
+            user_key = await self.credentials.get_api_key(
+                user_id=user.id,
+                provider_name=provider_name,
+            )
+        except CredentialServiceError as exc:
+            raise ChatConfigurationError(str(exc)) from exc
         client = create_client_for_request(body.provider, body.model, api_key=user_key)
         try:
             session = await self.runtime.prepare_session_async(
