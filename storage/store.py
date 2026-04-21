@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+from functools import partial
 from pathlib import Path
 
 from storage.exports import ExportsMixin
@@ -44,3 +45,8 @@ class RuntimeStore(UsersMixin, TranscriptsMixin, ExportsMixin):
         exposed as a method for tests that simulate restarts."""
         with self._connect() as conn:
             return reconcile_interrupted_runs(conn)
+
+    async def call_async(self, method_name: str, /, *args, **kwargs):
+        """Run a synchronous store method off the event loop."""
+        method = getattr(self, method_name)
+        return await asyncio.to_thread(partial(method, *args, **kwargs))

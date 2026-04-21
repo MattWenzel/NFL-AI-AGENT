@@ -1,6 +1,6 @@
 # Runtime
 
-The runtime is the heart of the agent: one class, `ChatRuntime`, drives every user turn through the model → tool loop → persistence pipeline. It is transport-agnostic — the same runtime powers `/chat/stream`, `/chat/message`, and `python -m cli.chat_cli`.
+The runtime is the heart of the agent: one class, `ChatRuntime`, drives every user turn through the model → tool loop → persistence pipeline. It is transport-agnostic — the same runtime powers `/chat/stream`, `/chat/message`, and `python3 cli.py`.
 
 This doc covers the iteration loop, the event stream, the session lock, the doom-loop guard, and where errors surface. Compaction and tools have their own docs ([compaction.md](compaction.md), [tools.md](tools.md)).
 
@@ -36,7 +36,7 @@ run_session(user_text)
       ├─ create assistant turn (status=running)                          # runtime.py:153
       ├─ yield assistant_started
       ├─ async for event in client.stream_message(...):                  # runtime.py:164
-      │    ├─ TextEvent      → append to turn, add text part, yield text_delta
+      │    ├─ TextEvent      → buffer/flush text to persistence, yield text_delta
       │    └─ ToolUseEvent   → create tool_run, add tool_call part, yield tool_pending
       ├─ mark assistant turn completed (+usage)
       ├─ if no tool_runs:
@@ -53,6 +53,7 @@ Two things about this shape are worth calling out:
 
 1. **Tools run concurrently within a pass.** `asyncio.gather` at `runtime.py:238` fires all tool calls from one `stream_message` pass in parallel. Handlers are wrapped in `asyncio.to_thread` so blocking SQLite I/O doesn't stall the event loop (see [tools.md](tools.md)).
 2. **No tool calls = turn done.** The only exit from the loop is the model emitting a pure-text response (`runtime.py:232`). This is why guides, schema fetches, and SQL calls all ultimately return to the model for synthesis — the model must produce at least one text turn to finish.
+3. **Store writes are off-loop.** The runtime uses an async adapter around `RuntimeStore` for hot-path persistence, and coalesces assistant text before writing it to SQLite. Streaming still emits every `text_delta`; the batching only reduces DB churn.
 
 ## Session lock
 

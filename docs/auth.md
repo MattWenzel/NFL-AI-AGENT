@@ -104,7 +104,7 @@ Stored as the primary key of `auth_sessions` alongside `user_id`, `expires_at`, 
 2. `store.get_auth_session(token)` — 401 if unknown.
 3. Check expiry via lex-compare of ISO 8601 strings. Both sides are UTC same-format, so the string compare is correct.
 4. Look up the user. If the user was deleted but the session wasn't (shouldn't happen given `ON DELETE CASCADE`, but belt-and-suspenders) → delete the orphan session and 401.
-5. `touch_auth_session(token)` — updates `last_used_at`. Cheap telemetry for "was this session active in the last week".
+5. `touch_auth_session(token)` — refreshes `last_used_at`, but only when the stored timestamp is old enough to justify a write. This keeps authenticated read traffic from writing on every request while preserving recent-activity telemetry.
 
 ### TTL
 

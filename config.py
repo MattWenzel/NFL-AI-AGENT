@@ -3,9 +3,14 @@
 import os
 from pathlib import Path
 
+_DOTENV_LOADED = False
 
-def load_dotenv():
+
+def load_dotenv() -> None:
     """Load .env file from project root if it exists."""
+    global _DOTENV_LOADED
+    if _DOTENV_LOADED:
+        return
     env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
     if os.path.exists(env_path):
         with open(env_path) as f:
@@ -14,6 +19,10 @@ def load_dotenv():
                 if line and not line.startswith("#") and "=" in line:
                     key, _, value = line.partition("=")
                     os.environ.setdefault(key.strip(), value.strip())
+    _DOTENV_LOADED = True
+
+
+load_dotenv()
 
 # All four paths are env-overridable so a deploy (e.g. Fly.io) can point them
 # at a mounted persistent volume (typically /data/...) while local dev keeps
@@ -30,6 +39,9 @@ EXPORTS_DIR = Path(os.environ.get("EXPORTS_DIR") or _PROJECT_ROOT / "exports")
 
 # Auth / settings
 AUTH_TOKEN_TTL_DAYS = int(os.environ.get("AUTH_TOKEN_TTL_DAYS", "30"))
+AUTH_SESSION_TOUCH_INTERVAL_SECONDS = int(
+    os.environ.get("AUTH_SESSION_TOUCH_INTERVAL_SECONDS", "300")
+)
 
 # Optional invite code gate on /auth/register. If unset, registration is open
 # (fine for local dev). Set to any random string to restrict signups to people

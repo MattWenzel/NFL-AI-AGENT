@@ -6,6 +6,8 @@ Mixed into `RuntimeStore` — expects `self._connect()` to yield a
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from storage._rows import row_to_api_key, row_to_auth_session, row_to_user
 from storage.records import (
     AuthSessionRecord,
@@ -235,12 +237,41 @@ class UsersMixin:
             ).fetchone()
         return row_to_auth_session(row) if row else None
 
-    def touch_auth_session(self, token: str) -> None:
+    def touch_auth_session(
+        self,
+        token: str,
+        *,
+        min_interval_seconds: int = 0,
+        last_used_at: str | None = None,
+    ) -> bool:
+        """Refresh last_used_at, optionally throttled by age.
+
+        Returns True when a write occurred. Callers that already loaded the
+        session can pass `last_used_at` to avoid a second SELECT.
+        """
+        if min_interval_seconds > 0:
+            effective_last_used_at = last_used_at
+            if effective_last_used_at is None:
+                session = self.get_auth_session(token)
+                if session is None:
+                    return False
+                effective_last_used_at = session.last_used_at
+            try:
+                last_used = datetime.fromisoformat(effective_last_used_at)
+            except (TypeError, ValueError):
+                last_used = None
+            if last_used is not None:
+                if last_used.tzinfo is None:
+                    last_used = last_used.replace(tzinfo=timezone.utc)
+                cutoff = datetime.now(timezone.utc) - timedelta(seconds=min_interval_seconds)
+                if last_used >= cutoff:
+                    return False
         with self._connect() as conn:
             conn.execute(
                 "UPDATE auth_sessions SET last_used_at = ? WHERE token = ?",
                 (utcnow(), token),
             )
+        return True
 
     def delete_auth_session(self, token: str) -> bool:
         with self._connect() as conn:

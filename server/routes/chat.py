@@ -14,7 +14,6 @@ come from `server.dependencies`. Event-to-wire translation lives in
 import asyncio
 import json
 import logging
-from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
@@ -29,6 +28,7 @@ from server.dependencies import (
     get_store,
     resolve_user_credential,
 )
+from server.rate_limit import ConcurrencyLimiter
 from server.schemas.chat import ChatRequest, ChatResponse
 from server.sse import event_to_sse_payload
 from storage import RuntimeStore
@@ -50,39 +50,22 @@ SSE_HEARTBEAT_SECONDS = 15
 # (tabs, hot reload) and tight enough that one user can't exhaust the
 # event-loop / SQLite write budget.
 MAX_CONCURRENT_STREAMS_PER_USER = 3
-_active_streams_per_user: dict[int, int] = defaultdict(int)
-_active_streams_lock = asyncio.Lock()
+_stream_limiter = ConcurrencyLimiter(max_active=MAX_CONCURRENT_STREAMS_PER_USER)
 
 
 async def _acquire_stream_slot(user_id: int) -> None:
-    """Reserve a stream slot for the user or raise 429.
-
-    Held under _active_streams_lock to make the read-then-increment race
-    impossible. The lock is short-held; the actual stream work happens
-    outside it.
-    """
-    async with _active_streams_lock:
-        if _active_streams_per_user[user_id] >= MAX_CONCURRENT_STREAMS_PER_USER:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=(
-                    f"Too many concurrent chat streams (max "
-                    f"{MAX_CONCURRENT_STREAMS_PER_USER} per user). "
-                    "Wait for an in-flight reply to finish."
-                ),
-            )
-        _active_streams_per_user[user_id] += 1
+    await _stream_limiter.acquire(
+        user_id,
+        detail=(
+            f"Too many concurrent chat streams (max "
+            f"{MAX_CONCURRENT_STREAMS_PER_USER} per user). "
+            "Wait for an in-flight reply to finish."
+        ),
+    )
 
 
 async def _release_stream_slot(user_id: int) -> None:
-    async with _active_streams_lock:
-        remaining = _active_streams_per_user.get(user_id, 0) - 1
-        if remaining > 0:
-            _active_streams_per_user[user_id] = remaining
-        else:
-            # Drop the entry so the dict doesn't grow without bound for
-            # users who only chat occasionally.
-            _active_streams_per_user.pop(user_id, None)
+    await _stream_limiter.release(user_id)
 
 
 async def _prepare_chat(

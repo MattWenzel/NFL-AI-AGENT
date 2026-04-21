@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 import bcrypt
 from fastapi import Depends, HTTPException, Request, status
 
+from config import AUTH_SESSION_TOUCH_INTERVAL_SECONDS
 from server.dependencies import get_store
 from storage import RuntimeStore, UserRecord
 
@@ -81,7 +82,11 @@ def _resolve_user(request: Request, store: RuntimeStore) -> AuthenticatedUser | 
         # Orphaned session — user deleted.
         store.delete_auth_session(token)
         return None
-    store.touch_auth_session(token)
+    store.touch_auth_session(
+        token,
+        min_interval_seconds=AUTH_SESSION_TOUCH_INTERVAL_SECONDS,
+        last_used_at=session.last_used_at,
+    )
     return AuthenticatedUser.from_record(user)
 
 

@@ -13,6 +13,7 @@ multi-worker setup, revisit.
 from __future__ import annotations
 
 import time
+import asyncio
 from collections import deque
 
 from fastapi import HTTPException, Request, status
@@ -60,3 +61,36 @@ class RateLimiter:
     def reset(self) -> None:
         """Clear all recorded hits — test helper."""
         self._hits.clear()
+
+
+class ConcurrencyLimiter:
+    """Process-local concurrency cap keyed by an arbitrary identifier.
+
+    The backing state is intentionally isolated in one class so the chat router
+    can swap to a shared-state implementation later without changing its flow.
+    """
+
+    def __init__(self, *, max_active: int):
+        self.max_active = max_active
+        self._active: dict[str | int, int] = {}
+        self._lock = asyncio.Lock()
+
+    async def acquire(self, key: str | int, *, detail: str) -> None:
+        async with self._lock:
+            if self._active.get(key, 0) >= self.max_active:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail=detail,
+                )
+            self._active[key] = self._active.get(key, 0) + 1
+
+    async def release(self, key: str | int) -> None:
+        async with self._lock:
+            remaining = self._active.get(key, 0) - 1
+            if remaining > 0:
+                self._active[key] = remaining
+            else:
+                self._active.pop(key, None)
+
+    def reset(self) -> None:
+        self._active.clear()

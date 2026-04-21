@@ -56,26 +56,34 @@ pip install -r requirements.txt
 
 ### 3. Configure an LLM provider
 
-Create a `.env` file in the project root with one or both keys:
+Create a `.env` file in the project root. `SETTINGS_ENCRYPTION_KEY` is
+required for startup; generate it once and keep it stable so stored API
+keys remain decryptable.
 
 ```
+SETTINGS_ENCRYPTION_KEY=...
 ANTHROPIC_API_KEY=sk-ant-...
 OPENAI_API_KEY=sk-...
 CHAT_PROVIDER=anthropic     # optional — picks the default provider
 ```
 
+Generate an encryption key with:
+
+```bash
+python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
 ### 4. Run
 
 ```bash
-python3 run.py               # API server on http://localhost:8001
-open chat.html               # browser UI (talks to the API via SSE)
+python3 run.py               # API server + UI on http://localhost:8001
 ```
 
 Or use the CLI:
 
 ```bash
-python3 -m cli.chat_cli
-python3 -m cli.chat_cli --provider openai
+python3 cli.py
+python3 cli.py --provider openai
 ```
 
 ## Providers
