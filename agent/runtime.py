@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass, field
 from typing import AsyncIterator
 
 from storage import (
@@ -38,13 +39,21 @@ from agent.events import RuntimeEvent, RuntimeLoopError
 from agent.persistence import RuntimePersistence
 from agent.runtime_policy import RuntimeLoopState
 from agent.runtime_repositories import RuntimeRepositoryBundle
-from agent.tool_execution import ToolExecutionService
+from agent.tool_execution import ToolExecutionResult, ToolExecutionService
 from agent.turn_manager import AssistantTurnContext, AssistantTurnManager, TITLE_PREVIEW_CHARS
 from tools import execute_tool_structured
 
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_ITERATIONS = 10
+
+
+@dataclass
+class PendingToolCallLog:
+    tool_run_id: str
+    tool: str
+    input: dict
+    result_preview: str = ""
 
 
 class ChatRuntime:
@@ -217,13 +226,13 @@ class ChatRuntime:
                         )
                         for tool_run, result in zip(active_turn.tool_runs, results):
                             yield RuntimeEvent(
-                                type="tool_completed" if result["status"] == "completed" else "tool_failed",
+                                type="tool_completed" if result.is_completed else "tool_failed",
                                 session_id=session.id,
                                 turn_id=active_turn.assistant_turn.id,
                                 tool_run_id=tool_run.id,
                                 name=tool_run.tool_name,
-                                result=result["content"],
-                                error=result.get("error"),
+                                result=result.content,
+                                error=result.error,
                                 iterations=iterations,
                             )
 

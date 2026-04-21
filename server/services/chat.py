@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, field
 
 from auth.primitives import AuthenticatedUser
 from agent.runtime import ChatRuntime
@@ -14,6 +14,7 @@ from provider import (
     get_provider,
     provider_is_available,
 )
+from storage import SessionRecord
 from server.schemas.chat import ChatRequest, ChatResponse
 from server.process_state import PerUserLockRegistry
 from server.repositories import ConversationRepository, UserRepository
@@ -36,7 +37,15 @@ class ChatConfigurationError(ChatServiceError):
 class PreparedChat:
     client: BaseLLMClient
     provider_name: str
-    session: "SessionRecord"
+    session: SessionRecord
+
+
+@dataclass
+class ToolCallLogEntry:
+    tool_run_id: str
+    tool: str
+    input: dict
+    result_preview: str = ""
 
 
 def create_client_for_request(
@@ -69,7 +78,7 @@ def create_client_for_request(
 async def close_client(client: BaseLLMClient) -> None:
     try:
         await client.aclose()
-    except Exception:
+    except (LLMError, OSError, RuntimeError):
         # Callers already have request-context logging.
         pass
 
@@ -131,7 +140,7 @@ class ChatApplicationService:
     ) -> ChatResponse:
         prepared = await self.prepare_chat(body, user)
         response_text = ""
-        tool_calls_log = []
+        tool_calls_log: list[ToolCallLogEntry] = []
         hit_limit = False
         runtime_error = None
 
@@ -147,12 +156,13 @@ class ChatApplicationService:
                 if event.type == "text_delta" and event.text:
                     response_text += event.text
                 elif event.type == "tool_pending":
-                    tool_calls_log.append({
-                        "tool_run_id": event.tool_run_id,
-                        "tool": event.name,
-                        "input": event.input,
-                        "result_preview": "",
-                    })
+                    tool_calls_log.append(
+                        ToolCallLogEntry(
+                            tool_run_id=event.tool_run_id,
+                            tool=event.name,
+                            input=event.input,
+                        )
+                    )
                 elif event.type in {"tool_completed", "tool_failed"} and tool_calls_log:
                     preview = (
                         event.result[:500]
@@ -160,8 +170,8 @@ class ChatApplicationService:
                         else event.result or event.error or ""
                     )
                     for item in reversed(tool_calls_log):
-                        if item["tool_run_id"] == event.tool_run_id and not item["result_preview"]:
-                            item["result_preview"] = preview
+                        if item.tool_run_id == event.tool_run_id and not item.result_preview:
+                            item.result_preview = preview
                             break
                 elif event.type == "runtime_error":
                     runtime_error = event.error or "Runtime error"
@@ -172,11 +182,7 @@ class ChatApplicationService:
                 conversation_id=prepared.session.id,
                 response=response_text,
                 tool_calls=[
-                    {
-                        "tool": item["tool"],
-                        "input": item["input"],
-                        "result_preview": item["result_preview"],
-                    }
+                    asdict(item, dict_factory=lambda items: {k: v for k, v in items if k != "tool_run_id"})
                     for item in tool_calls_log
                 ],
                 truncated=hit_limit,
