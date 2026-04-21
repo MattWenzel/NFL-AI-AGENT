@@ -118,14 +118,17 @@ class RuntimeConversationRepository:
     async def get_transcript(self, session_id: str):
         return await self._store.get_transcript_async(session_id)
 
-    def get_transcript_sync(self, session_id: str):
-        return self._store.get_transcript(session_id)
-
-    def update_tool_run_sync(self, tool_run_id: str, **changes):
-        return self._store.update_tool_run(tool_run_id, **changes)
-
-    def record_compaction(self, session_id: str, summary_text: str, source_turn_ids: list[str]):
-        return self._store.record_compaction(session_id, summary_text, source_turn_ids)
+    async def record_compaction(
+        self,
+        session_id: str,
+        summary_text: str,
+        source_turn_ids: list[str],
+    ):
+        return await self._store.record_compaction_async(
+            session_id,
+            summary_text,
+            source_turn_ids,
+        )
 
 
 @dataclass(frozen=True)

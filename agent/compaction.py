@@ -153,8 +153,8 @@ def _turn_keep_cost(
     return cost
 
 
-def estimate_active_tokens(conversations: RuntimeConversationRepository, session_id: str) -> int:
-    transcript = conversations.get_transcript_sync(session_id)
+async def estimate_active_tokens(conversations: RuntimeConversationRepository, session_id: str) -> int:
+    transcript = await conversations.get_transcript(session_id)
     return sum(
         _turn_keep_cost(turn, transcript.tool_runs_by_turn, transcript.parts_by_turn)
         for turn in transcript.turns
@@ -197,7 +197,7 @@ def _select_source_turns(
     return active_turns[:boundary]
 
 
-def _compact_old_tool_runs(
+async def _compact_old_tool_runs(
     conversations: RuntimeConversationRepository, session_id: str, policy: RetentionPolicy
 ) -> int:
     """Mark tool-run results older than the retention window as compacted.
@@ -205,7 +205,7 @@ def _compact_old_tool_runs(
     Returns the number of tool runs newly marked compacted so callers
     can decide whether the prune freed enough headroom.
     """
-    transcript = conversations.get_transcript_sync(session_id)
+    transcript = await conversations.get_transcript(session_id)
     active_completed = [
         run
         for runs in transcript.tool_runs_by_turn.values()
@@ -216,7 +216,7 @@ def _compact_old_tool_runs(
         return 0
     stale = active_completed[: -policy.recent_raw_tool_runs]
     for run in stale:
-        conversations.update_tool_run_sync(run.id, compacted=1)
+        await conversations.update_tool_run(run.id, compacted=1)
     return len(stale)
 
 
@@ -294,7 +294,7 @@ async def _compact_if_needed_inner(
     """
     if not session.context_window:
         return None
-    active_tokens = estimate_active_tokens(conversations, session.id)
+    active_tokens = await estimate_active_tokens(conversations, session.id)
     if not force and active_tokens <= session.context_window:
         return None
     policy = RetentionPolicy.for_context_window(session.context_window)
@@ -307,9 +307,9 @@ async def _compact_if_needed_inner(
     # because the caller already tried pruning via a prior iteration and
     # wants a summary this time.
     if not force:
-        pruned = _compact_old_tool_runs(conversations, session.id, policy)
+        pruned = await _compact_old_tool_runs(conversations, session.id, policy)
         if pruned:
-            new_tokens = estimate_active_tokens(conversations, session.id)
+            new_tokens = await estimate_active_tokens(conversations, session.id)
             if new_tokens <= session.context_window:
                 logger.info(
                     "compaction: pruned %d tool output(s), freed %d→%d tokens (skipping summary)",
@@ -333,7 +333,7 @@ async def _compact_if_needed_inner(
             recent_raw_tool_runs=policy.recent_raw_tool_runs,
             retention_budget_tokens=max(MIN_RETENTION_BUDGET_TOKENS, retention_budget_override),
         )
-    transcript = conversations.get_transcript_sync(session.id)
+    transcript = await conversations.get_transcript(session.id)
     active_turns = [t for t in transcript.turns if not t.compacted and t.role in {"user", "assistant"}]
     source_turns = _select_source_turns(
         active_turns,
@@ -349,12 +349,12 @@ async def _compact_if_needed_inner(
         source_turns=source_turns,
         tool_runs_by_turn=transcript.tool_runs_by_turn,
     )
-    summary = conversations.record_compaction(
+    summary = await conversations.record_compaction(
         session.id,
         summary_text,
         [turn.id for turn in source_turns],
     )
-    _compact_old_tool_runs(conversations, session.id, policy)
+    await _compact_old_tool_runs(conversations, session.id, policy)
     return {
         "summary_turn_id": summary.summary_turn_id,
         "source_turn_ids": summary.source_turn_ids,

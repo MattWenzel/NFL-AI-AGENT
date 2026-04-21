@@ -111,6 +111,9 @@ class RuntimeStore(UsersMixin, TranscriptsMixin, ExportsMixin):
     async def update_tool_run_async(self, *args, **kwargs):
         return await asyncio.to_thread(self.update_tool_run, *args, **kwargs)
 
+    async def record_compaction_async(self, *args, **kwargs):
+        return await asyncio.to_thread(self.record_compaction, *args, **kwargs)
+
     async def count_users_async(self, *args, **kwargs):
         return await asyncio.to_thread(self.count_users, *args, **kwargs)
 

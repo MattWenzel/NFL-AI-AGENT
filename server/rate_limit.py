@@ -39,16 +39,31 @@ class RateLimiter:
         self.max_attempts = max_attempts
         self.window_seconds = window_seconds
         self._hits: dict[str, deque[float]] = {}
+        self._last_global_prune = 0.0
+
+    def _prune_empty_buckets(self, *, now: float, cutoff: float) -> None:
+        # Distinct client IPs can otherwise grow `_hits` unbounded over time.
+        # Sweep infrequently so hot-path checks stay cheap.
+        if now - self._last_global_prune < self.window_seconds:
+            return
+        empty_keys = [key for key, bucket in self._hits.items() if not bucket or bucket[-1] < cutoff]
+        for key in empty_keys:
+            self._hits.pop(key, None)
+        self._last_global_prune = now
 
     def check(self, request: Request) -> None:
         """Record this attempt and raise 429 if the caller is over quota."""
         key = _client_ip(request)
         now = time.monotonic()
         cutoff = now - self.window_seconds
+        self._prune_empty_buckets(now=now, cutoff=cutoff)
         bucket = self._hits.setdefault(key, deque())
         # Drop stale entries so the deque doesn't grow forever for a single IP.
         while bucket and bucket[0] < cutoff:
             bucket.popleft()
+        if not bucket and key in self._hits:
+            self._hits.pop(key, None)
+            bucket = self._hits.setdefault(key, deque())
         if len(bucket) >= self.max_attempts:
             retry_after = max(1, int(bucket[0] + self.window_seconds - now))
             raise HTTPException(

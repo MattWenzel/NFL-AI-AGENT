@@ -10,8 +10,7 @@ from __future__ import annotations
 
 import json
 
-from agent.message_builder import build_model_messages as _build_model_messages
-from provider.base import Message, ToolUseEvent
+from provider.base import ToolUseEvent
 from storage._rows import (
     row_to_part,
     row_to_session,
@@ -235,7 +234,6 @@ class TranscriptsMixin:
             conn.execute("DELETE FROM compaction_summaries WHERE session_id = ?", (session_id,))
             conn.execute("DELETE FROM turns WHERE session_id = ?", (session_id,))
             conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
-        self._locks.pop(session_id, None)
         return True
 
     # ---------------- turns ----------------
@@ -565,7 +563,3 @@ class TranscriptsMixin:
             tool_runs_by_turn=tool_runs_by_turn,
             summaries=summaries,
         )
-
-    def build_model_messages(self, session_id: str) -> list[Message]:
-        """Backward-compatible wrapper around the runtime's message builder."""
-        return _build_model_messages(self.get_transcript(session_id))
