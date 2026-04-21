@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from server.repositories import ConversationListEntry, ConversationRepository
 from server.schemas.conversations import ConversationInfo, ConversationTranscriptResponse
-from storage import SessionTranscript, safe_load_tool_input
+from storage import RuntimeStore, SessionTranscript, safe_load_tool_input
 
 
 def _conversation_info_from_row(item: ConversationListEntry) -> ConversationInfo:
@@ -98,7 +98,8 @@ class ConversationNotFoundError(ConversationServiceError):
 
 @dataclass
 class ConversationApplicationService:
-    conversations: ConversationRepository
+    store: RuntimeStore
+    conversations: ConversationRepository  # slim, for list mapping only
 
     @staticmethod
     def _fallback_entry(session) -> ConversationListEntry:
@@ -118,10 +119,10 @@ class ConversationApplicationService:
         return [_conversation_info_from_row(item) for item in rows]
 
     async def get_transcript(self, conversation_id: str, user_id: int) -> ConversationTranscriptResponse:
-        if await self.conversations.get_session(conversation_id, user_id=user_id) is None:
+        if await self.store.get_session_async(conversation_id, user_id=user_id) is None:
             raise ConversationNotFoundError("Conversation not found")
         try:
-            transcript = await self.conversations.get_transcript(conversation_id)
+            transcript = await self.store.get_transcript_async(conversation_id)
         except KeyError:
             raise ConversationNotFoundError("Conversation not found")
         return _transcript_response(conversation_id, transcript)
@@ -134,14 +135,14 @@ class ConversationApplicationService:
         title: str | None,
         pinned: bool | None,
     ) -> ConversationInfo:
-        session = await self.conversations.get_session(conversation_id, user_id=user_id)
+        session = await self.store.get_session_async(conversation_id, user_id=user_id)
         if session is None:
             raise ConversationNotFoundError("Conversation not found")
         if title is not None:
             session.title = title.strip()
-            await self.conversations.update_session(session)
+            await self.store.update_session_async(session)
         if pinned is not None:
-            session = await self.conversations.set_session_pinned(
+            session = await self.store.set_session_pinned_async(
                 conversation_id,
                 pinned,
                 user_id=user_id,
@@ -155,5 +156,5 @@ class ConversationApplicationService:
         return _conversation_info_from_row(entry)
 
     async def delete_conversation(self, conversation_id: str, user_id: int) -> None:
-        if not await self.conversations.delete_session(conversation_id, user_id=user_id):
+        if not await self.store.delete_session_async(conversation_id, user_id=user_id):
             raise ConversationNotFoundError("Conversation not found")

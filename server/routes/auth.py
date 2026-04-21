@@ -13,9 +13,8 @@ from auth.primitives import (
     get_current_user_optional,
 )
 from config import EXPORTS_DIR
-from server.repository_dependencies import get_user_repository
+from server.repository_dependencies import get_store
 from server.process_state import AppProcessState, get_process_state
-from server.repositories import UserRepository
 from server.schemas.auth import (
     AuthOkResponse,
     AuthStatusResponse,
@@ -31,6 +30,7 @@ from server.services.auth import (
     AuthCredentialsError,
     AuthValidationError,
 )
+from storage import RuntimeStore
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +39,10 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.get("/status", response_model=AuthStatusResponse)
 async def auth_status(
-    users: UserRepository = Depends(get_user_repository),
+    store: RuntimeStore = Depends(get_store),
     user: AuthenticatedUser | None = Depends(get_current_user_optional),
 ) -> AuthStatusResponse:
-    service = AuthApplicationService(users, EXPORTS_DIR)
+    service = AuthApplicationService(store, EXPORTS_DIR)
     return await service.auth_status(user)
 
 
@@ -50,11 +50,11 @@ async def auth_status(
 async def register(
     payload: RegisterRequest,
     request: Request,
-    users: UserRepository = Depends(get_user_repository),
+    store: RuntimeStore = Depends(get_store),
     process_state: AppProcessState = Depends(get_process_state),
 ) -> AuthTokenResponse:
     process_state.register_limiter.check(request)
-    service = AuthApplicationService(users, EXPORTS_DIR)
+    service = AuthApplicationService(store, EXPORTS_DIR)
     try:
         return await service.register(
             email=payload.email,
@@ -73,11 +73,11 @@ async def register(
 async def login(
     payload: LoginRequest,
     request: Request,
-    users: UserRepository = Depends(get_user_repository),
+    store: RuntimeStore = Depends(get_store),
     process_state: AppProcessState = Depends(get_process_state),
 ) -> AuthTokenResponse:
     process_state.login_limiter.check(request)
-    service = AuthApplicationService(users, EXPORTS_DIR)
+    service = AuthApplicationService(store, EXPORTS_DIR)
     try:
         return await service.login(email=payload.email, password=payload.password)
     except AuthCredentialsError as exc:
@@ -87,10 +87,10 @@ async def login(
 @router.post("/logout")
 async def logout(
     request: Request,
-    users: UserRepository = Depends(get_user_repository),
+    store: RuntimeStore = Depends(get_store),
     user: AuthenticatedUser = Depends(get_current_user),
 ) -> dict:
-    service = AuthApplicationService(users, EXPORTS_DIR)
+    service = AuthApplicationService(store, EXPORTS_DIR)
     await service.logout(_extract_bearer(request))
     return {"ok": True}
 
@@ -99,12 +99,12 @@ async def logout(
 async def change_password(
     payload: PasswordChangeRequest,
     request: Request,
-    users: UserRepository = Depends(get_user_repository),
+    store: RuntimeStore = Depends(get_store),
     process_state: AppProcessState = Depends(get_process_state),
     user: AuthenticatedUser = Depends(get_current_user),
 ) -> AuthOkResponse:
     process_state.account_limiter.check(request)
-    service = AuthApplicationService(users, EXPORTS_DIR)
+    service = AuthApplicationService(store, EXPORTS_DIR)
     try:
         await service.change_password(
             user=user,
@@ -121,12 +121,12 @@ async def change_password(
 async def delete_account(
     payload: DeleteAccountRequest,
     request: Request,
-    users: UserRepository = Depends(get_user_repository),
+    store: RuntimeStore = Depends(get_store),
     process_state: AppProcessState = Depends(get_process_state),
     user: AuthenticatedUser = Depends(get_current_user),
 ) -> AuthOkResponse:
     process_state.account_limiter.check(request)
-    service = AuthApplicationService(users, EXPORTS_DIR)
+    service = AuthApplicationService(store, EXPORTS_DIR)
     try:
         deleted_files = await service.delete_account(user=user, password=payload.password)
     except AuthCredentialsError as exc:

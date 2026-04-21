@@ -9,8 +9,8 @@ from dataclasses import dataclass
 
 from auth import codex_oauth, encryption
 from server.process_state import PendingCodexOAuthFlowStore
-from server.repositories import UserRepository
 from server.schemas.codex_oauth import CodexOAuthStartResponse, CodexOAuthStatusResponse
+from storage import RuntimeStore
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ class CodexOAuthUpstreamError(CodexOAuthServiceError):
 
 @dataclass
 class CodexOAuthApplicationService:
-    users: UserRepository
+    store: RuntimeStore
     pending_flows: PendingCodexOAuthFlowStore
 
     async def run_device_flow(self, pending_id: str) -> None:
@@ -43,7 +43,7 @@ class CodexOAuthApplicationService:
             authorized = await codex_oauth.poll_device_code(rec.device_auth_id, rec.user_code)
             bundle = await codex_oauth.exchange_code(authorized.authorization_code, authorized.code_verifier)
             ciphertext = encryption.encrypt(codex_oauth.bundle_to_json(bundle))
-            await self.users.upsert_api_key(
+            await self.store.upsert_api_key_async(
                 user_id=rec.user_id,
                 provider=CODEX_PROVIDER,
                 encrypted_key=ciphertext,

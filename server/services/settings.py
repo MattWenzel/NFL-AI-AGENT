@@ -8,9 +8,9 @@ from dataclasses import dataclass
 
 from auth import codex_oauth, encryption
 from provider import ProviderInfo, get_provider, list_providers, provider_is_available
-from server.repositories import UserRepository
 from server.schemas.providers import ProviderResponse
 from server.schemas.settings import ApiKeyStatus
+from storage import RuntimeStore
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ class SettingsNotFoundError(SettingsServiceError):
 
 @dataclass
 class SettingsApplicationService:
-    users: UserRepository
+    store: RuntimeStore
 
     def _provider_info(self, provider: str) -> ProviderInfo:
         try:
@@ -62,7 +62,7 @@ class SettingsApplicationService:
         )
 
     async def list_api_key_status(self, user_id: int) -> list[ApiKeyStatus]:
-        existing = {rec.provider: rec for rec in await self.users.list_api_keys(user_id)}
+        existing = {rec.provider: rec for rec in await self.store.list_api_keys_async(user_id)}
         return [self._build_status(info, existing.get(info.name)) for info in list_providers()]
 
     async def update_api_key(self, *, user_id: int, provider: str, api_key: str | None) -> ApiKeyStatus:
@@ -71,9 +71,9 @@ class SettingsApplicationService:
         if info.credential_shape == "codex_oauth" and raw:
             raise SettingsServiceError("Codex uses OAuth — use POST /settings/oauth/codex/start to connect.")
         if raw is None or raw == "":
-            await self.users.delete_api_key(user_id=user_id, provider=provider)
+            await self.store.delete_api_key_async(user_id=user_id, provider=provider)
             return self._build_status(info, None)
-        rec = await self.users.upsert_api_key(
+        rec = await self.store.upsert_api_key_async(
             user_id=user_id,
             provider=provider,
             encrypted_key=encryption.encrypt(raw),
@@ -82,7 +82,7 @@ class SettingsApplicationService:
 
     async def list_provider_responses(self, user_id: int) -> list[ProviderResponse]:
         infos = list_providers()
-        existing_keys = {rec.provider for rec in await self.users.list_api_keys(user_id)}
+        existing_keys = {rec.provider for rec in await self.store.list_api_keys_async(user_id)}
         return [
             ProviderResponse(
                 name=info.name,

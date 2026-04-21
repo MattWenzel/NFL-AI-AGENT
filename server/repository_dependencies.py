@@ -1,14 +1,14 @@
-"""Request-scoped repository dependency factories for FastAPI.
+"""Request-scoped dependency factories for the runtime store + slim
+conversation mapping repository.
 
-Kept separate from `server/repositories.py` (pure adapters over
-`RuntimeStore` — no web-framework wiring) and from `server/dependencies.py`
-(which holds service-layer factories that would otherwise pull
-`auth.primitives` into a cycle).
+Kept separate from `server/repositories.py` (framework-agnostic
+adapter) and `server/dependencies.py` (service-layer factories that
+would otherwise pull `auth.primitives` into a cycle).
 
-Any module needing a FastAPI `Depends(...)` handle on a repository
-imports from here. That includes `auth/primitives.py` — routing the
-import here instead of through `server.dependencies` breaks the
-`auth.primitives` ↔ `server.dependencies` cycle cleanly, with no
+Any module that needs a FastAPI `Depends(...)` handle on the persistence
+layer imports from here. That includes `auth/primitives.py` — routing
+through this module instead of `server.dependencies` breaks the
+`auth.primitives` ↔ `server.dependencies` cycle without any
 `TYPE_CHECKING` or lazy-import workarounds.
 """
 
@@ -16,30 +16,23 @@ from __future__ import annotations
 
 from fastapi import Request
 
-from server.repositories import (
-    ConversationRepository,
-    ExportRepository,
-    RepositoryBundle,
-    UserRepository,
-)
+from server.repositories import ConversationRepository
+from storage import RuntimeStore
 
 
-def get_repositories(request: Request) -> RepositoryBundle:
-    repositories = getattr(request.app.state, "repositories", None)
-    if repositories is None:
+def get_store(request: Request) -> RuntimeStore:
+    store = getattr(request.app.state, "store", None)
+    if store is None:
         raise RuntimeError(
-            "repositories not attached to app.state — the FastAPI lifespan must set it before requests run."
+            "store not attached to app.state — the FastAPI lifespan must set it before requests run."
         )
-    return repositories
-
-
-def get_user_repository(request: Request) -> UserRepository:
-    return get_repositories(request).users
+    return store
 
 
 def get_conversation_repository(request: Request) -> ConversationRepository:
-    return get_repositories(request).conversations
+    """Request-scoped factory for the slim `ConversationRepository`.
 
-
-def get_export_repository(request: Request) -> ExportRepository:
-    return get_repositories(request).exports
+    Wraps the app-state `RuntimeStore`; the repo itself holds no state
+    beyond the store reference, so constructing one per request is fine.
+    """
+    return ConversationRepository(get_store(request))

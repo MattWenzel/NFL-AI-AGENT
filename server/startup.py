@@ -7,12 +7,11 @@ import os
 from fastapi import FastAPI
 
 from agent.runtime import ChatRuntime
+from agent.runtime_repositories import RuntimeRepositoryBundle
 from auth import encryption
 from config import DB_PATH, PBP_DB_PATH, RUNTIME_DB_PATH, format_file_size
 from provider import list_providers
 from server.process_state import AppProcessState
-from server.repositories import RepositoryBundle
-from agent.runtime_repositories import RuntimeRepositoryBundle
 from storage import RuntimeStore
 
 logger = logging.getLogger(__name__)
@@ -20,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 def configure_runtime_state(app: FastAPI) -> None:
     store = RuntimeStore(RUNTIME_DB_PATH)
-    app.state.repositories = RepositoryBundle.from_store(store)
+    app.state.store = store
     app.state.runtime_repositories = RuntimeRepositoryBundle.from_store(store)
     app.state.chat_runtime = ChatRuntime(app.state.runtime_repositories)
     app.state.process_state = AppProcessState()
@@ -38,22 +37,22 @@ def validate_encryption() -> None:
 
 
 def run_housekeeping(app: FastAPI) -> None:
-    users = app.state.repositories.users
+    store: RuntimeStore = app.state.store
 
-    purged = users.purge_expired_auth_sessions_sync()
+    purged = store.purge_expired_auth_sessions()
     if purged:
         logger.info("Purged %d expired auth session(s)", purged)
 
-    user_count = users.count_users_sync()
+    user_count = store.count_users()
     if user_count == 0:
         logger.info("No users registered yet — first visitor to the UI will be prompted to create an account.")
         return
 
     logger.info("%d user account(s) registered", user_count)
-    promoted = users.ensure_admin_exists_sync()
+    promoted = store.ensure_admin_exists()
     if promoted is not None:
         logger.info("Promoted user %d to admin (no admin existed yet)", promoted)
-    orphans = users.count_orphan_rows_sync()
+    orphans = store.count_orphan_rows()
     if any(orphans.values()):
         logger.warning(
             "Found orphan rows with NULL user_id — invisible to scoped queries: %s",

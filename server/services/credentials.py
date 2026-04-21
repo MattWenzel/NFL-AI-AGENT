@@ -11,7 +11,7 @@ from auth.codex_credentials import (
 )
 from provider import get_provider
 from server.process_state import PerUserLockRegistry
-from server.repositories import UserRepository
+from storage import RuntimeStore
 
 
 class CredentialServiceError(Exception):
@@ -20,7 +20,7 @@ class CredentialServiceError(Exception):
 
 @dataclass
 class ProviderCredentialService:
-    users: UserRepository
+    store: RuntimeStore
     refresh_locks: PerUserLockRegistry
 
     async def get_api_key(
@@ -36,14 +36,14 @@ class ProviderCredentialService:
         if info.credential_shape == "codex_oauth":
             try:
                 return await resolve_codex_access_token(
-                    self.users,
+                    self.store,
                     user_id,
                     provider_name,
                     refresh_locks=self.refresh_locks,
                 )
             except CodexCredentialError as exc:
                 raise CredentialServiceError(str(exc)) from exc
-        rec = await self.users.get_api_key(user_id=user_id, provider=provider_name)
+        rec = await self.store.get_api_key_async(user_id=user_id, provider=provider_name)
         if rec is None:
             return None
         try:

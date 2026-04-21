@@ -27,7 +27,7 @@ import logging
 
 from auth import codex_oauth, encryption
 from server.process_state import PerUserLockRegistry
-from server.repositories import UserRepository
+from storage import RuntimeStore
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +36,9 @@ class CodexCredentialError(Exception):
 
 
 async def _load_bundle_async(
-    users: UserRepository, user_id: int, provider_name: str
+    store: RuntimeStore, user_id: int, provider_name: str
 ) -> codex_oauth.TokenBundle | None:
-    rec = await users.get_api_key(user_id=user_id, provider=provider_name)
+    rec = await store.get_api_key_async(user_id=user_id, provider=provider_name)
     if rec is None:
         return None
     try:
@@ -54,7 +54,7 @@ async def _load_bundle_async(
 
 
 async def resolve_access_token(
-    users: UserRepository,
+    store: RuntimeStore,
     user_id: int,
     provider_name: str,
     *,
@@ -66,7 +66,7 @@ async def resolve_access_token(
     Returns None when the user is not connected; raises
     `CodexCredentialError` when refresh fails.
     """
-    bundle = await _load_bundle_async(users, user_id, provider_name)
+    bundle = await _load_bundle_async(store, user_id, provider_name)
     if bundle is None:
         return None
     if not codex_oauth.is_near_expiry(bundle):
@@ -75,7 +75,7 @@ async def resolve_access_token(
     # re-read under the lock — a concurrent request may have already
     # refreshed and persisted while we were waiting.
     async with refresh_locks.for_user(user_id):
-        bundle = await _load_bundle_async(users, user_id, provider_name)
+        bundle = await _load_bundle_async(store, user_id, provider_name)
         if bundle is None:
             return None
         if not codex_oauth.is_near_expiry(bundle):
@@ -85,7 +85,7 @@ async def resolve_access_token(
         except codex_oauth.CodexOAuthError as exc:
             logger.warning("Codex token refresh failed for user=%d: %s", user_id, exc)
             raise CodexCredentialError("ChatGPT session expired — reconnect in Settings.") from exc
-        await users.upsert_api_key(
+        await store.upsert_api_key_async(
             user_id=user_id,
             provider=provider_name,
             encrypted_key=encryption.encrypt(codex_oauth.bundle_to_json(bundle)),

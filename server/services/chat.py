@@ -16,10 +16,9 @@ from provider import (
     get_provider,
     provider_is_available,
 )
-from storage import SessionRecord
+from storage import RuntimeStore, SessionRecord
 from server.schemas.chat import ChatRequest, ChatResponse
 from server.process_state import PerUserLockRegistry
-from server.repositories import ConversationRepository, UserRepository
 from server.services.credentials import CredentialServiceError, ProviderCredentialService
 
 
@@ -91,15 +90,13 @@ class ChatApplicationService:
     def __init__(
         self,
         runtime: ChatRuntime,
-        users: UserRepository,
-        conversations: ConversationRepository,
+        store: RuntimeStore,
         *,
         refresh_locks: PerUserLockRegistry,
     ):
         self.runtime = runtime
-        self.users = users
-        self.conversations = conversations
-        self.credentials = ProviderCredentialService(users, refresh_locks)
+        self.store = store
+        self.credentials = ProviderCredentialService(store, refresh_locks)
 
     async def prepare_chat(
         self,
@@ -108,7 +105,7 @@ class ChatApplicationService:
     ) -> PreparedChat:
         if (
             body.conversation_id
-            and await self.conversations.get_session(body.conversation_id, user_id=user.id) is None
+            and await self.store.get_session_async(body.conversation_id, user_id=user.id) is None
         ):
             raise ChatNotFoundError("Conversation not found")
 
