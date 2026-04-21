@@ -13,7 +13,7 @@ from auth.primitives import (
     get_current_user_optional,
 )
 from config import EXPORTS_DIR
-from server.dependencies import get_user_repository
+from server.repository_dependencies import get_user_repository
 from server.process_state import AppProcessState, get_process_state
 from server.repositories import UserRepository
 from server.schemas.auth import (

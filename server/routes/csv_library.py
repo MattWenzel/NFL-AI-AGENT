@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from auth.primitives import AuthenticatedUser, get_current_user
-from server.dependencies import get_conversation_repository, get_export_repository
+from server.repository_dependencies import get_conversation_repository, get_export_repository
 from server.repositories import ConversationRepository, ExportRepository
 from server.schemas.exports import (
     ExportDetail,

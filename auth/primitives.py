@@ -19,7 +19,7 @@ import bcrypt
 from fastapi import Depends, HTTPException, Request, status
 
 from config import AUTH_SESSION_TOUCH_INTERVAL_SECONDS
-from server.dependencies import get_user_repository
+from server.repository_dependencies import get_user_repository
 from server.repositories import UserRepository
 from storage import UserRecord
 

@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 
 from auth.primitives import AuthenticatedUser, get_current_user
 from config import EXPORTS_DIR
-from server.dependencies import get_conversation_repository, get_export_repository
+from server.repository_dependencies import get_conversation_repository, get_export_repository
 from server.repositories import ConversationRepository, ExportRepository
 from server.services.exports import ExportApplicationService, ExportNotFoundError
 

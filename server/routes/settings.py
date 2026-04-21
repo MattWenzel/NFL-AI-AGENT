@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from auth.primitives import AuthenticatedUser, get_current_user
-from server.dependencies import get_user_repository
+from server.repository_dependencies import get_user_repository
 from server.repositories import UserRepository
 from server.schemas.settings import ApiKeyStatus, ApiKeyUpdate
 from server.services.settings import (
