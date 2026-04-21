@@ -57,17 +57,18 @@ Organized by subsystem, not by layer. Top-level folders each own a concern:
 
 ```
 agent/                      # LLM conversation domain
-├── runtime.py              #   ChatRuntime: prepare_session, run_session, _execute_tool
+├── runtime.py              #   ChatRuntime: prepare_session_async, run_session
+├── runtime_policy.py       #   RuntimeLoopState + raise_if_doom_loop
+├── turn_manager.py         #   AssistantTurnManager (assistant turn lifecycle)
+├── tool_execution.py       #   ToolExecutionService (tool dispatch + persistence)
+├── persistence.py          #   RuntimePersistence (write-side store boundary)
 ├── events.py               #   RuntimeEvent dataclass + RuntimeLoopError
-├── loop_detector.py        #   raise_if_doom_loop
 ├── compaction.py           #   estimate_active_tokens, compact_if_needed
 ├── summarizer.py           #   LLM-backed summarization for compaction
 ├── token_counting.py       #   cl100k token estimator for compaction decisions
+├── message_builder.py      #   transcript → wire-format message list
 ├── system_prompt.py        #   slim base prompt (~2.3K tokens: rules + guide index)
-├── __init__.py             #   package marker
-└── guides/                 #   topic-specific markdown loaded via get_guide tool
-    ├── fantasy.md          #   drives.md, games.md, play_by_play.md, player_profile.md,
-    └── …                   #   player_stats.md, postseason.md
+└── __init__.py             #   package marker
 
 tools/                      # Tool registry + implementations (flat)
 ├── __init__.py             #   re-exports TOOLS, TOOL_DEFINITIONS, execute_tool*

@@ -7,8 +7,8 @@ This doc covers the iteration loop, the event stream, the session lock, the doom
 ## File map
 
 - `agent/runtime.py` — `ChatRuntime`: the loop itself.
+- `agent/runtime_policy.py` — `RuntimeLoopState`, doom-loop detector (`raise_if_doom_loop`), overflow retry bookkeeping.
 - `agent/events.py` — `RuntimeEvent` and `RuntimeLoopError`.
-- `agent/loop_detector.py` — `raise_if_doom_loop` heuristic.
 - `agent/compaction.py`, `summarizer.py` — see [compaction.md](compaction.md).
 
 ## `ChatRuntime`
@@ -105,14 +105,14 @@ Transports serialize these differently. The SSE adapter drops some internal even
 Defined at `events.py:29`. One exception type for unrecoverable loop states. Three things raise it:
 
 1. **MAX_TOKENS with no tool call** (`runtime.py:226`). The model hit its output cap mid-text with nothing to follow up on. Surfaced as a user-facing `runtime_error` with guidance to ask a narrower question or reply "continue".
-2. **Doom loop** (`loop_detector.py:29`). See below.
+2. **Doom loop** (`runtime_policy.py:raise_if_doom_loop`). See below.
 3. **(Conceptually)** — iteration budget exhaustion, though this is emitted directly as `runtime_error` rather than raised (`runtime.py:308`).
 
 `RuntimeLoopError` is caught specifically at `runtime.py:281`; the assistant turn is marked `status="error"`, a `runtime_error` event is yielded, and the loop returns cleanly. Any other exception (`runtime.py:299`) also marks the turn errored but is re-raised — the runtime doesn't swallow unknown errors.
 
 ## Doom-loop detector
 
-`loop_detector.py:20`. Before dispatching a pass's tool calls, the runtime fingerprints the last `DOOM_LOOP_WINDOW = 6` tool runs in the store plus the ones queued for the current pass. If the **tail `DOOM_LOOP_MATCH = 3`** fingerprints are identical (same `tool_name`, same `input_json`), it raises.
+`runtime_policy.py:raise_if_doom_loop`. Before dispatching a pass's tool calls, the runtime fingerprints the tail `DOOM_LOOP_MATCH = 3` tool runs accumulated across the current user turn. If all three are identical (same `tool_name`, same `input_json`), it raises. Scope is one user turn — `RuntimeLoopState.user_turn_tool_runs` resets when the next user message arrives, so a follow-up turn that re-runs the same query ("try again") starts with a fresh list.
 
 Why this shape: a model stuck in a loop typically repeats the *same* call over and over. Three identical calls in a row is a strong signal — it's unlikely in healthy use (the model usually varies SQL between retries) and catches common failure modes before the iteration budget exhausts.
 

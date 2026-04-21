@@ -1,14 +1,34 @@
-"""Loop policy for the chat runtime."""
+"""Loop policy for the chat runtime: per-turn iteration state, compaction
+trigger, doom-loop detection, and overflow retry bookkeeping.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
 from agent.compaction import compact_if_needed
-from agent.events import RuntimeEvent
-from agent.loop_detector import raise_if_doom_loop
+from agent.events import RuntimeEvent, RuntimeLoopError
 from provider import BaseLLMClient, ToolChoice
 from storage import RuntimeStore, SessionRecord
+
+
+# Doom-loop detector: if the agent calls the same tool with the same input
+# this many times in a row within a single user turn, raise so the caller
+# can surface a clear error instead of burning the iteration budget.
+# Scope is one user turn — `RuntimeLoopState.user_turn_tool_runs` resets
+# when the next user message arrives, so repeating a query in a follow-up
+# ("try again", "rerun that") is legitimate and won't trip this.
+DOOM_LOOP_MATCH = 3
+
+
+def raise_if_doom_loop(tool_runs) -> None:
+    if len(tool_runs) < DOOM_LOOP_MATCH:
+        return
+    tail = [(r.tool_name, r.input_json) for r in tool_runs[-DOOM_LOOP_MATCH:]]
+    if all(fp == tail[0] for fp in tail):
+        raise RuntimeLoopError(
+            f"Detected repeated tool loop on {tail[0][0]} with identical input"
+        )
 
 
 @dataclass
