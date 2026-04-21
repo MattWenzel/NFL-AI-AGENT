@@ -522,6 +522,21 @@ class TranscriptsMixin:
     # ---------------- transcript + message build ----------------
 
     def get_transcript(self, session_id: str) -> SessionTranscript:
+        """Snapshot the full transcript: session + turns + parts + tool runs + summaries.
+
+        Issues four separate SELECTs in a single connection but without an
+        explicit `BEGIN`, so each statement is its own autocommit read. In
+        WAL mode this is *read-consistent only when no concurrent writer
+        commits between statements*. The runtime hot path guarantees that
+        by holding `conversations.lock(session_id)` around any write, so
+        compaction and message-building see a coherent snapshot. The HTTP
+        transcript endpoint does *not* take the lock — if a turn is
+        actively streaming when the user opens the session, the response
+        can show a half-written assistant turn. That's treated as cosmetic:
+        the next poll returns a consistent view. Do not loosen the lock
+        contract for writers without wrapping this body in a deferred
+        transaction.
+        """
         session = self.get_session(session_id)
         if session is None:
             raise KeyError(f"Unknown session {session_id}")

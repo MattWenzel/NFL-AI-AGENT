@@ -134,7 +134,7 @@ This approach keeps deploys simple: ship new code, run it, schema catches up. Fo
 
 ## Startup reconciliation
 
-`reconcile_interrupted_runs` (`runtime_store.py:376`), called at the end of `__init__`. Two updates:
+`reconcile_interrupted_runs` (`storage/schema.py:183`), called at the end of `RuntimeStore.__init__`. Two updates:
 
 ```sql
 UPDATE tool_runs  SET status = 'interrupted', error_text = ... WHERE status IN ('pending','running');
@@ -233,6 +233,8 @@ class SessionTranscript:
 ```
 
 Four queries combined into one object. The transport layer returns this (re-shaped) to the browser for history rendering; the compaction layer iterates over it for token estimation; `build_model_messages` walks it to assemble the wire format.
+
+The four reads share one connection but issue as separate autocommit statements (no explicit `BEGIN`), so inter-query consistency depends on the caller holding `conversations.lock(session_id)` for the duration of the read. Runtime callers do (lock is taken at the top of `run_session`); the HTTP transcript endpoint does not, which is tolerated — a session being actively streamed can show a half-written assistant turn until the next poll. Any future writer that bypasses the per-session lock would break this contract — either take the lock or wrap `get_transcript`'s body in a deferred transaction first.
 
 ## Exports and the `ctx` callback
 
