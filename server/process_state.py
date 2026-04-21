@@ -114,12 +114,6 @@ class PendingCodexOAuthFlowStore(Protocol):
     async def cancel_all(self) -> None: ...
 
 
-class AuthLimiterSet(Protocol):
-    register_limiter: RateLimiter
-    login_limiter: RateLimiter
-    account_limiter: RateLimiter
-
-
 class ChatStreamGate(Protocol):
     async def acquire(self, key: str | int, *, detail: str) -> None: ...
     async def release(self, key: str | int) -> None: ...

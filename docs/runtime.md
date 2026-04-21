@@ -13,9 +13,9 @@ This doc covers the iteration loop, the event stream, the session lock, the doom
 
 ## `ChatRuntime`
 
-Defined at `agent/runtime.py:51`. Two public entry points:
+Defined at `agent/runtime.py:51`. The public entry points are:
 
-- `prepare_session(client, provider_name, conversation_id, user_id) -> SessionRecord` (`runtime.py:57`) — resolve or create the session. Called from the transport layer before `run_session` so all callers key sessions the same way (by provider, model, and context window).
+- `prepare_session_async(client, provider_name, conversation_id, user_id) -> SessionRecord` — resolve or create the session. Called from the transport layer before `run_session` so all callers key sessions the same way (by provider, model, and context window).
 - `run_session(session, user_text, client, *, tools, provider_name) -> AsyncIterator[RuntimeEvent]` (`runtime.py:83`) — drive one user turn. Always consumes `client.stream_message`; non-streaming callers buffer events at the transport boundary.
 
 The runtime holds a single dependency: a `RuntimeStore` ([persistence.md](persistence.md)). It does not reach into SQLite directly — every persistence concern is a store call.

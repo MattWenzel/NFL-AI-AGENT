@@ -13,9 +13,7 @@ Tool schemas + the pre-built TOOLS list live in tools.definitions.
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from dataclasses import dataclass, field
 from typing import AsyncGenerator
 
 from storage import (
@@ -40,22 +38,13 @@ from agent.message_builder import build_model_messages
 from agent.persistence import RuntimePersistence
 from agent.runtime_policy import RuntimeLoopState
 from agent.runtime_repositories import RuntimeRepositoryBundle
-from agent.tool_execution import ToolExecutionResult, ToolExecutionService
+from agent.tool_execution import ToolExecutionService
 from agent.turn_manager import AssistantTurnContext, AssistantTurnManager, TITLE_PREVIEW_CHARS
 from tools import execute_tool_structured
 
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_ITERATIONS = 10
-
-
-@dataclass
-class PendingToolCallLog:
-    tool_run_id: str
-    tool: str
-    input: dict
-    result_preview: str = ""
-
 
 class ChatRuntime:
     """Shared runtime used by the API and any future non-HTTP caller."""
@@ -75,31 +64,6 @@ class ChatRuntime:
     @classmethod
     def from_store(cls, store: RuntimeStore) -> "ChatRuntime":
         return cls(RuntimeRepositoryBundle.from_store(store))
-
-    def prepare_session(
-        self,
-        client: BaseLLMClient,
-        provider_name: str,
-        conversation_id: str | None = None,
-        *,
-        user_id: int | None = None,
-    ) -> SessionRecord:
-        """Resolve (or create) the session backing a chat turn.
-
-        Called by the transport layer before `run_session` so all callers
-        agree on how sessions are keyed to providers and how the context
-        window is derived from the provider's effective window. `user_id`
-        is threaded through from the HTTP layer so new sessions are owned
-        by the authenticated user.
-        """
-        info = get_provider(provider_name)
-        return self.conversations.get_or_create_session(
-            conversation_id,
-            provider=provider_name,
-            model=client.model,
-            context_window=info.effective_context_window,
-            user_id=user_id,
-        )
 
     async def prepare_session_async(
         self,

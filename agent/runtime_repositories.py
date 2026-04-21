@@ -15,23 +15,6 @@ class RuntimeConversationRepository:
     def lock(self, session_id: str) -> asyncio.Lock:
         return self._store.lock(session_id)
 
-    def get_or_create_session(
-        self,
-        session_id: str | None = None,
-        *,
-        provider: str | None = None,
-        model: str | None = None,
-        context_window: int = 0,
-        user_id: int | None = None,
-    ) -> SessionRecord:
-        return self._store.get_or_create_session(
-            session_id,
-            provider=provider,
-            model=model,
-            context_window=context_window,
-            user_id=user_id,
-        )
-
     async def get_or_create_session_async(
         self,
         session_id: str | None = None,
