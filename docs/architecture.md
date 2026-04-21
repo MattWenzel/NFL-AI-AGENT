@@ -175,7 +175,7 @@ Full runbooks in `CLAUDE.md`.
 
 A few things you might expect that aren't here:
 
-- **No ORM.** Raw SQL + dataclasses in `runtime_store.py`.
+- **No ORM.** Raw SQL + dataclasses in `storage/store.py` (facade) + `storage/{users,transcripts,exports}.py` (domain mixins).
 - **No background jobs / task queue.** Compaction is synchronous. If it ever needs to go async, the session lock needs to coordinate with it.
 - **No JWT.** Opaque bearer tokens with a DB lookup. Revocable; simpler. See [auth.md](auth.md#why-not-jwt).
 - **No CSRF protection.** Token-in-header auth isn't cookie-based, so CSRF isn't a vector.

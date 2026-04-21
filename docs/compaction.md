@@ -111,7 +111,7 @@ Fallback triggers:
 
 ## Persisting a summary
 
-`RuntimeStore.record_compaction` (`runtime_store.py:827`) performs three writes in a single transaction:
+`RuntimeStore.record_compaction` (`storage/transcripts.py:464`) performs three writes in a single transaction:
 
 1. Create a new turn with `role = "summary"` and the summary text.
 2. Insert a `compaction_summaries` row recording `(summary_turn_id, source_turn_ids)`.
@@ -123,7 +123,7 @@ The `compacted` flag is how every downstream consumer knows to skip a row. The s
 
 ## Re-injecting summaries into the next model call
 
-`build_model_messages` (`runtime_store.py:905`). This is where compacted context re-enters the wire protocol.
+`build_model_messages` (`agent/message_builder.py:12`). This is where compacted context re-enters the wire protocol.
 
 Order of emission:
 
@@ -134,7 +134,7 @@ Why summaries go first rather than chronologically: a summary represents compact
 
 ## The summary wrapping
 
-`_wrap_summaries_for_prompt` (`runtime_store.py:27`). Multiple summaries (layered compactions over a very long session) are concatenated with `---` separators, then wrapped:
+`wrap_summaries_for_prompt` (`storage/records.py:52`). Multiple summaries (layered compactions over a very long session) are concatenated with `---` separators, then wrapped:
 
 ```
 <prior_conversation_summary>

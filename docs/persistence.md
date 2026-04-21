@@ -6,12 +6,12 @@ The 2.3GB nflverse and pbp SQLite files are a separate concern — they're read-
 
 ## File map
 
-- `storage/` — single-file store (~1440 lines).
+- `storage/` — `RuntimeStore` facade composed from `UsersMixin`, `TranscriptsMixin`, `ExportsMixin` over split per-domain modules. Total ~1440 lines across `store.py` (composition + async wrappers), `users.py`, `transcripts.py`, `exports.py`, `_rows.py` (row → dataclass mappers), `records.py` (dataclass records), `schema.py` (DDL + migrations + startup reconciliation).
 - `config.py` — `RUNTIME_DB_PATH` (env-overridable).
 
 ## `RuntimeStore`
 
-`runtime_store.py:200`. One class with one dependency (a `Path`). Responsibilities:
+`storage/store.py:22`. One class with one dependency (a `Path`). Responsibilities:
 
 - Own the DB file (create if missing, run schema + migrations on every construct).
 - Serve typed records (`SessionRecord`, `TurnRecord`, etc.) — no raw `sqlite3.Row` escapes.
@@ -22,7 +22,7 @@ Constructed once during FastAPI lifespan (see [transport.md](transport.md#lifesp
 
 ## Connection pattern
 
-`_connect` (`runtime_store.py:213`). Every method that touches the DB opens a fresh connection:
+`_connect` (`storage/store.py:36`). Every method that touches the DB opens a fresh connection:
 
 ```python
 conn = sqlite3.connect(self.db_path)
@@ -30,13 +30,13 @@ conn.row_factory = sqlite3.Row
 conn.execute("PRAGMA foreign_keys=ON")
 ```
 
-Short-lived connections avoid the SQLite "same thread" issue — every call goes through `with self._connect() as conn:` and commits (or rolls back on exception) on context exit. WAL mode (enabled at init, `runtime_store.py:223`) lets readers proceed concurrently with a writer, so this pattern scales to the handful of concurrent chat requests a personal deployment sees.
+Short-lived connections avoid the SQLite "same thread" issue — every call goes through `with self._connect() as conn:` and commits (or rolls back on exception) on context exit. WAL mode (enabled at init, `storage/schema.py:24`) lets readers proceed concurrently with a writer, so this pattern scales to the handful of concurrent chat requests a personal deployment sees.
 
 `PRAGMA foreign_keys=ON` is per-connection in SQLite, hence the `_connect` setup. Without it, `ON DELETE CASCADE` on `auth_sessions` / `user_api_keys` silently wouldn't fire.
 
 ## Schema
 
-All 9 tables defined in `_init_db` (`runtime_store.py:219`).
+All 9 tables defined in `init_db` (`storage/schema.py:162`).
 
 ### Chat data
 
@@ -107,7 +107,7 @@ auth_sessions                         ── bearer token sessions
 └─ created_at, last_used_at
 ```
 
-Indexes defined alongside the schema (`runtime_store.py:339`):
+Indexes defined alongside the schema (`storage/schema.py:140`):
 
 | Index | Purpose |
 |-------|---------|
@@ -120,7 +120,7 @@ Indexes defined alongside the schema (`runtime_store.py:339`):
 
 ## Migrations
 
-`_ensure_column` (`runtime_store.py:367`). Every startup runs `PRAGMA table_info(table)` for each migrated column and issues `ALTER TABLE ... ADD COLUMN` if missing. Additive only — no rewrites, no drops. Existing rows get the `DEFAULT` or NULL.
+`_ensure_column` (`storage/schema.py:153`). Every startup runs `PRAGMA table_info(table)` for each migrated column and issues `ALTER TABLE ... ADD COLUMN` if missing. Additive only — no rewrites, no drops. Existing rows get the `DEFAULT` or NULL.
 
 Migrated columns (as of this writing):
 
@@ -185,25 +185,27 @@ Every event the runtime yields has a corresponding write. The transcript is appe
 
 ## Two sides of `create_turn`
 
-`runtime_store.py:665`. Creates a turn row with the given role/status/text. Used for:
+`storage/transcripts.py:241`. Creates a turn row with the given role/status/text. Used for:
 
 - `role='user'` with `status='completed'` — immediate write when a user message arrives.
 - `role='assistant'` with `status='running'` — opened at the top of each iteration; updated to `'completed'` when the stream ends.
 - `role='summary'` with `status='completed'` — by `record_compaction` and `seed_summary`. Summary turns have `compacted=0` by default; the source turns they replace are flipped to `compacted=1` in the same transaction.
 
-There is no "streaming turn" abstraction — the turn is just a row, and `append_turn_text` (`runtime_store.py:701`) concatenates chunks into the `text` column in place. If the process dies mid-stream, the partial text is preserved.
+There is no "streaming turn" abstraction — the turn is just a row, and `append_assistant_text` (`storage/transcripts.py:283`) concatenates chunks into the `text` column in place. If the process dies mid-stream, the partial text is preserved.
 
 ## Recovering the active prompt
 
-`build_model_messages` (`runtime_store.py:905`). Walks the transcript and emits a `list[Message]` (see [providers.md](providers.md#canonical-types)) for the next model call:
+`build_model_messages` (`agent/message_builder.py:12`). Walks the transcript and emits a `list[Message]` (see [providers.md](providers.md#canonical-types)) for the next model call:
 
-1. **Summary turns first.** All non-compacted `role='summary'` turns become a single synthetic assistant message via `_wrap_summaries_for_prompt`.
+1. **Summary turns first.** All non-compacted `role='summary'` turns become a single synthetic assistant message via `wrap_summaries_for_prompt` (`storage/records.py:52`).
 2. **Then user/assistant turns in chronological order**, skipping compacted ones. For assistant turns, `tool_calls` are attached from `tool_runs_by_turn`.
 3. **Then tool results** as separate `Message(role='tool_result', tool_use_id, tool_content)` entries.
 
 Why summaries go first unconditionally is covered in [compaction.md](compaction.md#re-injecting-summaries-into-the-next-model-call).
 
-Trailing whitespace on the final assistant content is stripped (`runtime_store.py:947`) — Anthropic rejects messages whose final assistant block ends with trailing whitespace, and models stream `\n` endings frequently.
+Trailing whitespace on the final assistant content is stripped (`agent/message_builder.py:44`) — Anthropic rejects messages whose final assistant block ends with trailing whitespace, and models stream `\n` endings frequently.
+
+Note: `build_model_messages` lives in the agent module, not the storage module, because it's a pure transform over `SessionTranscript` that doesn't touch SQLite — the runtime owns provider-message construction; storage owns raw persistence.
 
 ## User scoping
 
@@ -220,7 +222,7 @@ Passing `user_id=None` bypasses the filter. This is a **trust boundary** — the
 
 ## `SessionTranscript`
 
-`runtime_store.py:191`. Single-shot snapshot returned by `get_transcript`:
+`storage/records.py:196`. Single-shot snapshot returned by `get_transcript`:
 
 ```python
 @dataclass
@@ -238,7 +240,7 @@ The four reads share one connection but issue as separate autocommit statements 
 
 ## Exports and the `ctx` callback
 
-`register_export` (`runtime_store.py:522`) takes the values `create_csv_export` produces and inserts an `exports` row. The owning `user_id` is resolved by looking up the session that produced the export:
+`register_export` (`storage/exports.py:18`) takes the values `create_csv_export` produces and inserts an `exports` row. The owning `user_id` is resolved by looking up the session that produced the export:
 
 ```python
 if source_session_id:
@@ -266,4 +268,4 @@ All of these are thin SQL wrappers. The interesting logic (password hashing, tok
 - **No ORM.** Raw SQL + dataclasses. The row-to-record conversion is explicit per table (`_row_to_turn`, `_row_to_tool_run`, etc.).
 - **No caching.** Every read is a fresh query. WAL mode plus the indexes above keep this well under the network/LLM latency the user is actually waiting on.
 - **No connection pool.** `_connect` opens one per call. Python's sqlite3 module is fast enough; connection pooling would add coordination with no measurable win.
-- **No async.** Python's sqlite3 is synchronous. The runtime calls into the store from async context; the store calls are short enough that blocking the event loop briefly is fine. The tool layer's `asyncio.to_thread` exists for the nflverse DB (long SELECTs), not the runtime DB (single-row writes).
+- **No native async.** Python's sqlite3 is synchronous. The store exposes `_async` siblings for every public method that bridge via `asyncio.to_thread` (see `storage/store.py:48-166`), so the runtime loop, the compaction path, and FastAPI handlers never block the event loop on a SQLite call. Sync methods remain callable directly from sync contexts (startup reconciliation, tests).
