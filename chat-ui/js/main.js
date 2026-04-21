@@ -1,13 +1,16 @@
 import { state } from "./state.js";
 import { bootAuth, getCurrentUser, setPostLoginInit, signOut } from "./auth.js";
 import { loadProviders, loadTranscript, refreshConversations, refreshCsvs } from "./api.js";
-import { openCsv, renderCsvList } from "./csv.js";
+import { renderCsvList } from "./csv.js";
 import { setInspectorOpen } from "./inspector.js";
-import { applySidebarView, renderConversationList, setSidebarView, startNewSession } from "./sidebar.js";
+import { setSidebarView } from "./navigation.js";
+import { registerRenderHook, requestRender } from "./render-dispatch.js";
+import { render } from "./render.js";
+import { renderConversationList, startNewSession } from "./sidebar.js";
 import { openSettingsModal, closeSettingsModal } from "./settings.js";
 import { sendMessage } from "./streaming.js";
-import { fillSuggestion, onModelChange, onProviderChange, onToolChoiceChange, render, sendSuggestion } from "./thread.js";
-import { copyTextFromNode, escapeHtml } from "./utils.js";
+import { fillSuggestion, onModelChange, onProviderChange, onToolChoiceChange, sendSuggestion } from "./thread.js";
+import { autoResize, copyTextFromNode, escapeHtml } from "./utils.js";
 
 document.getElementById("themeToggle").addEventListener("click", () => {
   const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
@@ -65,8 +68,12 @@ document.getElementById("sidebarSearch").addEventListener("input", (e) => {
   if (state.sidebarView === "csvs") renderCsvList();
   else renderConversationList();
 });
-document.getElementById("tabChats").addEventListener("click", () => setSidebarView("chats"));
-document.getElementById("tabCsvs").addEventListener("click", () => setSidebarView("csvs"));
+document.getElementById("tabChats").addEventListener("click", () => {
+  setSidebarView("chats");
+});
+document.getElementById("tabCsvs").addEventListener("click", () => {
+  setSidebarView("csvs");
+});
 
 // --- Sidebar footer / user menu ---
 const userWidget = document.getElementById("userWidget");
@@ -155,9 +162,8 @@ export async function init() {
     state.activeCsvId = null;
     localStorage.removeItem("nfl_csv_active_id");
   }
-  applySidebarView();
   document.addEventListener("click", handleCopyClick);
-  render();
+  requestRender();
 }
 
 async function handleCopyClick(event) {
@@ -187,12 +193,6 @@ function handleInputKeydown(event) {
   }
 }
 
-export function autoResize() {
-  const input = document.getElementById("input");
-  input.style.height = "auto";
-  input.style.height = Math.min(input.scrollHeight, 220) + "px";
-}
-
 window.fillSuggestion = fillSuggestion;
 window.sendSuggestion = sendSuggestion;
 setPostLoginInit(init);
@@ -208,3 +208,4 @@ setPostLoginInit(init);
     document.getElementById("thread").innerHTML = `<div class="thread-inner"><div class="turn-card"><div class="turn-text">Failed to initialize UI: ${escapeHtml(error.message)}</div></div></div>`;
   }
 })();
+registerRenderHook(render);

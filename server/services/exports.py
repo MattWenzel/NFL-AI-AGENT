@@ -10,7 +10,11 @@ from pathlib import Path
 
 from config import EXPORTS_DIR
 from provider import get_default_provider, get_provider
-from server.schemas.exports import ExportDetail, ExportInfo, NewSessionFromExportResponse
+from server.services.export_models import (
+    ExportDetailRecord,
+    ExportSummary,
+    NewSessionFromExportResult,
+)
 from storage import RuntimeStore
 
 logger = logging.getLogger(__name__)
@@ -40,8 +44,8 @@ class ExportApplicationService:
             logger.warning("Malformed columns_json for export %s", record.id)
         return []
 
-    def _to_info(self, record) -> ExportInfo:
-        return ExportInfo(
+    def _to_info(self, record) -> ExportSummary:
+        return ExportSummary(
             id=record.id,
             filename=record.filename,
             title=record.title,
@@ -54,11 +58,11 @@ class ExportApplicationService:
             source_session_id=record.source_session_id,
         )
 
-    async def list_exports(self, user_id: int) -> list[ExportInfo]:
+    async def list_exports(self, user_id: int) -> list[ExportSummary]:
         records = await self.store.list_exports_async(user_id=user_id)
         return [self._to_info(r) for r in records]
 
-    async def get_export_detail(self, export_id: str, user_id: int) -> ExportDetail:
+    async def get_export_detail(self, export_id: str, user_id: int) -> ExportDetailRecord:
         record = await self.store.get_export_async(export_id, user_id=user_id)
         if record is None:
             raise ExportNotFoundError("CSV not found")
@@ -77,9 +81,23 @@ class ExportApplicationService:
             except OSError as exc:
                 logger.warning("Could not read CSV preview for %s: %s", record.filename, exc)
         info = self._to_info(record)
-        return ExportDetail(**info.model_dump(), sql=record.sql, preview_rows=preview_rows, preview_truncated=preview_truncated)
+        return ExportDetailRecord(
+            id=info.id,
+            filename=info.filename,
+            title=info.title,
+            row_count=info.row_count,
+            columns=info.columns,
+            file_size=info.file_size,
+            created_at=info.created_at,
+            updated_at=info.updated_at,
+            download_url=info.download_url,
+            source_session_id=info.source_session_id,
+            sql=record.sql,
+            preview_rows=preview_rows,
+            preview_truncated=preview_truncated,
+        )
 
-    async def rename_export(self, export_id: str, title: str, user_id: int) -> ExportInfo:
+    async def rename_export(self, export_id: str, title: str, user_id: int) -> ExportSummary:
         updated = await self.store.update_export_title_async(export_id, title.strip(), user_id=user_id)
         if updated is None:
             raise ExportNotFoundError("CSV not found")
@@ -107,7 +125,7 @@ class ExportApplicationService:
         user_id: int,
         provider_name: str | None,
         model: str | None,
-    ) -> NewSessionFromExportResponse:
+    ) -> NewSessionFromExportResult:
         record = await self.store.get_export_async(export_id, user_id=user_id)
         if record is None:
             raise ExportNotFoundError("CSV not found")
@@ -138,4 +156,4 @@ class ExportApplicationService:
             f"by re-running the SQL or variants of it; you do not have the CSV bytes directly."
         )
         await self.store.seed_summary_async(session.id, summary_text)
-        return NewSessionFromExportResponse(conversation_id=session.id)
+        return NewSessionFromExportResult(conversation_id=session.id)

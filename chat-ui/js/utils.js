@@ -99,10 +99,16 @@ export function formatTime(value) {
   return date.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
+export function autoResize() {
+  const input = document.getElementById("input");
+  input.style.height = "auto";
+  input.style.height = Math.min(input.scrollHeight, 220) + "px";
+}
+
 export async function downloadCSV(url, filename) {
   const resp = await fetch(url, { headers: authHeaders() });
   if (resp.status === 401 && typeof handleUnauthorized === "function") {
-    await handleUnauthorized();
+        await handleUnauthorized();
     throw new Error("Session expired — please sign in again.");
   }
   if (!resp.ok) throw new Error(`Download failed (${resp.status})`);

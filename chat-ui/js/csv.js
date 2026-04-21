@@ -1,9 +1,9 @@
 import { API_BASE, state } from "./state.js";
 import { confirmDialog } from "./confirm.js";
 import { loadTranscript, refreshConversations } from "./api.js";
-import { applySidebarView } from "./sidebar.js";
+import { setSidebarView } from "./navigation.js";
+import { requestRender } from "./render-dispatch.js";
 import { fetchJSON, downloadCSV, escapeHtml, formatTime } from "./utils.js";
-import { render } from "./thread.js";
 
 export function renderCsvList() {
   const list = document.getElementById("csvList");
@@ -111,7 +111,7 @@ export async function openCsv(csvId) {
       console.error("Failed to load CSV detail:", err);
     }
   }
-  render();
+  requestRender();
 }
 
 async function renameCsv(csvId, newTitle) {
@@ -126,7 +126,7 @@ async function renameCsv(csvId, newTitle) {
     const detail = state.csvDetails.get(csvId);
     state.csvDetails.set(csvId, { ...detail, title: updated.title, updated_at: updated.updated_at });
   }
-  render();
+  requestRender();
 }
 
 async function deleteCsv(csvId) {
@@ -137,7 +137,7 @@ async function deleteCsv(csvId) {
     state.activeCsvId = null;
     localStorage.removeItem("nfl_csv_active_id");
   }
-  render();
+  requestRender();
 }
 
 function beginCsvRename(item, csv) {
@@ -275,8 +275,6 @@ async function startChatFromCsv(csvId) {
   });
   const newId = resp.conversation_id;
   await refreshConversations();
-  state.sidebarView = "chats";
-  localStorage.setItem("nfl_sidebar_view", "chats");
-  applySidebarView();
+  setSidebarView("chats");
   await loadTranscript(newId);
 }

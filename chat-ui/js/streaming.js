@@ -1,9 +1,8 @@
 import { API_BASE, state } from "./state.js";
 import { loadTranscript, refreshConversations, refreshCsvs } from "./api.js";
 import { authHeaders, handleUnauthorized } from "./auth.js";
-import { renderMarkdown } from "./utils.js";
-import { render } from "./thread.js";
-import { autoResize } from "./main.js";
+import { requestRender } from "./render-dispatch.js";
+import { autoResize, renderMarkdown } from "./utils.js";
 
 export async function sendMessage() {
   const input = document.getElementById("input");
@@ -24,7 +23,7 @@ export async function sendMessage() {
   };
   input.value = "";
   autoResize();
-  render();
+  requestRender();
 
   try {
     const resp = await fetch(`${API_BASE}/chat/stream`, {
@@ -73,7 +72,7 @@ export async function sendMessage() {
   } catch (error) {
     state.liveTurn.status = "error";
     state.liveTurn.errors.push(error.message);
-    render();
+    requestRender();
   } finally {
     state.isStreaming = false;
     document.getElementById("sendBtn").disabled = false;
@@ -156,7 +155,7 @@ function handleStreamEvent(event) {
     finishLiveTurn();
     return;
   }
-  render();
+  requestRender();
 }
 
 async function finishLiveTurn() {
@@ -173,6 +172,6 @@ async function finishLiveTurn() {
     await Promise.all([refreshConversations(), refreshCsvs()]);
     await loadTranscript(sessionId);
   } else {
-    render();
+    requestRender();
   }
 }

@@ -5,8 +5,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from auth.primitives import AuthenticatedUser
-from server.dependencies import get_codex_oauth_service, get_current_user
-from server.process_state import RequestRateLimiter, get_codex_start_limiter
+from server.dependencies import get_codex_oauth_service, get_codex_start_limiter, get_current_user
+from server.process_state import RequestRateLimiter
 from server.schemas.codex_oauth import CodexOAuthStartResponse, CodexOAuthStatusResponse
 from server.services.codex_oauth import (
     CodexOAuthApplicationService,

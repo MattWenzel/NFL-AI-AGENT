@@ -1,6 +1,6 @@
 import { state } from "./state.js";
 import { fetchJSON } from "./utils.js";
-import { renderProviderControls, render } from "./thread.js";
+import { requestRender } from "./render-dispatch.js";
 
 export async function loadProviders() {
   try {
@@ -17,7 +17,7 @@ export async function loadProviders() {
       supports_tools: true,
     }];
   }
-  renderProviderControls();
+  requestRender();
 }
 
 
@@ -45,7 +45,7 @@ export async function loadTranscript(sessionId) {
   state.activeSessionId = sessionId;
   state.selectedTurnId = pickDefaultTurn(transcript);
   localStorage.setItem("nfl_runtime_active_session", sessionId);
-  render();
+  requestRender();
 }
 
 function pickDefaultTurn(transcript) {

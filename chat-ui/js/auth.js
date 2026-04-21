@@ -3,7 +3,6 @@
 // they depend on `authHeaders()` and `handleUnauthorized()`.
 
 import { API_BASE } from "./state.js";
-import { escapeHtml } from "./utils.js";
 
 const AUTH_TOKEN_KEY = "nfl_auth_token";
 
@@ -12,6 +11,12 @@ let _currentUser = null;
 // renders an "Invite code" input and the server enforces the match.
 let _inviteRequired = false;
 let postLoginInitHook = null;
+
+function escapeHtml(value) {
+  const div = document.createElement("div");
+  div.textContent = value == null ? "" : String(value);
+  return div.innerHTML;
+}
 
 export function getAuthToken() {
   return localStorage.getItem(AUTH_TOKEN_KEY) || "";

@@ -10,10 +10,11 @@ from agent.runtime import ChatRuntime
 from auth.primitives import AuthenticatedUser, _extract_bearer
 from config import AUTH_SESSION_TOUCH_INTERVAL_SECONDS
 from server.process_state import (
+    AppProcessState,
+    ChatStreamGate,
     PendingCodexOAuthFlowStore,
     PerUserLockRegistry,
-    get_codex_pending_flows,
-    get_codex_refresh_locks,
+    RequestRateLimiter,
 )
 from server.repositories import ConversationRepository
 from server.services.chat import ChatApplicationService
@@ -85,6 +86,31 @@ def get_runtime(request: Request) -> ChatRuntime:
             "chat_runtime not attached to app.state — the FastAPI lifespan must set it before requests run."
         )
     return runtime
+
+
+def get_process_state(request: Request) -> AppProcessState:
+    state = getattr(request.app.state, "process_state", None)
+    if state is None:
+        raise RuntimeError(
+            "process_state not attached to app.state — the FastAPI lifespan must set it before requests run."
+        )
+    return state
+
+
+def get_chat_stream_gate(request: Request) -> ChatStreamGate:
+    return get_process_state(request).chat_stream_limiter
+
+
+def get_codex_start_limiter(request: Request) -> RequestRateLimiter:
+    return get_process_state(request).codex_start_limiter
+
+
+def get_codex_pending_flows(request: Request) -> PendingCodexOAuthFlowStore:
+    return get_process_state(request).codex_pending_flows
+
+
+def get_codex_refresh_locks(request: Request) -> PerUserLockRegistry:
+    return get_process_state(request).codex_refresh_locks
 
 
 def get_chat_service(

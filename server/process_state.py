@@ -6,7 +6,6 @@ import asyncio
 import time
 from dataclasses import dataclass, field
 from typing import Protocol
-from fastapi import Request
 
 from server.rate_limit import ConcurrencyLimiter, RateLimiter
 
@@ -120,7 +119,7 @@ class ChatStreamGate(Protocol):
 
 
 class RequestRateLimiter(Protocol):
-    def check(self, request: Request) -> None: ...
+    def check(self, request: object) -> None: ...
 
 
 @dataclass
@@ -151,28 +150,3 @@ class AppProcessState:
 
     async def aclose(self) -> None:
         await self.codex_pending_flows.cancel_all()
-
-
-def get_process_state(request: Request) -> AppProcessState:
-    state = getattr(request.app.state, "process_state", None)
-    if state is None:
-        raise RuntimeError(
-            "process_state not attached to app.state — the FastAPI lifespan must set it before requests run."
-        )
-    return state
-
-
-def get_chat_stream_gate(request: Request) -> ChatStreamGate:
-    return get_process_state(request).chat_stream_limiter
-
-
-def get_codex_start_limiter(request: Request) -> RequestRateLimiter:
-    return get_process_state(request).codex_start_limiter
-
-
-def get_codex_pending_flows(request: Request) -> PendingCodexOAuthFlowStore:
-    return get_process_state(request).codex_pending_flows
-
-
-def get_codex_refresh_locks(request: Request) -> PerUserLockRegistry:
-    return get_process_state(request).codex_refresh_locks

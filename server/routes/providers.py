@@ -5,6 +5,8 @@ key set (server-configured fallback) or (b) the authenticated user has stored
 their own key via /settings/api-keys.
 """
 
+from dataclasses import asdict
+
 from fastapi import APIRouter, Depends
 
 from auth.primitives import AuthenticatedUser
@@ -23,16 +25,4 @@ async def get_providers(
 ):
     """List available LLM providers and their configuration for the current user."""
     items = await SettingsApplicationService(store).list_provider_availability(user.id)
-    return [
-        ProviderResponse(
-            name=item.name,
-            display_name=item.display_name,
-            models=item.models,
-            default_model=item.default_model,
-            available=item.available,
-            context_window=item.context_window,
-            supports_streaming=item.supports_streaming,
-            supports_tools=item.supports_tools,
-        )
-        for item in items
-    ]
+    return [ProviderResponse.model_validate(asdict(item)) for item in items]

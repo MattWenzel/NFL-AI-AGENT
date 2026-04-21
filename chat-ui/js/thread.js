@@ -1,10 +1,8 @@
 import { state } from "./state.js";
-import { openCsv, renderCsvList, renderCsvViewer } from "./csv.js";
+import { openCsv } from "./csv.js";
 import { setInspectorOpen, renderInspector } from "./inspector.js";
-import { setSidebarView, renderConversationList } from "./sidebar.js";
-import { sendMessage } from "./streaming.js";
-import { destroyAllCharts, mountPendingCharts } from "./charts.js";
-import { downloadCSV, escapeHtml, formatTime, groupBy, preview, renderMarkdown, statusLabel } from "./utils.js";
+import { setSidebarView } from "./navigation.js";
+import { autoResize, downloadCSV, escapeHtml, formatTime, groupBy, preview, renderMarkdown, statusLabel } from "./utils.js";
 
 export function renderProviderControls() {
   const providerSelect = document.getElementById("providerSelect");
@@ -59,40 +57,7 @@ export function onToolChoiceChange(event) {
 }
 
 
-export function render() {
-  // Destroy existing Chart.js instances before the DOM swap that follows —
-  // otherwise they leak (Chart.js holds a ref to the canvas element).
-  destroyAllCharts();
-  state.pendingCharts.clear();
-
-  if (state.sidebarView === "csvs") {
-    renderCsvList();
-  } else {
-    renderConversationList();
-  }
-  renderSessionHeader();
-  renderMain();
-  renderInspector();
-  document.getElementById("sendBtn").disabled = state.isStreaming;
-
-  // Any render path that emits <canvas data-chart-id="…"> will have stashed
-  // its spec+rows on state.pendingCharts. Bind them now that the DOM is stable.
-  mountPendingCharts(document);
-}
-
-function renderMain() {
-  const mainEl = document.querySelector(".main");
-  const viewingCsv = state.sidebarView === "csvs" && state.activeCsvId;
-  mainEl.classList.toggle("viewing-csv", Boolean(viewingCsv));
-  if (viewingCsv) {
-    renderCsvViewer();
-  } else {
-    renderThread();
-  }
-}
-
-
-function renderSessionHeader() {
+export function renderSessionHeader() {
   // No in-page header anymore; reflect the active session title in the browser tab
   // so multiple open tabs stay distinguishable.
   const transcript = state.activeSessionId ? state.transcripts.get(state.activeSessionId) : null;
@@ -100,7 +65,7 @@ function renderSessionHeader() {
   document.title = sessionTitle ? `${sessionTitle} — NFL AI Stats Agent` : "NFL AI Stats Agent";
 }
 
-function renderThread() {
+export function renderThread() {
   const thread = document.getElementById("thread");
   // Preserve scroll across re-renders: stick to the bottom if the user was
   // already there (so streaming updates follow the latest text), otherwise
@@ -493,5 +458,5 @@ export function fillSuggestion(text) {
 
 export function sendSuggestion(text) {
   fillSuggestion(text);
-  sendMessage();
+  document.getElementById("sendBtn")?.click();
 }

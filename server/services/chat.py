@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import AsyncGenerator
 
 from auth.primitives import AuthenticatedUser
@@ -17,9 +17,10 @@ from provider import (
     provider_is_available,
 )
 from storage import RuntimeStore, SessionRecord
-from server.schemas.chat import ChatRequest, ChatResponse
+from server.schemas.chat import ChatRequest
 from server.process_state import PerUserLockRegistry
 from server.services.credentials import CredentialServiceError, ProviderCredentialService
+from server.services.chat_models import ChatCompletionResult, ToolCallPreviewResult
 
 
 class ChatServiceError(Exception):
@@ -161,7 +162,7 @@ class ChatApplicationService:
         user: AuthenticatedUser,
         *,
         tools,
-    ) -> ChatResponse:
+    ) -> ChatCompletionResult:
         prepared = await self.prepare_chat(body, user)
         response_text = ""
         tool_calls_log: list[ToolCallLogEntry] = []
@@ -195,11 +196,15 @@ class ChatApplicationService:
                     hit_limit = bool(runtime_error.startswith("Reached maximum tool iterations"))
             if runtime_error and not hit_limit:
                 raise ChatServiceError(runtime_error)
-            return ChatResponse(
+            return ChatCompletionResult(
                 conversation_id=prepared.session.id,
                 response=response_text,
                 tool_calls=[
-                    asdict(item, dict_factory=lambda items: {k: v for k, v in items if k != "tool_run_id"})
+                    ToolCallPreviewResult(
+                        tool=item.tool,
+                        input=item.input,
+                        result_preview=item.result_preview,
+                    )
                     for item in tool_calls_log
                 ],
                 truncated=hit_limit,

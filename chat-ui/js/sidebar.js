@@ -2,36 +2,15 @@ import { state } from "./state.js";
 import { confirmDialog } from "./confirm.js";
 import { openCsv } from "./csv.js";
 import { loadTranscript, refreshConversations } from "./api.js";
+import { requestRender } from "./render-dispatch.js";
 import { fetchJSON, escapeHtml, formatTime } from "./utils.js";
-import { render } from "./thread.js";
-
-export function applySidebarView() {
-  const view = state.sidebarView === "csvs" ? "csvs" : "chats";
-  document.getElementById("pane-chats").hidden = view !== "chats";
-  document.getElementById("pane-csvs").hidden = view !== "csvs";
-  document.getElementById("tabChats").classList.toggle("active", view === "chats");
-  document.getElementById("tabCsvs").classList.toggle("active", view === "csvs");
-  const search = document.getElementById("sidebarSearch");
-  search.placeholder = view === "csvs" ? "Search reports" : "Search conversations";
-}
-
-export function setSidebarView(view) {
-  const next = view === "csvs" ? "csvs" : "chats";
-  state.sidebarView = next;
-  localStorage.setItem("nfl_sidebar_view", next);
-  state.sidebarSearch = "";
-  document.getElementById("sidebarSearch").value = "";
-  applySidebarView();
-  render();
-}
-
 
 export function startNewSession() {
   state.activeSessionId = null;
   state.selectedTurnId = null;
   state.liveTurn = null;
   localStorage.removeItem("nfl_runtime_active_session");
-  render();
+  requestRender();
 }
 
 async function deleteConversation(sessionId) {
@@ -41,7 +20,7 @@ async function deleteConversation(sessionId) {
   if (state.activeSessionId === sessionId) {
     startNewSession();
   }
-  render();
+  requestRender();
 }
 
 async function renameConversation(sessionId, newTitle) {
@@ -54,7 +33,7 @@ async function renameConversation(sessionId, newTitle) {
   if (idx !== -1) state.conversations[idx] = updated;
   const transcript = state.transcripts.get(sessionId);
   if (transcript) transcript.title = updated.title;
-  render();
+  requestRender();
 }
 
 async function togglePinned(sessionId, shouldPin) {
@@ -73,7 +52,7 @@ async function togglePinned(sessionId, shouldPin) {
     if (a.pinned_at && b.pinned_at) return b.pinned_at.localeCompare(a.pinned_at);
     return (b.updated_at || "").localeCompare(a.updated_at || "");
   });
-  render();
+  requestRender();
 }
 
 
