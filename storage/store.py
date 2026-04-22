@@ -28,7 +28,8 @@ from sqlalchemy import func, update
 from storage.engine import build_async_engine, build_async_sessionmaker, build_sync_engine
 from storage.exports import ExportsMixin
 from storage.models import ToolRunRecord, TurnRecord, utcnow
-from storage.transcripts import TranscriptsMixin
+from storage.session_store import SessionStoreMixin
+from storage.transcript_store import TranscriptStoreMixin
 from storage.users import UsersMixin
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ logger = logging.getLogger(__name__)
 _ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
 
 
-class RuntimeStore(UsersMixin, TranscriptsMixin, ExportsMixin):
+class RuntimeStore(UsersMixin, SessionStoreMixin, TranscriptStoreMixin, ExportsMixin):
     """SQLite-backed persistence for the refactored NFL agent runtime."""
 
     def __init__(self, db_path: Path):
