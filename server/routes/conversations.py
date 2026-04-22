@@ -1,7 +1,5 @@
 """Conversation CRUD endpoints."""
 
-from dataclasses import asdict
-
 from fastapi import APIRouter, Depends, HTTPException
 
 from auth.primitives import AuthenticatedUser
@@ -17,10 +15,7 @@ async def list_conversations(
     service: ConversationApplicationService = Depends(get_conversation_service),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
-    return [
-        ConversationInfo.model_validate(asdict(item))
-        for item in await service.list_conversations(user.id)
-    ]
+    return await service.list_conversations(user.id)
 
 
 @router.get("/conversations/{conversation_id}/transcript", response_model=ConversationTranscriptResponse)
@@ -30,9 +25,7 @@ async def get_conversation_transcript(
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     try:
-        return ConversationTranscriptResponse.model_validate(
-            asdict(await service.get_transcript(conversation_id, user.id))
-        )
+        return await service.get_transcript(conversation_id, user.id)
     except ConversationNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
@@ -47,15 +40,11 @@ async def update_conversation(
     if body.title is None and body.pinned is None:
         raise HTTPException(status_code=400, detail="Provide title and/or pinned")
     try:
-        return ConversationInfo.model_validate(
-            asdict(
-                await service.update_conversation(
-                    conversation_id,
-                    user_id=user.id,
-                    title=body.title,
-                    pinned=body.pinned,
-                )
-            )
+        return await service.update_conversation(
+            conversation_id,
+            user_id=user.id,
+            title=body.title,
+            pinned=body.pinned,
         )
     except ConversationNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))

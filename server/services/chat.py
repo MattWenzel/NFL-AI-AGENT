@@ -17,10 +17,9 @@ from provider import (
     provider_is_available,
 )
 from storage import RuntimeStore, SessionRecord
-from server.schemas.chat import ChatRequest
+from server.schemas.chat import ChatRequest, ChatResponse, ToolCallPreview
 from server.process_state import PerUserLockRegistry
 from server.services.credentials import CredentialServiceError, ProviderCredentialService
-from server.services.chat_models import ChatCompletionResult, ToolCallPreviewResult
 
 
 class ChatServiceError(Exception):
@@ -106,7 +105,7 @@ class ChatApplicationService:
     ) -> PreparedChat:
         if (
             body.conversation_id
-            and await self.store.get_session_async(body.conversation_id, user_id=user.id) is None
+            and await self.store.get_session(body.conversation_id, user_id=user.id) is None
         ):
             raise ChatNotFoundError("Conversation not found")
 
@@ -162,7 +161,7 @@ class ChatApplicationService:
         user: AuthenticatedUser,
         *,
         tools,
-    ) -> ChatCompletionResult:
+    ) -> ChatResponse:
         prepared = await self.prepare_chat(body, user)
         response_text = ""
         tool_calls_log: list[ToolCallLogEntry] = []
@@ -196,11 +195,11 @@ class ChatApplicationService:
                     hit_limit = bool(runtime_error.startswith("Reached maximum tool iterations"))
             if runtime_error and not hit_limit:
                 raise ChatServiceError(runtime_error)
-            return ChatCompletionResult(
+            return ChatResponse(
                 conversation_id=prepared.session.id,
                 response=response_text,
                 tool_calls=[
-                    ToolCallPreviewResult(
+                    ToolCallPreview(
                         tool=item.tool,
                         input=item.input,
                         result_preview=item.result_preview,

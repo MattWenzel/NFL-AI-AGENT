@@ -15,7 +15,6 @@ Pydantic shapes live in `server.schemas`.
 import asyncio
 import json
 import logging
-from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -86,9 +85,8 @@ async def chat_message(
         logger.exception("Unexpected runtime error in chat/message")
         raise HTTPException(status_code=500, detail=str(e))
 
-    result = ChatResponse.model_validate(asdict(response))
-    logger.debug("chat/message done  session=%s", result.conversation_id)
-    return result
+    logger.debug("chat/message done  session=%s", response.conversation_id)
+    return response
 
 
 _PRODUCER_DONE = object()  # sentinel put on the queue when the producer finishes

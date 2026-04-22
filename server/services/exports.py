@@ -10,10 +10,10 @@ from pathlib import Path
 
 from config import EXPORTS_DIR
 from provider import get_default_provider, get_provider
-from server.services.export_models import (
-    ExportDetailRecord,
-    ExportSummary,
-    NewSessionFromExportResult,
+from server.schemas.exports import (
+    ExportDetail,
+    ExportInfo,
+    NewSessionFromExportResponse,
 )
 from storage import RuntimeStore
 
@@ -44,8 +44,8 @@ class ExportApplicationService:
             logger.warning("Malformed columns_json for export %s", record.id)
         return []
 
-    def _to_info(self, record) -> ExportSummary:
-        return ExportSummary(
+    def _to_info(self, record) -> ExportInfo:
+        return ExportInfo(
             id=record.id,
             filename=record.filename,
             title=record.title,
@@ -58,12 +58,12 @@ class ExportApplicationService:
             source_session_id=record.source_session_id,
         )
 
-    async def list_exports(self, user_id: int) -> list[ExportSummary]:
-        records = await self.store.list_exports_async(user_id=user_id)
+    async def list_exports(self, user_id: int) -> list[ExportInfo]:
+        records = await self.store.list_exports(user_id=user_id)
         return [self._to_info(r) for r in records]
 
-    async def get_export_detail(self, export_id: str, user_id: int) -> ExportDetailRecord:
-        record = await self.store.get_export_async(export_id, user_id=user_id)
+    async def get_export_detail(self, export_id: str, user_id: int) -> ExportDetail:
+        record = await self.store.get_export(export_id, user_id=user_id)
         if record is None:
             raise ExportNotFoundError("CSV not found")
         preview_rows: list[dict] = []
@@ -81,7 +81,7 @@ class ExportApplicationService:
             except OSError as exc:
                 logger.warning("Could not read CSV preview for %s: %s", record.filename, exc)
         info = self._to_info(record)
-        return ExportDetailRecord(
+        return ExportDetail(
             id=info.id,
             filename=info.filename,
             title=info.title,
@@ -97,14 +97,14 @@ class ExportApplicationService:
             preview_truncated=preview_truncated,
         )
 
-    async def rename_export(self, export_id: str, title: str, user_id: int) -> ExportSummary:
-        updated = await self.store.update_export_title_async(export_id, title.strip(), user_id=user_id)
+    async def rename_export(self, export_id: str, title: str, user_id: int) -> ExportInfo:
+        updated = await self.store.update_export_title(export_id, title.strip(), user_id=user_id)
         if updated is None:
             raise ExportNotFoundError("CSV not found")
         return self._to_info(updated)
 
     async def delete_export(self, export_id: str, user_id: int) -> None:
-        record = await self.store.delete_export_async(export_id, user_id=user_id)
+        record = await self.store.delete_export(export_id, user_id=user_id)
         if record is None:
             raise ExportNotFoundError("CSV not found")
         try:
@@ -113,7 +113,7 @@ class ExportApplicationService:
             logger.warning("Could not unlink CSV file %s: %s", record.filename, exc)
 
     async def get_download_record(self, filename: str, user_id: int):
-        record = await self.store.get_export_by_filename_async(filename, user_id=user_id)
+        record = await self.store.get_export_by_filename(filename, user_id=user_id)
         if record is None:
             raise ExportNotFoundError("Export not found")
         return record
@@ -125,8 +125,8 @@ class ExportApplicationService:
         user_id: int,
         provider_name: str | None,
         model: str | None,
-    ) -> NewSessionFromExportResult:
-        record = await self.store.get_export_async(export_id, user_id=user_id)
+    ) -> NewSessionFromExportResponse:
+        record = await self.store.get_export(export_id, user_id=user_id)
         if record is None:
             raise ExportNotFoundError("CSV not found")
         resolved_provider = provider_name or get_default_provider()
@@ -135,15 +135,15 @@ class ExportApplicationService:
         except KeyError as exc:
             raise ExportServiceError(str(exc))
         resolved_model = model or info.default_model
-        session = await self.store.get_or_create_session_async(
+        session = await self.store.get_or_create_session(
             provider=resolved_provider,
             model=resolved_model,
             context_window=info.effective_context_window,
             user_id=user_id,
         )
         session.title = record.title
-        await self.store.update_session_async(session)
-        await self.store.set_session_source_csv_async(session.id, export_id, user_id=user_id)
+        await self.store.update_session(session)
+        await self.store.set_session_source_csv(session.id, export_id, user_id=user_id)
         columns = self._columns(record)
         summary_text = (
             f"The user has opened a saved CSV for this conversation.\n"
@@ -155,5 +155,5 @@ class ExportApplicationService:
             f"Use this context for follow-up questions. You can reference the data "
             f"by re-running the SQL or variants of it; you do not have the CSV bytes directly."
         )
-        await self.store.seed_summary_async(session.id, summary_text)
-        return NewSessionFromExportResult(conversation_id=session.id)
+        await self.store.seed_summary(session.id, summary_text)
+        return NewSessionFromExportResponse(conversation_id=session.id)

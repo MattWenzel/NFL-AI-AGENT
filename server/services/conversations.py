@@ -5,19 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from server.repositories import ConversationListEntry, ConversationRepository
-from server.services.conversation_models import (
-    ConversationPart,
-    ConversationSummary,
-    ConversationSummaryRecord,
-    ConversationToolRun,
-    ConversationTranscript,
-    ConversationTurn,
+from server.schemas.conversations import (
+    ConversationInfo,
+    ConversationTranscriptResponse,
 )
-from storage import RuntimeStore, SessionTranscript, safe_load_tool_input
+from storage import RuntimeStore, SessionTranscript
 
 
-def _conversation_info_from_row(item: ConversationListEntry) -> ConversationSummary:
-    return ConversationSummary(
+def _conversation_info_from_row(item: ConversationListEntry) -> ConversationInfo:
+    return ConversationInfo(
         id=item.id,
         message_count=item.turn_count,
         title=item.title,
@@ -29,73 +25,21 @@ def _conversation_info_from_row(item: ConversationListEntry) -> ConversationSumm
     )
 
 
-def _transcript_response(conversation_id: str, transcript: SessionTranscript) -> ConversationTranscript:
-    tool_runs = []
-    for turn_id, runs in transcript.tool_runs_by_turn.items():
-        for run in runs:
-            tool_runs.append(
-                ConversationToolRun(
-                    id=run.id,
-                    turn_id=turn_id,
-                    tool_name=run.tool_name,
-                    status=run.status,
-                    input=safe_load_tool_input(run.input_json, tool_run_id=run.id),
-                    result=run.result_text,
-                    error=run.error_text,
-                    hint=run.hint,
-                    duration_ms=run.duration_ms,
-                    compacted=run.compacted,
-                    created_at=run.created_at,
-                    updated_at=run.updated_at,
-                )
-            )
-    parts = []
-    for turn_id, records in transcript.parts_by_turn.items():
-        for part in records:
-            parts.append(
-                ConversationPart(
-                    id=part.id,
-                    turn_id=turn_id,
-                    kind=part.kind,
-                    order_index=part.order_index,
-                    content=part.content,
-                    name=part.name,
-                    tool_run_id=part.tool_run_id,
-                    created_at=part.created_at,
-                )
-            )
-    return ConversationTranscript(
+def _transcript_response(
+    conversation_id: str, transcript: SessionTranscript
+) -> ConversationTranscriptResponse:
+    parts = [p for records in transcript.parts_by_turn.values() for p in records]
+    tool_runs = [r for runs in transcript.tool_runs_by_turn.values() for r in runs]
+    return ConversationTranscriptResponse(
         session_id=conversation_id,
         title=transcript.session.title,
         provider=transcript.session.provider,
         model=transcript.session.model,
         updated_at=transcript.session.updated_at,
-        turns=[
-            ConversationTurn(
-                id=turn.id,
-                role=turn.role,
-                status=turn.status,
-                text=turn.text,
-                compacted=turn.compacted,
-                error=turn.error,
-                input_tokens=turn.input_tokens,
-                output_tokens=turn.output_tokens,
-                created_at=turn.created_at,
-                updated_at=turn.updated_at,
-            )
-            for turn in transcript.turns
-        ],
+        turns=list(transcript.turns),
         parts=parts,
         tool_runs=tool_runs,
-        summaries=[
-            ConversationSummaryRecord(
-                id=summary.id,
-                summary_turn_id=summary.summary_turn_id,
-                source_turn_ids=summary.source_turn_ids,
-                created_at=summary.created_at,
-            )
-            for summary in transcript.summaries
-        ],
+        summaries=list(transcript.summaries),
     )
 
 
@@ -112,15 +56,17 @@ class ConversationApplicationService:
     store: RuntimeStore
     conversations: ConversationRepository  # slim, for list mapping only
 
-    async def list_conversations(self, user_id: int) -> list[ConversationSummary]:
+    async def list_conversations(self, user_id: int) -> list[ConversationInfo]:
         rows = await self.conversations.list_sessions(user_id=user_id)
         return [_conversation_info_from_row(item) for item in rows]
 
-    async def get_transcript(self, conversation_id: str, user_id: int) -> ConversationTranscript:
-        if await self.store.get_session_async(conversation_id, user_id=user_id) is None:
+    async def get_transcript(
+        self, conversation_id: str, user_id: int
+    ) -> ConversationTranscriptResponse:
+        if await self.store.get_session(conversation_id, user_id=user_id) is None:
             raise ConversationNotFoundError("Conversation not found")
         try:
-            transcript = await self.store.get_transcript_async(conversation_id)
+            transcript = await self.store.get_transcript(conversation_id)
         except KeyError:
             raise ConversationNotFoundError("Conversation not found")
         return _transcript_response(conversation_id, transcript)
@@ -132,15 +78,15 @@ class ConversationApplicationService:
         user_id: int,
         title: str | None,
         pinned: bool | None,
-    ) -> ConversationSummary:
-        session = await self.store.get_session_async(conversation_id, user_id=user_id)
+    ) -> ConversationInfo:
+        session = await self.store.get_session(conversation_id, user_id=user_id)
         if session is None:
             raise ConversationNotFoundError("Conversation not found")
         if title is not None:
             session.title = title.strip()
-            await self.store.update_session_async(session)
+            await self.store.update_session(session)
         if pinned is not None:
-            session = await self.store.set_session_pinned_async(
+            session = await self.store.set_session_pinned(
                 conversation_id,
                 pinned,
                 user_id=user_id,
@@ -157,5 +103,5 @@ class ConversationApplicationService:
         return _conversation_info_from_row(entry)
 
     async def delete_conversation(self, conversation_id: str, user_id: int) -> None:
-        if not await self.store.delete_session_async(conversation_id, user_id=user_id):
+        if not await self.store.delete_session(conversation_id, user_id=user_id):
             raise ConversationNotFoundError("Conversation not found")

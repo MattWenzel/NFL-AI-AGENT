@@ -1,7 +1,5 @@
 """CSV library: list, preview, rename, delete, and seed new chats."""
 
-from dataclasses import asdict
-
 from fastapi import APIRouter, Depends, HTTPException
 
 from auth.primitives import AuthenticatedUser
@@ -29,7 +27,7 @@ async def list_csvs(
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     service = ExportApplicationService(store)
-    return [ExportInfo.model_validate(asdict(item)) for item in await service.list_exports(user.id)]
+    return await service.list_exports(user.id)
 
 
 @router.get("/{export_id}", response_model=ExportDetail)
@@ -40,7 +38,7 @@ async def get_csv_detail(
 ):
     service = ExportApplicationService(store)
     try:
-        return ExportDetail.model_validate(asdict(await service.get_export_detail(export_id, user.id)))
+        return await service.get_export_detail(export_id, user.id)
     except ExportNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
@@ -54,7 +52,7 @@ async def rename_csv(
 ):
     service = ExportApplicationService(store)
     try:
-        return ExportInfo.model_validate(asdict(await service.rename_export(export_id, body.title, user.id)))
+        return await service.rename_export(export_id, body.title, user.id)
     except ExportNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
@@ -82,15 +80,11 @@ async def new_session_from_csv(
 ):
     service = ExportApplicationService(store)
     try:
-        return NewSessionFromExportResponse.model_validate(
-            asdict(
-                await service.create_session_from_export(
-                    export_id,
-                    user_id=user.id,
-                    provider_name=body.provider,
-                    model=body.model,
-                )
-            )
+        return await service.create_session_from_export(
+            export_id,
+            user_id=user.id,
+            provider_name=body.provider,
+            model=body.model,
         )
     except ExportNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
