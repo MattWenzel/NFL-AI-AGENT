@@ -7,7 +7,7 @@
 // completes sign-in on auth.openai.com/codex/device.
 
 import { fetchJSON, escapeHtml, formatTime } from "./utils.js";
-import { clearAuthToken, getCurrentUser, signOut } from "./auth.js";
+import { clearAuthToken, getCurrentUser } from "./auth.js";
 import { confirmDialog } from "./confirm.js";
 import { loadProviders } from "./api.js";
 
