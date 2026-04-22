@@ -17,6 +17,7 @@ from provider.retry import (
     MAX_ATTEMPTS, RetryableError, compute_delay, parse_retry_after,
     parse_retry_after_ms, with_retries,
 )
+from provider.tool_calls import build_tool_use_event, emit_accumulated_tool_calls
 
 logger = logging.getLogger(__name__)
 
@@ -261,20 +262,11 @@ class OpenAIClient(BaseLLMClient):
     @staticmethod
     def _emit_accumulated_tools(tool_calls_acc: dict) -> list[ToolUseEvent]:
         """Parse and return accumulated tool calls, then clear the accumulator."""
-        events = []
-        for idx in sorted(tool_calls_acc.keys()):
-            acc = tool_calls_acc[idx]
-            if acc["id"] and acc["name"]:
-                try:
-                    tool_input = json.loads(acc["arguments"]) if acc["arguments"] else {}
-                except json.JSONDecodeError:
-                    logger.warning("Failed to parse tool input JSON: %s", acc["arguments"][:200])
-                    tool_input = {}
-                events.append(ToolUseEvent(
-                    id=acc["id"], name=acc["name"], input=tool_input,
-                ))
-            else:
-                logger.warning("Dropping incomplete tool call at index %d: id=%r name=%r", idx, acc["id"], acc["name"])
+        events = emit_accumulated_tool_calls(
+            tool_calls_acc,
+            logger=logger,
+            context="OpenAI tool stream",
+        )
         tool_calls_acc.clear()
         return events
 
@@ -362,16 +354,15 @@ class OpenAIClient(BaseLLMClient):
 
         if choice.message.tool_calls:
             for tc in choice.message.tool_calls:
-                try:
-                    tool_input = json.loads(tc.function.arguments) if tc.function.arguments else {}
-                except json.JSONDecodeError:
-                    logger.warning("Failed to parse tool input JSON: %s", tc.function.arguments[:200])
-                    tool_input = {}
-                content.append(ToolUseEvent(
-                    id=tc.id,
-                    name=tc.function.name,
-                    input=tool_input,
-                ))
+                content.append(
+                    build_tool_use_event(
+                        tool_id=tc.id,
+                        tool_name=tc.function.name,
+                        arguments=tc.function.arguments or "",
+                        logger=logger,
+                        context="OpenAI response",
+                    )
+                )
 
         usage = Usage()
         if response.usage:

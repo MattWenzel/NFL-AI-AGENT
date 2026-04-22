@@ -20,6 +20,7 @@ from provider.retry import (
     MAX_ATTEMPTS, RetryableError, compute_delay, parse_retry_after,
     parse_retry_after_ms, with_retries,
 )
+from provider.tool_calls import build_tool_use_event
 
 logger = logging.getLogger(__name__)
 
@@ -212,15 +213,12 @@ class AnthropicClient(BaseLLMClient):
                         current_tool_input_json += event.delta.partial_json
                 elif event.type == "content_block_stop":
                     if current_tool_id and current_tool_name:
-                        try:
-                            tool_input = json.loads(current_tool_input_json) if current_tool_input_json else {}
-                        except json.JSONDecodeError:
-                            logger.warning("Failed to parse tool input JSON: %s", current_tool_input_json[:200])
-                            tool_input = {}
-                        yield ToolUseEvent(
-                            id=current_tool_id,
-                            name=current_tool_name,
-                            input=tool_input,
+                        yield build_tool_use_event(
+                            tool_id=current_tool_id,
+                            tool_name=current_tool_name,
+                            arguments=current_tool_input_json,
+                            logger=logger,
+                            context="Anthropic tool stream",
                         )
                         current_tool_id = None
                         current_tool_name = None

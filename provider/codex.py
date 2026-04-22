@@ -45,6 +45,7 @@ from provider.retry import (
     parse_retry_after,
     parse_retry_after_ms,
 )
+from provider.tool_calls import build_tool_use_event
 
 logger = logging.getLogger(__name__)
 
@@ -320,14 +321,12 @@ class OpenAICodexClient(BaseLLMClient):
 
     @staticmethod
     def _assemble_tool_event(call_id: str, slot: dict) -> ToolUseEvent:
-        args_str = slot.get("arguments") or ""
-        try:
-            tool_input = json.loads(args_str) if args_str else {}
-        except json.JSONDecodeError:
-            logger.warning("Codex tool %s: invalid JSON arguments %r", slot.get("name"), args_str[:200])
-            tool_input = {}
-        return ToolUseEvent(
-            id=call_id, name=slot.get("name", ""), input=tool_input,
+        return build_tool_use_event(
+            tool_id=call_id,
+            tool_name=slot.get("name", ""),
+            arguments=slot.get("arguments") or "",
+            logger=logger,
+            context=f"Codex tool {slot.get('name') or '<unknown>'}",
         )
 
     @staticmethod
