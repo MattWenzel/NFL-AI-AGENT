@@ -218,7 +218,7 @@ Key uvicorn options:
 - `proxy_headers=True` — reads `X-Forwarded-For` / `X-Forwarded-Proto` from the reverse proxy. Without this, rate limiting (which keys on IP) would see the proxy's IP for every request and rate-limit all users together.
 - `forwarded_allow_ips` — restricts who can spoof those headers. Default is loopback only; set to the proxy's IP if the proxy lives elsewhere.
 
-Prod deployments (Fly.io, self-hosted) bind to `127.0.0.1` and put Caddy / nginx / Fly's edge in front for TLS. See `CLAUDE.md` for the runbook.
+Prod deployments (Fly.io, self-hosted) bind to `127.0.0.1` and put Caddy / nginx / Fly's edge in front for TLS. See [deployment.md](deployment.md) for the runbook.
 
 ## IDOR protection
 

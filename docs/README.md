@@ -1,6 +1,6 @@
 # Internal Design Docs
 
-Technical documentation for the AI agent plumbing in this repo — the runtime loop, tool dispatch, compaction, provider adapters, persistence, HTTP transport, auth, and browser UI. These docs cover **how the code works**, not how to run it (see `CLAUDE.md` for deployment/ops) and not what the NFL data means (see `NFLVERSE/docs/DATABASE.md`).
+Technical documentation for the AI agent plumbing in this repo — the runtime loop, tool dispatch, compaction, provider adapters, persistence, HTTP transport, auth, and browser UI. These docs cover **how the code works**, not how to run it (see [deployment.md](deployment.md) for deployment/ops) and not what the NFL data means (see `NFLVERSE/docs/DATABASE.md`).
 
 ## Reading order
 
@@ -25,6 +25,6 @@ For a new engineer, read in this order:
 
 ## What's out of scope
 
-- **Deployment.** Runbooks for Fly.io and self-hosted VPS live in `CLAUDE.md`.
+- **Deployment.** Runbooks for Fly.io and self-hosted VPS live in [deployment.md](deployment.md).
 - **API reference.** Interactive OpenAPI docs are served at `/docs` when the app is running.
 - **NFL data semantics.** Table schemas, join graph, play-by-play columns — all in `NFLVERSE/docs/DATABASE.md` and the in-app guides (`tools/guides/`).

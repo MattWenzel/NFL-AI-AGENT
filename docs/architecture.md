@@ -122,7 +122,7 @@ Common "where does X happen" questions:
 | Server crash mid-turn | `finally` cleanup + `reconcile_interrupted_runs` at startup ([runtime.md](runtime.md#cleanup-on-early-exit), [persistence.md](persistence.md#startup-reconciliation)) |
 | Streaming + reverse proxies | Producer/consumer + 15s heartbeat ([transport.md](transport.md#producerconsumer--heartbeat)) |
 | Streaming text doesn't freeze the UI | `patchLiveText` ([ui.md](ui.md#the-patchlivetext-fast-path)) |
-| How OAuth will slot in | `CLAUDE.md` + [auth.md](auth.md#oauth-migration-path-planned-not-shipped) |
+| How OAuth will slot in | [auth.md](auth.md#oauth-migration-path-planned-not-shipped) |
 
 ## Key seams
 
@@ -169,7 +169,7 @@ Single-origin — the FastAPI app serves both the API and the UI. TLS is mandato
 - **Fly.io.** Dockerfile + fly.toml ship with the repo. 10GB volume for the NFL DBs. `SETTINGS_ENCRYPTION_KEY` + `REGISTRATION_INVITE_CODE` as secrets.
 - **Self-hosted VPS.** Uvicorn bound to `127.0.0.1`, Caddy in front for TLS, systemd unit for supervision.
 
-Full runbooks in `CLAUDE.md`.
+Full runbooks in [deployment.md](deployment.md).
 
 ## Deliberate non-features
 

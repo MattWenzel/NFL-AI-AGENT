@@ -44,7 +44,7 @@ The prompt is intentionally prescriptive. This is not a general-purpose system p
 
 - **No examples of good/bad queries.** Examples bloat the prompt and tend to be followed too literally. Guides hold query templates.
 - **No tool input schemas.** The provider SDKs handle this from `TOOLS` — repeating schemas in prose would be redundant and drift-prone.
-- **No deployment or admin info.** That belongs to `CLAUDE.md` and the transport layer, not the LLM.
+- **No deployment or admin info.** That belongs to [deployment.md](deployment.md) and the transport layer, not the LLM.
 - **"Don't announce intent" sits high in Tool Usage.** Models otherwise narrate "I'll first look at the schema, then..." which burns output tokens and can get the turn truncated before the tool call lands.
 
 ## Guide system
@@ -74,7 +74,7 @@ _GUIDES = _load_all()   # dict[topic] -> file contents
 This means:
 
 - **First guide call per process is hot.** No disk I/O on the request path.
-- **Guide edits require a server restart.** The running process caches content. (Noted in `CLAUDE.md`.)
+- **Guide edits require a server restart.** The running process caches content.
 - **A missing guide file doesn't crash startup.** `_load_all` returns `""` for missing files; the tool returns a clear error at call time if the topic is empty on disk.
 
 ### Serving

@@ -2,7 +2,7 @@
 
 Open multi-user password auth. Register, log in, get a bearer token, send it as `Authorization: Bearer <token>` on every subsequent request. No cookies, no session middleware, no JWT. First user becomes admin; subsequent users are regular users. Optional invite-code gate closes registration.
 
-This doc covers the password flow, token scheme, rate limiting, API-key encryption, and the OAuth migration path's shape. The deployment-side env vars (`SETTINGS_ENCRYPTION_KEY`, `ALLOWED_ORIGINS`, etc.) are covered in `CLAUDE.md`.
+This doc covers the password flow, token scheme, rate limiting, API-key encryption, and the OAuth migration path's shape. The deployment-side env vars (`SETTINGS_ENCRYPTION_KEY`, `ALLOWED_ORIGINS`, etc.) are covered in [deployment.md](deployment.md).
 
 ## File map
 

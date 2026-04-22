@@ -24,7 +24,7 @@ Top-level folders are organized by subsystem:
 - **`server/`** — FastAPI HTTP layer (app factory, routes, dependencies, schemas)
 - **`web/`** — browser UI (`index.html` + static assets, SSE streaming, provider picker)
 
-For a deeper walkthrough see [CLAUDE.md](CLAUDE.md).
+For a deeper walkthrough see [`docs/architecture.md`](docs/architecture.md). Deployment runbooks (Fly.io, self-hosted VPS) live in [`docs/deployment.md`](docs/deployment.md).
 
 ## Setup
 
