@@ -64,6 +64,30 @@ export function renderMarkdown(text) {
   return html;
 }
 
+// Runs KaTeX auto-render over `el` to replace LaTeX delimiters with rendered
+// math. Safe to call before KaTeX loads (the scripts are `defer`red but may
+// still be parsing on a cold page) — the helper silently no-ops until
+// `window.renderMathInElement` exists.
+//
+// Single-dollar `$...$` is intentionally omitted so dollar amounts like "$20"
+// in NFL contract/fine discussion don't get parsed as math.
+export function renderMathIn(el) {
+  if (!el || typeof window.renderMathInElement !== "function") return;
+  try {
+    window.renderMathInElement(el, {
+      delimiters: [
+        { left: "$$", right: "$$", display: true },
+        { left: "\\[", right: "\\]", display: true },
+        { left: "\\(", right: "\\)", display: false },
+      ],
+      throwOnError: false,
+      ignoredClasses: ["copy-btn", "download-btn"],
+    });
+  } catch (err) {
+    console.warn("Math render failed:", err);
+  }
+}
+
 export function copyTextFromNode(btn) {
   const wrap = btn.closest(".copy-wrap");
   if (!wrap) return "";
