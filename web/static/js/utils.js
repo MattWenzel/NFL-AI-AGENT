@@ -41,6 +41,29 @@ export function escapeHtml(value) {
   return div.innerHTML;
 }
 
+// Pre-renders LaTeX delimited by \[ ... \], \( ... \), or $$ ... $$ into
+// KaTeX HTML. Has to run BEFORE marked — CommonMark's backslash-escape
+// rule would otherwise turn `\[` into a bare `[`, leaving no delimiter
+// for the math renderer to find. Single-dollar `$...$` is intentionally
+// not a delimiter so NFL dollar amounts ("$20 in fines") don't false-
+// positive. No-ops silently if KaTeX hasn't loaded yet.
+function renderMathBlocks(text) {
+  const katex = typeof window !== "undefined" ? window.katex : null;
+  if (!katex) return text;
+  const render = (latex, displayMode) => {
+    try {
+      return katex.renderToString(latex, { displayMode, throwOnError: false });
+    } catch (err) {
+      console.warn("KaTeX render failed:", err);
+      return latex;
+    }
+  };
+  return text
+    .replace(/\\\[([\s\S]+?)\\\]/g, (_, inner) => render(inner, true))
+    .replace(/\$\$([\s\S]+?)\$\$/g, (_, inner) => render(inner, true))
+    .replace(/\\\(([\s\S]+?)\\\)/g, (_, inner) => render(inner, false));
+}
+
 export function renderMarkdown(text) {
   // Codex/ChatGPT sometimes prefixes links to files it produced with
   // `sandbox:` — an artifact of its training environment. Strip it before
@@ -48,7 +71,8 @@ export function renderMarkdown(text) {
   // (and Firefox doesn't treat `sandbox:` as an unknown protocol and offer
   // to hand the click off to xdg-open).
   const cleaned = (text || "").replace(/\]\(sandbox:/g, "](");
-  let html = marked.parse(cleaned);
+  const preMathed = renderMathBlocks(cleaned);
+  let html = marked.parse(preMathed);
   html = html.replace(
     /<table>([\s\S]*?)<\/table>/g,
     (_, inner) => `<div class="copy-wrap" data-copy-kind="table"><button type="button" class="copy-btn" data-copy-action="table">Copy</button><div style="overflow-x:auto"><table>${inner}</table></div></div>`
@@ -62,30 +86,6 @@ export function renderMarkdown(text) {
     (match, path, label) => `<a class="download-btn" href="#" data-export-url="${API_BASE + path}" data-export-fname="${path.split("/").pop()}">${label}</a>`
   );
   return html;
-}
-
-// Runs KaTeX auto-render over `el` to replace LaTeX delimiters with rendered
-// math. Safe to call before KaTeX loads (the scripts are `defer`red but may
-// still be parsing on a cold page) — the helper silently no-ops until
-// `window.renderMathInElement` exists.
-//
-// Single-dollar `$...$` is intentionally omitted so dollar amounts like "$20"
-// in NFL contract/fine discussion don't get parsed as math.
-export function renderMathIn(el) {
-  if (!el || typeof window.renderMathInElement !== "function") return;
-  try {
-    window.renderMathInElement(el, {
-      delimiters: [
-        { left: "$$", right: "$$", display: true },
-        { left: "\\[", right: "\\]", display: true },
-        { left: "\\(", right: "\\)", display: false },
-      ],
-      throwOnError: false,
-      ignoredClasses: ["copy-btn", "download-btn"],
-    });
-  } catch (err) {
-    console.warn("Math render failed:", err);
-  }
 }
 
 export function copyTextFromNode(btn) {

@@ -5,7 +5,6 @@ import { renderInspector } from "./inspector.js";
 import { applySidebarView } from "./navigation.js";
 import { renderConversationList } from "./sidebar.js";
 import { renderProviderControls, renderSessionHeader, renderThread } from "./thread.js";
-import { renderMathIn } from "./utils.js";
 
 function renderMain() {
   const mainEl = document.querySelector(".main");
@@ -34,6 +33,4 @@ export function render() {
   renderInspector();
   document.getElementById("sendBtn").disabled = state.isStreaming;
   mountPendingCharts(document);
-  renderMathIn(document.getElementById("thread"));
-  renderMathIn(document.getElementById("inspectorBody"));
 }
