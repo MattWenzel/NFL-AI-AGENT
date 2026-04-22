@@ -52,7 +52,11 @@ function renderMathBlocks(text) {
   if (!katex) return text;
   const render = (latex, displayMode) => {
     try {
-      return katex.renderToString(latex, { displayMode, throwOnError: false });
+      const html = katex.renderToString(latex, { displayMode, throwOnError: false });
+      // Wrap display math in a <div> so `marked` recognizes it as an HTML
+      // block and doesn't stuff the <span class="katex-display"> (which has
+      // display:block) inside a <p>, which can confuse layout.
+      return displayMode ? `<div class="math-display">${html}</div>` : html;
     } catch (err) {
       console.warn("KaTeX render failed:", err);
       return latex;
