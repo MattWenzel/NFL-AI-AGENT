@@ -6,37 +6,46 @@ The 2.3GB nflverse and pbp SQLite files are a separate concern — they're read-
 
 ## File map
 
-- `storage/` — `RuntimeStore` facade composed from `UsersMixin`, `TranscriptsMixin`, `ExportsMixin` over split per-domain modules. Total ~1440 lines across `store.py` (composition + async wrappers), `users.py`, `transcripts.py`, `exports.py`, `_rows.py` (row → dataclass mappers), `records.py` (dataclass records), `schema.py` (DDL + migrations + startup reconciliation).
+- `storage/` — `RuntimeStore` facade composed from `UsersMixin`, `TranscriptsMixin`, `ExportsMixin`. SQLModel-backed, async-native via aiosqlite.
+  - `store.py` — facade: holds sync + async engines, per-session asyncio.Lock registry, startup hooks.
+  - `models.py` — SQLModel table classes (`SessionRecord`, `TurnRecord`, `ToolRunRecord`, etc.) plus shared helpers (`utcnow`, `new_id`, `wrap_summaries_for_prompt`).
+  - `engine.py` — sync engine (for one-shot Alembic + reconcile) + async engine (`sqlite+aiosqlite://`) + `async_sessionmaker`.
+  - `types.py` — `TolerantJSONList` / `ToolInputJSON` TypeDecorators: malformed rows log and fall back to `[]` / `{}` instead of raising.
+  - `users.py`, `transcripts.py`, `exports.py` — async mixins; every method opens its own `AsyncSession` from the store's sessionmaker.
+  - `migrations/` — Alembic scaffolding. `env.py` reads the DB URL from `ALEMBIC_DATABASE_URL` or `config.RUNTIME_DB_PATH`; `versions/0001_initial_schema.py` creates all tables via `metadata.create_all` (a no-op on pre-existing DBs).
+- `alembic.ini` — at repo root; points `script_location = storage/migrations`.
 - `config.py` — `RUNTIME_DB_PATH` (env-overridable).
 
 ## `RuntimeStore`
 
-`storage/store.py:22`. One class with one dependency (a `Path`). Responsibilities:
+`storage/store.py`. One class with one dependency (a `Path`). Responsibilities:
 
-- Own the DB file (create if missing, run schema + migrations on every construct).
-- Serve typed records (`SessionRecord`, `TurnRecord`, etc.) — no raw `sqlite3.Row` escapes.
+- Own the DB file (create if missing).
+- Build the sync engine (for Alembic bootstrap + `reconcile_interrupted_runs`) and the async engine (`sqlite+aiosqlite://`) used by every CRUD method.
+- Run `alembic upgrade head` on startup — creates tables on fresh DBs via the initial revision's `metadata.create_all`, stamps pre-existing DBs at `head` so future revisions apply cleanly. Both paths are idempotent.
+- Serve typed records (`SessionRecord`, `TurnRecord`, etc. — SQLModel classes) — no raw rows escape.
 - Hand out per-session async locks (`lock(session_id)` → `asyncio.Lock`). Shared with `ChatRuntime` for turn serialization.
 - Reconcile interrupted runs on startup.
 
 Constructed once during FastAPI lifespan (see [transport.md](transport.md#lifespan)) and used as the backing store for the app's repository/runtime wiring.
 
-## Connection pattern
+## Session pattern
 
-`_connect` (`storage/store.py:36`). Every method that touches the DB opens a fresh connection:
+Every async CRUD method opens a scoped `AsyncSession`:
 
 ```python
-conn = sqlite3.connect(self.db_path)
-conn.row_factory = sqlite3.Row
-conn.execute("PRAGMA foreign_keys=ON")
+async with self._async_session() as session:
+    result = await session.execute(select(SessionRecord).where(...))
+    return result.scalar_one_or_none()
 ```
 
-Short-lived connections avoid the SQLite "same thread" issue — every call goes through `with self._connect() as conn:` and commits (or rolls back on exception) on context exit. WAL mode (enabled at init, `storage/schema.py:24`) lets readers proceed concurrently with a writer, so this pattern scales to the handful of concurrent chat requests a personal deployment sees.
+The sessionmaker is built with `expire_on_commit=False` so returned ORM objects remain usable after the context closes. WAL mode and `PRAGMA foreign_keys=ON` are applied on every DBAPI connect via a SQLAlchemy `connect` event hook (`storage/engine.py`); without them, `ON DELETE CASCADE` on `auth_sessions` / `user_api_keys` silently wouldn't fire.
 
-`PRAGMA foreign_keys=ON` is per-connection in SQLite, hence the `_connect` setup. Without it, `ON DELETE CASCADE` on `auth_sessions` / `user_api_keys` silently wouldn't fire.
+There's no pool sizing to tune — `aiosqlite` runs each connection on its own worker thread, and SQLite's file-level concurrency (one writer at a time in WAL) is what actually bounds throughput. For a personal deployment that's fine.
 
 ## Schema
 
-All 9 tables defined in `init_db` (`storage/schema.py:162`).
+All 9 tables are declared as SQLModel classes in `storage/models.py`. Column names, defaults, indexes, and FKs are chosen to match the DB schema byte-for-byte (modulo SQLite's dynamic typing — `VARCHAR` and `TEXT` are equivalent) so existing `runtime.sqlite3` files open without migration.
 
 ### Chat data
 
@@ -45,7 +54,7 @@ sessions                              ── one row per conversation
 ├─ id, created_at, updated_at
 ├─ provider, model, title
 ├─ context_window                    ── from ProviderInfo.effective_context_window
-├─ pinned_at, source_csv_id          ── added later via _ensure_column
+├─ pinned_at, source_csv_id          ── added post-v1 (Alembic revisions cover future moves)
 └─ user_id                           ── owner; FK to users(id)
 
 turns                                 ── one row per user/assistant/summary message
@@ -64,11 +73,11 @@ assistant_parts                       ── per-block record within an assistan
 
 tool_runs                             ── one row per tool call
 ├─ id, session_id, turn_id, tool_name
-├─ input_json                         ── canonicalized JSON string
+├─ input                              ── dict on the Python side; column is `input_json` (canonical JSON TEXT) via ToolInputJSON TypeDecorator
 ├─ status                             ── pending → running → completed | error | interrupted
-├─ result_text, error_text, hint
-├─ duration_ms
-├─ compacted
+├─ result                             ── result_text column
+├─ error                              ── error_text column
+├─ hint, duration_ms, compacted, raw_input_text
 └─ created_at, updated_at
 
 compaction_summaries                  ── one row per compaction event
@@ -107,7 +116,7 @@ auth_sessions                         ── bearer token sessions
 └─ created_at, last_used_at
 ```
 
-Indexes defined alongside the schema (`storage/schema.py:140`):
+Indexes defined on the model classes:
 
 | Index | Purpose |
 |-------|---------|
@@ -120,25 +129,26 @@ Indexes defined alongside the schema (`storage/schema.py:140`):
 
 ## Migrations
 
-`_ensure_column` (`storage/schema.py:153`). Every startup runs `PRAGMA table_info(table)` for each migrated column and issues `ALTER TABLE ... ADD COLUMN` if missing. Additive only — no rewrites, no drops. Existing rows get the `DEFAULT` or NULL.
+Schema evolves via **Alembic revisions** under `storage/migrations/versions/`. On startup, `RuntimeStore.__init__` runs `alembic upgrade head`:
 
-Migrated columns (as of this writing):
+- **Fresh DB**: the initial revision's `metadata.create_all` creates every table (plus `alembic_version` for stamping).
+- **Pre-existing DB** (from any prior schema): `metadata.create_all` short-circuits on `CREATE TABLE IF NOT EXISTS`, then Alembic writes the `alembic_version` row at `head`. No manual stamping needed.
 
-- `turns.input_tokens`, `turns.output_tokens` — late-added for compaction.
-- `sessions.pinned_at` — pin-to-top feature.
-- `sessions.source_csv_id` — chat started from an existing CSV.
-- `sessions.user_id`, `exports.user_id` — multi-user migration.
-- `users.role`, `users.email_verified_at` — multi-user additions.
+Both paths are idempotent — each subsequent boot runs any pending revisions (none, on this codebase today) and otherwise no-ops.
 
-This approach keeps deploys simple: ship new code, run it, schema catches up. For any migration beyond additive columns (e.g., the OAuth plan's NOT NULL relaxation on `password_hash`, see `CLAUDE.md`), a proper table-rebuild migration is needed — `_ensure_column` doesn't cover that.
+For local schema work: `alembic revision --autogenerate -m "describe change"` generates a revision diffing `SQLModel.metadata` against the live DB. Review the generated `op.add_column` / `op.create_table` calls before committing; autogenerate is a draft, not a final answer. `ALEMBIC_DATABASE_URL` overrides the target DB for testing a revision against a throwaway file.
 
 ## Startup reconciliation
 
-`reconcile_interrupted_runs` (`storage/schema.py:183`), called at the end of `RuntimeStore.__init__`. Two updates:
+`_reconcile_interrupted_runs_sync` (`storage/store.py`), called at the end of `RuntimeStore.__init__`. Two updates via the sync engine (once per process, so sync is simpler than async here):
 
-```sql
-UPDATE tool_runs  SET status = 'interrupted', error_text = ... WHERE status IN ('pending','running');
-UPDATE turns      SET status = 'interrupted', error      = ... WHERE role = 'assistant' AND status = 'running';
+```python
+UPDATE tool_runs  SET status = 'interrupted',
+                      error = COALESCE(error, 'Tool execution interrupted by restart')
+                  WHERE status IN ('pending', 'running');
+UPDATE turns      SET status = 'interrupted',
+                      error = COALESCE(error, 'Assistant turn interrupted by restart')
+                  WHERE role = 'assistant' AND status = 'running';
 ```
 
 If the server dies mid-turn — SIGKILL, OOM, power loss — the loop's `finally` cleanup (`runtime.py:314`) doesn't run. These rows would otherwise appear "running" forever in the UI. On startup, the store sweeps them to `interrupted`, logs a warning with the count, and moves on.
@@ -165,7 +175,7 @@ ChatRuntime.run_session:
     │    │    └─ add_part(kind='text', content=chunk)
     │    │
     │    ├─ on ToolUseEvent:
-    │    │    ├─ create_tool_run(status='pending', input_json)
+    │    │    ├─ create_tool_run(status='pending', input=dict)
     │    │    └─ add_part(kind='tool_call', content=input_json, tool_run_id)
     │    │
     │    ├─ update_turn(status='completed', input_tokens, output_tokens)
@@ -174,7 +184,7 @@ ChatRuntime.run_session:
     │         ├─ update_tool_run(status='running')
     │         ├─ add_part(kind='tool_status', content='running')
     │         ├─ execute the tool
-    │         ├─ update_tool_run(status='completed'|'error', result_text, hint, duration_ms)
+    │         ├─ update_tool_run(status='completed'|'error', result, hint, duration_ms)
     │         └─ add_part(kind='tool_result', content=result_text)
     │
     └─ on crash:
@@ -197,7 +207,7 @@ There is no "streaming turn" abstraction — the turn is just a row, and `append
 
 `build_model_messages` (`agent/message_builder.py:12`). Walks the transcript and emits a `list[Message]` (see [providers.md](providers.md#canonical-types)) for the next model call:
 
-1. **Summary turns first.** All non-compacted `role='summary'` turns become a single synthetic assistant message via `wrap_summaries_for_prompt` (`storage/records.py:52`).
+1. **Summary turns first.** All non-compacted `role='summary'` turns become a single synthetic assistant message via `wrap_summaries_for_prompt` (`storage/models.py`).
 2. **Then user/assistant turns in chronological order**, skipping compacted ones. For assistant turns, `tool_calls` are attached from `tool_runs_by_turn`.
 3. **Then tool results** as separate `Message(role='tool_result', tool_use_id, tool_content)` entries.
 
@@ -222,7 +232,7 @@ Passing `user_id=None` bypasses the filter. This is a **trust boundary** — the
 
 ## `SessionTranscript`
 
-`storage/records.py:196`. Single-shot snapshot returned by `get_transcript`:
+`storage/models.py`. Single-shot snapshot returned by `get_transcript`:
 
 ```python
 @dataclass

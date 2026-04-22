@@ -99,15 +99,16 @@ provider/                   # LLM provider adapters
 ├── retry.py                #   shared header-aware exponential backoff
 └── overflow.py             #   context-overflow error detection
 
-storage/                    # SQLite persistence — RuntimeStore facade composed of mixins
-├── __init__.py             #   re-exports RuntimeStore + dataclass records
-├── store.py                #   RuntimeStore(UsersMixin, TranscriptsMixin, ExportsMixin)
-├── records.py              #   @dataclass records (Session, Turn, ToolRun, Export, etc.)
-├── schema.py               #   DDL + ALTER TABLE migrations + reconcile_interrupted_runs
-├── _rows.py                #   sqlite3.Row → dataclass mappers
+storage/                    # Runtime persistence — async SQLModel over aiosqlite
+├── __init__.py             #   re-exports RuntimeStore + SQLModel record classes
+├── store.py                #   RuntimeStore(UsersMixin, TranscriptsMixin, ExportsMixin); owns engines, per-session lock, startup reconcile
+├── models.py               #   SQLModel table classes (SessionRecord, TurnRecord, ToolRunRecord, etc.) + helpers (utcnow, new_id, wrap_summaries_for_prompt)
+├── engine.py               #   sync engine (bootstrap/migrations) + async engine (aiosqlite) + async_sessionmaker
+├── types.py                #   TolerantJSONList / ToolInputJSON TypeDecorators (log-and-recover on malformed rows)
 ├── users.py                #   UsersMixin (users, auth_sessions, user_api_keys)
 ├── transcripts.py          #   TranscriptsMixin (sessions, turns, parts, tool runs, compaction)
-└── exports.py              #   ExportsMixin (CSV export registry CRUD)
+├── exports.py              #   ExportsMixin (CSV export registry CRUD)
+└── migrations/             #   Alembic scaffolding (env.py + versions/); schema evolves via revisions
 
 server/                     # HTTP transport (FastAPI)
 ├── app.py                  #   app factory + lifespan (validates DBs, wires store+runtime)
