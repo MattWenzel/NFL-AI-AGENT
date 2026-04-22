@@ -275,7 +275,7 @@ All of these are thin SQL wrappers. The interesting logic (password hashing, tok
 
 ## What the store deliberately doesn't do
 
-- **No ORM.** Raw SQL + dataclasses. The row-to-record conversion is explicit per table (`_row_to_turn`, `_row_to_tool_run`, etc.).
+- **Thin ORM usage.** SQLModel handles table mapping and tolerant JSON columns, but store queries stay explicit and `RuntimeStore` remains the only persistence boundary exposed to the rest of the app.
 - **No caching.** Every read is a fresh query. WAL mode plus the indexes above keep this well under the network/LLM latency the user is actually waiting on.
 - **No connection pool.** `_connect` opens one per call. Python's sqlite3 module is fast enough; connection pooling would add coordination with no measurable win.
 - **No native async.** Python's sqlite3 is synchronous. The store exposes `_async` siblings for every public method that bridge via `asyncio.to_thread` (see `storage/store.py:48-166`), so the runtime loop, the compaction path, and FastAPI handlers never block the event loop on a SQLite call. Sync methods remain callable directly from sync contexts (startup reconciliation, tests).
