@@ -43,7 +43,7 @@ class CodexOAuthApplicationService:
             authorized = await codex_oauth.poll_device_code(rec.device_auth_id, rec.user_code)
             bundle = await codex_oauth.exchange_code(authorized.authorization_code, authorized.code_verifier)
             ciphertext = encryption.encrypt(codex_oauth.bundle_to_json(bundle))
-            await self.store.upsert_api_key_async(
+            await self.store.upsert_api_key(
                 user_id=rec.user_id,
                 provider=CODEX_PROVIDER,
                 encrypted_key=ciphertext,

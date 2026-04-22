@@ -529,8 +529,8 @@ def _patch_device_flow(monkeypatch, user_code="USER-CODE"):
 
 
 class TestCodexRouter:
-    def test_start_returns_user_code_and_pending_id(self, store, monkeypatch):
-        user = store.create_user(email="a@e.com", password_hash="h")
+    async def test_start_returns_user_code_and_pending_id(self, store, monkeypatch):
+        user = await store.create_user(email="a@e.com", password_hash="h")
         _patch_device_flow(monkeypatch)
         with managed_test_client(_make_app(store, user.id, user.email)) as client:
             r = client.post("/settings/oauth/codex/start")
@@ -541,8 +541,8 @@ class TestCodexRouter:
             assert body["expires_in"] == 15 * 60
             assert client.app.state.process_state.codex_pending_flows.get(body["pending_id"]) is not None
 
-    def test_status_reports_pending_then_terminal_and_evicts(self, store, monkeypatch):
-        user = store.create_user(email="a@e.com", password_hash="h")
+    async def test_status_reports_pending_then_terminal_and_evicts(self, store, monkeypatch):
+        user = await store.create_user(email="a@e.com", password_hash="h")
         _patch_device_flow(monkeypatch)
         with managed_test_client(_make_app(store, user.id, user.email)) as client:
             r = client.post("/settings/oauth/codex/start")
@@ -564,9 +564,9 @@ class TestCodexRouter:
             r3 = client.get(f"/settings/oauth/codex/status?pending_id={pending_id}")
             assert r3.status_code == 404
 
-    def test_status_cross_user_returns_404(self, store, monkeypatch):
-        u1 = store.create_user(email="a@e.com", password_hash="h")
-        u2 = store.create_user(email="b@e.com", password_hash="h")
+    async def test_status_cross_user_returns_404(self, store, monkeypatch):
+        u1 = await store.create_user(email="a@e.com", password_hash="h")
+        u2 = await store.create_user(email="b@e.com", password_hash="h")
         _patch_device_flow(monkeypatch)
 
         with managed_test_client(_make_app(store, u1.id, u1.email)) as c1:
@@ -577,8 +577,8 @@ class TestCodexRouter:
             r1 = c1.get(f"/settings/oauth/codex/status?pending_id={pending_id}")
             assert r1.status_code == 200
 
-    def test_cancel_removes_record(self, store, monkeypatch):
-        user = store.create_user(email="a@e.com", password_hash="h")
+    async def test_cancel_removes_record(self, store, monkeypatch):
+        user = await store.create_user(email="a@e.com", password_hash="h")
         _patch_device_flow(monkeypatch)
         with managed_test_client(_make_app(store, user.id, user.email)) as client:
             pending_id = client.post("/settings/oauth/codex/start").json()["pending_id"]
@@ -592,9 +592,9 @@ class TestCodexRouter:
             r2 = client.get(f"/settings/oauth/codex/status?pending_id={pending_id}")
             assert r2.status_code == 404
 
-    def test_cancel_cross_user_returns_404(self, store, monkeypatch):
-        u1 = store.create_user(email="a@e.com", password_hash="h")
-        u2 = store.create_user(email="b@e.com", password_hash="h")
+    async def test_cancel_cross_user_returns_404(self, store, monkeypatch):
+        u1 = await store.create_user(email="a@e.com", password_hash="h")
+        u2 = await store.create_user(email="b@e.com", password_hash="h")
         _patch_device_flow(monkeypatch)
 
         with managed_test_client(_make_app(store, u1.id, u1.email)) as c1:
@@ -604,8 +604,8 @@ class TestCodexRouter:
                 assert r.status_code == 404
             assert c1.app.state.process_state.codex_pending_flows.get(pending_id) is not None
 
-    def test_start_rate_limit_kicks_in(self, store, monkeypatch):
-        user = store.create_user(email="a@e.com", password_hash="h")
+    async def test_start_rate_limit_kicks_in(self, store, monkeypatch):
+        user = await store.create_user(email="a@e.com", password_hash="h")
         _patch_device_flow(monkeypatch)
         with managed_test_client(_make_app(store, user.id, user.email)) as client:
             for i in range(5):

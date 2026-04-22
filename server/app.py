@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
 
     validate_encryption()
     configure_runtime_state(app)
-    run_housekeeping(app)
+    await run_housekeeping(app)
     log_environment_state()
 
     try:

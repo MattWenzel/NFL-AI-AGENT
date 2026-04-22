@@ -67,7 +67,7 @@ class ChatRuntime:
         user_id: int | None = None,
     ) -> SessionRecord:
         info = get_provider(provider_name)
-        return await self.store.get_or_create_session_async(
+        return await self.store.get_or_create_session(
             conversation_id,
             provider=provider_name,
             model=client.model,
@@ -128,7 +128,7 @@ class ChatRuntime:
                     client.last_usage = Usage()
                     client.last_stop_reason = None
                     try:
-                        transcript = await self.store.get_transcript_async(session.id)
+                        transcript = await self.store.get_transcript(session.id)
                         async for event in client.stream_message(
                             messages=build_model_messages(transcript),
                             tools=tools,

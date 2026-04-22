@@ -40,17 +40,17 @@ async def _resolve_user(request: Request, store: RuntimeStore) -> AuthenticatedU
     token = _extract_bearer(request)
     if not token:
         return None
-    session = await store.get_auth_session_async(token)
+    session = await store.get_auth_session(token)
     if session is None:
         return None
     if session.expires_at < datetime.now(timezone.utc).isoformat():
-        await store.delete_auth_session_async(token)
+        await store.delete_auth_session(token)
         return None
-    user = await store.get_user_by_id_async(session.user_id)
+    user = await store.get_user_by_id(session.user_id)
     if user is None:
-        await store.delete_auth_session_async(token)
+        await store.delete_auth_session(token)
         return None
-    await store.touch_auth_session_async(
+    await store.touch_auth_session(
         token,
         min_interval_seconds=AUTH_SESSION_TOUCH_INTERVAL_SECONDS,
         last_used_at=session.last_used_at,

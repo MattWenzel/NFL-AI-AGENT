@@ -1,12 +1,12 @@
 """SQLite persistence layer.
 
-Public surface: `RuntimeStore` plus the dataclass records it returns.
+Public surface: `RuntimeStore` plus the SQLModel table classes it returns.
 Callers import from here rather than the per-domain submodules so the
-internal split (users/transcripts/exports/schema/_rows) stays a private
+internal split (users/transcripts/exports/models/engine) stays a private
 implementation detail.
 """
 
-from storage.records import (
+from storage.models import (
     AssistantPartRecord,
     AuthSessionRecord,
     CompactionSummaryRecord,
@@ -17,7 +17,6 @@ from storage.records import (
     TurnRecord,
     UserApiKeyRecord,
     UserRecord,
-    safe_load_tool_input,
 )
 from storage.store import RuntimeStore
 
@@ -33,5 +32,4 @@ __all__ = [
     "TurnRecord",
     "UserApiKeyRecord",
     "UserRecord",
-    "safe_load_tool_input",
 ]

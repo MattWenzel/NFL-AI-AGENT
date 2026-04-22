@@ -43,7 +43,7 @@ class ProviderCredentialService:
                 )
             except CodexCredentialError as exc:
                 raise CredentialServiceError(str(exc)) from exc
-        rec = await self.store.get_api_key_async(user_id=user_id, provider=provider_name)
+        rec = await self.store.get_api_key(user_id=user_id, provider=provider_name)
         if rec is None:
             return None
         try:

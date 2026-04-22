@@ -23,7 +23,7 @@ class CodexCredentialError(Exception):
 async def _load_bundle_async(
     store: RuntimeStore, user_id: int, provider_name: str
 ) -> codex_oauth.TokenBundle | None:
-    rec = await store.get_api_key_async(user_id=user_id, provider=provider_name)
+    rec = await store.get_api_key(user_id=user_id, provider=provider_name)
     if rec is None:
         return None
     try:
@@ -61,7 +61,7 @@ async def resolve_access_token(
         except codex_oauth.CodexOAuthError as exc:
             logger.warning("Codex token refresh failed for user=%d: %s", user_id, exc)
             raise CodexCredentialError("ChatGPT session expired — reconnect in Settings.") from exc
-        await store.upsert_api_key_async(
+        await store.upsert_api_key(
             user_id=user_id,
             provider=provider_name,
             encrypted_key=encryption.encrypt(codex_oauth.bundle_to_json(bundle)),

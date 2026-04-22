@@ -55,7 +55,7 @@ class ConversationRepository:
     _store: RuntimeStore
 
     async def list_sessions(self, *, user_id: int | None = None) -> list[ConversationListEntry]:
-        rows = await self._store.list_sessions_async(user_id=user_id)
+        rows = await self._store.list_sessions(user_id=user_id)
         return [ConversationListEntry.from_row(row) for row in rows]
 
     async def get_session_list_entry(
@@ -71,5 +71,5 @@ class ConversationRepository:
         with the same projection `list_sessions` applies — so None
         cleanly means "session gone" rather than "filter miss."
         """
-        row = await self._store.get_session_list_row_async(session_id, user_id=user_id)
+        row = await self._store.get_session_list_row(session_id, user_id=user_id)
         return ConversationListEntry.from_row(row) if row else None

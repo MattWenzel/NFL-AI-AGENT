@@ -1,42 +1,78 @@
 """Sessions, turns, assistant parts, tool runs, compaction summaries,
 and transcript assembly.
 
-Mixed into `RuntimeStore` — expects `self._connect()` to yield a
-`sqlite3.Connection` and `self._locks` to hold the session-level
-asyncio.Lock dict (accessed by `delete_session`).
+Mixed into `RuntimeStore` — every method is async-native via the store's
+`async_sessionmaker` (`self._async_session`).
 """
 
 from __future__ import annotations
 
-import json
+from sqlalchemy import delete, func, select, update
 
-from storage._rows import (
-    row_to_part,
-    row_to_session,
-    row_to_summary,
-    row_to_tool_run,
-    row_to_turn,
-)
-from storage.records import (
+from storage.models import (
     AssistantPartRecord,
     CompactionSummaryRecord,
+    ExportRecord,
     SessionRecord,
     SessionTranscript,
     ToolRunRecord,
     TurnRecord,
     new_id,
-    safe_load_tool_input,
     utcnow,
-    wrap_summaries_for_prompt,
 )
 
 
+# Projection emitted by `list_sessions` / `get_session_list_row` — both
+# return list[dict] with the same keys so downstream code
+# (`ConversationListEntry.from_row`) accepts either.
+def _session_list_projection():
+    """Build the SELECT columns for the session list projection.
+
+    The `title` column COALESCEs the stored session.title with the first
+    user turn's text (truncated to 60 chars), then "New conversation".
+    `turn_count` is a correlated subquery.
+    """
+    first_user_turn = (
+        select(TurnRecord.text)
+        .where(
+            TurnRecord.session_id == SessionRecord.id,
+            TurnRecord.role == "user",
+        )
+        .order_by(TurnRecord.created_at)
+        .limit(1)
+        .correlate(SessionRecord)
+        .scalar_subquery()
+    )
+    turn_count = (
+        select(func.count())
+        .select_from(TurnRecord)
+        .where(TurnRecord.session_id == SessionRecord.id)
+        .correlate(SessionRecord)
+        .scalar_subquery()
+    )
+    return (
+        SessionRecord.id,
+        SessionRecord.updated_at,
+        SessionRecord.pinned_at,
+        SessionRecord.source_csv_id,
+        func.coalesce(
+            SessionRecord.title,
+            func.substr(first_user_turn, 1, 60),
+            "New conversation",
+        ).label("title"),
+        SessionRecord.provider,
+        SessionRecord.model,
+        turn_count.label("turn_count"),
+    )
+
+
 class TranscriptsMixin:
-    """Session-level persistence: sessions, turns, parts, tool_runs, compaction summaries."""
+    """Async session-level persistence: sessions, turns, parts, tool_runs,
+    compaction summaries."""
 
     # ---------------- sessions ----------------
 
-    def get_or_create_session(
+    async def get_or_create_session(
         self,
         session_id: str | None = None,
         *,
@@ -45,7 +81,7 @@ class TranscriptsMixin:
         context_window: int = 0,
         user_id: int | None = None,
     ) -> SessionRecord:
-        existing = self.get_session(session_id, user_id=user_id) if session_id else None
+        existing = await self.get_session(session_id, user_id=user_id) if session_id else None
         if existing:
             changed = False
             if provider and existing.provider != provider:
@@ -58,11 +94,11 @@ class TranscriptsMixin:
                 existing.context_window = context_window
                 changed = True
             if changed:
-                self.update_session(existing)
+                await self.update_session(existing)
             return existing
 
         now = utcnow()
-        session = SessionRecord(
+        record = SessionRecord(
             id=session_id or new_id(),
             created_at=now,
             updated_at=now,
@@ -71,79 +107,65 @@ class TranscriptsMixin:
             context_window=context_window,
             user_id=user_id,
         )
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO sessions (id, created_at, updated_at, provider, model, title, context_window, user_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    session.id,
-                    session.created_at,
-                    session.updated_at,
-                    session.provider,
-                    session.model,
-                    session.title,
-                    session.context_window,
-                    session.user_id,
-                ),
-            )
-        return session
+        async with self._async_session() as session:
+            session.add(record)
+            await session.commit()
+        return record
 
-    def update_session(self, session: SessionRecord) -> None:
-        session.updated_at = utcnow()
-        with self._connect() as conn:
-            conn.execute(
-                """
-                UPDATE sessions
-                SET updated_at = ?, provider = ?, model = ?, title = ?,
-                    context_window = ?, pinned_at = ?, source_csv_id = ?
-                WHERE id = ?
-                """,
-                (
-                    session.updated_at,
-                    session.provider,
-                    session.model,
-                    session.title,
-                    session.context_window,
-                    session.pinned_at,
-                    session.source_csv_id,
-                    session.id,
-                ),
+    async def update_session(self, record: SessionRecord) -> None:
+        record.updated_at = utcnow()
+        async with self._async_session() as session:
+            await session.execute(
+                update(SessionRecord)
+                .where(SessionRecord.id == record.id)
+                .values(
+                    updated_at=record.updated_at,
+                    provider=record.provider,
+                    model=record.model,
+                    title=record.title,
+                    context_window=record.context_window,
+                    pinned_at=record.pinned_at,
+                    source_csv_id=record.source_csv_id,
+                )
             )
+            await session.commit()
 
-    def set_session_pinned(
+    async def set_session_pinned(
         self, session_id: str, pinned: bool, *, user_id: int | None = None
     ) -> SessionRecord | None:
         """Pin or unpin a session. Pinning stamps pinned_at so callers can
         order most-recently-pinned first; unpinning clears it. Does not touch
         updated_at so pinning a stale conversation doesn't fake recency."""
-        session = self.get_session(session_id, user_id=user_id)
-        if session is None:
+        record = await self.get_session(session_id, user_id=user_id)
+        if record is None:
             return None
-        session.pinned_at = utcnow() if pinned else None
-        with self._connect() as conn:
-            conn.execute(
-                "UPDATE sessions SET pinned_at = ? WHERE id = ?",
-                (session.pinned_at, session_id),
+        record.pinned_at = utcnow() if pinned else None
+        async with self._async_session() as session:
+            await session.execute(
+                update(SessionRecord)
+                .where(SessionRecord.id == session_id)
+                .values(pinned_at=record.pinned_at)
             )
-        return session
+            await session.commit()
+        return record
 
-    def set_session_source_csv(
+    async def set_session_source_csv(
         self, session_id: str, export_id: str | None, *, user_id: int | None = None
     ) -> SessionRecord | None:
-        session = self.get_session(session_id, user_id=user_id)
-        if session is None:
+        record = await self.get_session(session_id, user_id=user_id)
+        if record is None:
             return None
-        session.source_csv_id = export_id
-        with self._connect() as conn:
-            conn.execute(
-                "UPDATE sessions SET source_csv_id = ? WHERE id = ?",
-                (export_id, session_id),
+        record.source_csv_id = export_id
+        async with self._async_session() as session:
+            await session.execute(
+                update(SessionRecord)
+                .where(SessionRecord.id == session_id)
+                .values(source_csv_id=export_id)
             )
-        return session
+            await session.commit()
+        return record
 
-    def seed_summary(self, session_id: str, summary_text: str) -> TurnRecord:
+    async def seed_summary(self, session_id: str, summary_text: str) -> TurnRecord:
         """Insert a synthetic summary turn without recording a compaction event.
 
         Used to seed a fresh session with assistant-visible context (e.g. the
@@ -154,93 +176,80 @@ class TranscriptsMixin:
         being compacted; transcript.summaries stays empty for real compaction
         events only.
         """
-        return self.create_turn(session_id, "summary", text=summary_text, status="completed")
+        return await self.create_turn(session_id, "summary", text=summary_text, status="completed")
 
-    def get_session(self, session_id: str | None, *, user_id: int | None = None) -> SessionRecord | None:
+    async def get_session(
+        self, session_id: str | None, *, user_id: int | None = None
+    ) -> SessionRecord | None:
         if not session_id:
             return None
-        with self._connect() as conn:
+        async with self._async_session() as session:
+            stmt = select(SessionRecord).where(SessionRecord.id == session_id)
             if user_id is not None:
-                row = conn.execute(
-                    "SELECT * FROM sessions WHERE id = ? AND user_id = ?",
-                    (session_id, user_id),
-                ).fetchone()
-            else:
-                row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
-        return row_to_session(row) if row else None
+                stmt = stmt.where(SessionRecord.user_id == user_id)
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
 
-    # SELECT clause shared between list_sessions and get_session_list_row so
-    # both return rows shaped identically for ConversationListEntry.from_row.
-    _SESSION_LIST_SELECT = """
-        s.id,
-        s.updated_at,
-        s.pinned_at,
-        s.source_csv_id,
-        COALESCE(s.title, (
-            SELECT SUBSTR(text, 1, 60)
-            FROM turns t
-            WHERE t.session_id = s.id AND t.role = 'user'
-            ORDER BY t.created_at
-            LIMIT 1
-        ), 'New conversation') AS title,
-        s.provider,
-        s.model,
-        (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id) AS turn_count
-    """
+    async def list_sessions(self, *, user_id: int | None = None) -> list[dict]:
+        async with self._async_session() as session:
+            stmt = select(*_session_list_projection())
+            if user_id is not None:
+                stmt = stmt.where(SessionRecord.user_id == user_id)
+            stmt = stmt.order_by(
+                SessionRecord.pinned_at.desc(), SessionRecord.updated_at.desc()
+            )
+            result = await session.execute(stmt)
+            return [dict(row._mapping) for row in result.all()]
 
-    def list_sessions(self, *, user_id: int | None = None) -> list[dict]:
-        sql = (
-            f"SELECT {self._SESSION_LIST_SELECT} FROM sessions s "
-            + ("WHERE s.user_id = ? " if user_id is not None else "")
-            + "ORDER BY s.pinned_at DESC, s.updated_at DESC"
-        )
-        params: tuple = (user_id,) if user_id is not None else ()
-        with self._connect() as conn:
-            rows = conn.execute(sql, params).fetchall()
-        return [dict(row) for row in rows]
-
-    def get_session_list_row(
+    async def get_session_list_row(
         self, session_id: str, *, user_id: int | None = None
     ) -> dict | None:
         """Single-row sibling of `list_sessions`: return the same projection
         shape for one session, or None if it doesn't exist (or isn't owned
-        by the user when `user_id` is scoped).
-
-        Exists so callers that already know a session id don't have to list
-        every session and filter in Python — used by the conversations
-        service after a mutation to re-read the updated row.
-        """
-        if user_id is not None:
-            sql = f"SELECT {self._SESSION_LIST_SELECT} FROM sessions s WHERE s.id = ? AND s.user_id = ?"
-            params: tuple = (session_id, user_id)
-        else:
-            sql = f"SELECT {self._SESSION_LIST_SELECT} FROM sessions s WHERE s.id = ?"
-            params = (session_id,)
-        with self._connect() as conn:
-            row = conn.execute(sql, params).fetchone()
-        return dict(row) if row else None
-
-    def delete_session(self, session_id: str, *, user_id: int | None = None) -> bool:
-        with self._connect() as conn:
+        by the user when `user_id` is scoped)."""
+        async with self._async_session() as session:
+            stmt = select(*_session_list_projection()).where(SessionRecord.id == session_id)
             if user_id is not None:
-                row = conn.execute(
-                    "SELECT id FROM sessions WHERE id = ? AND user_id = ?",
-                    (session_id, user_id),
-                ).fetchone()
-            else:
-                row = conn.execute("SELECT id FROM sessions WHERE id = ?", (session_id,)).fetchone()
-            if row is None:
+                stmt = stmt.where(SessionRecord.user_id == user_id)
+            result = await session.execute(stmt)
+            row = result.first()
+            return dict(row._mapping) if row else None
+
+    async def delete_session(
+        self, session_id: str, *, user_id: int | None = None
+    ) -> bool:
+        async with self._async_session() as session:
+            stmt = select(SessionRecord.id).where(SessionRecord.id == session_id)
+            if user_id is not None:
+                stmt = stmt.where(SessionRecord.user_id == user_id)
+            found = await session.execute(stmt)
+            if found.scalar_one_or_none() is None:
                 return False
-            conn.execute("DELETE FROM assistant_parts WHERE session_id = ?", (session_id,))
-            conn.execute("DELETE FROM tool_runs WHERE session_id = ?", (session_id,))
-            conn.execute("DELETE FROM compaction_summaries WHERE session_id = ?", (session_id,))
-            conn.execute("DELETE FROM turns WHERE session_id = ?", (session_id,))
-            conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+            await session.execute(
+                delete(AssistantPartRecord).where(AssistantPartRecord.session_id == session_id)
+            )
+            await session.execute(
+                delete(ToolRunRecord).where(ToolRunRecord.session_id == session_id)
+            )
+            await session.execute(
+                delete(CompactionSummaryRecord).where(
+                    CompactionSummaryRecord.session_id == session_id
+                )
+            )
+            await session.execute(
+                delete(TurnRecord).where(TurnRecord.session_id == session_id)
+            )
+            await session.execute(
+                delete(SessionRecord).where(SessionRecord.id == session_id)
+            )
+            await session.commit()
         return True
 
     # ---------------- turns ----------------
 
-    def create_turn(self, session_id: str, role: str, text: str = "", status: str = "completed") -> TurnRecord:
+    async def create_turn(
+        self, session_id: str, role: str, text: str = "", status: str = "completed"
+    ) -> TurnRecord:
         now = utcnow()
         turn = TurnRecord(
             id=new_id(),
@@ -248,91 +257,85 @@ class TranscriptsMixin:
             role=role,
             status=status,
             text=text,
+            compacted=False,
+            input_tokens=0,
+            output_tokens=0,
             created_at=now,
             updated_at=now,
         )
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO turns (id, session_id, role, status, text, compacted, error, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, 0, NULL, ?, ?)
-                """,
-                (turn.id, turn.session_id, turn.role, turn.status, turn.text, turn.created_at, turn.updated_at),
+        async with self._async_session() as session:
+            session.add(turn)
+            await session.execute(
+                update(SessionRecord)
+                .where(SessionRecord.id == session_id)
+                .values(updated_at=now)
             )
-            conn.execute("UPDATE sessions SET updated_at = ? WHERE id = ?", (now, session_id))
+            await session.commit()
         return turn
 
-    def update_turn(self, turn_id: str, **changes) -> TurnRecord:
+    async def update_turn(self, turn_id: str, **changes) -> TurnRecord | None:
         if not changes:
-            return self.get_turn(turn_id)
-        fields = []
-        values = []
-        for key, value in changes.items():
-            fields.append(f"{key} = ?")
-            values.append(value)
-        values.extend([utcnow(), turn_id])
-        sql = f"UPDATE turns SET {', '.join(fields)}, updated_at = ? WHERE id = ?"
-        with self._connect() as conn:
-            conn.execute(sql, values)
-        return self.get_turn(turn_id)
+            return await self.get_turn(turn_id)
+        async with self._async_session() as session:
+            await session.execute(
+                update(TurnRecord)
+                .where(TurnRecord.id == turn_id)
+                .values(**changes, updated_at=utcnow())
+            )
+            await session.commit()
+        return await self.get_turn(turn_id)
 
-    def append_turn_text(self, turn_id: str, text: str) -> TurnRecord:
-        turn = self.get_turn(turn_id)
+    async def append_turn_text(self, turn_id: str, text_delta: str) -> TurnRecord | None:
+        turn = await self.get_turn(turn_id)
         if turn is None:
             raise KeyError(f"Unknown turn {turn_id}")
-        return self.update_turn(turn_id, text=turn.text + text)
+        return await self.update_turn(turn_id, text=turn.text + text_delta)
 
-    def append_assistant_text(self, session_id: str, turn_id: str, text: str) -> TurnRecord:
+    async def append_assistant_text(
+        self, session_id: str, turn_id: str, text_delta: str
+    ) -> TurnRecord | None:
         """Append assistant text and persist its matching assistant_part atomically."""
-        turn = self.get_turn(turn_id)
+        turn = await self.get_turn(turn_id)
         if turn is None:
             raise KeyError(f"Unknown turn {turn_id}")
         now = utcnow()
-        with self._connect() as conn:
-            conn.execute(
-                "UPDATE turns SET text = COALESCE(text, '') || ?, updated_at = ? WHERE id = ?",
-                (text, now, turn_id),
+        async with self._async_session() as session:
+            await session.execute(
+                update(TurnRecord)
+                .where(TurnRecord.id == turn_id)
+                .values(
+                    text=func.coalesce(TurnRecord.text, "") + text_delta,
+                    updated_at=now,
+                )
             )
-            row = conn.execute(
-                "SELECT COALESCE(MAX(order_index), -1) + 1 FROM assistant_parts WHERE turn_id = ?",
-                (turn_id,),
-            ).fetchone()
-            order_index = int(row[0]) if row else 0
+            next_order = await session.execute(
+                select(func.coalesce(func.max(AssistantPartRecord.order_index), -1) + 1)
+                .where(AssistantPartRecord.turn_id == turn_id)
+            )
+            order_index = int(next_order.scalar_one())
             part = AssistantPartRecord(
                 id=new_id(),
                 session_id=session_id,
                 turn_id=turn_id,
                 kind="text",
                 order_index=order_index,
-                content=text,
+                content=text_delta,
+                created_at=now,
             )
-            conn.execute(
-                """
-                INSERT INTO assistant_parts (id, session_id, turn_id, kind, order_index, content, name, tool_run_id, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    part.id,
-                    part.session_id,
-                    part.turn_id,
-                    part.kind,
-                    part.order_index,
-                    part.content,
-                    part.name,
-                    part.tool_run_id,
-                    part.created_at,
-                ),
-            )
-        return self.get_turn(turn_id)
+            session.add(part)
+            await session.commit()
+        return await self.get_turn(turn_id)
 
-    def get_turn(self, turn_id: str) -> TurnRecord | None:
-        with self._connect() as conn:
-            row = conn.execute("SELECT * FROM turns WHERE id = ?", (turn_id,)).fetchone()
-        return row_to_turn(row) if row else None
+    async def get_turn(self, turn_id: str) -> TurnRecord | None:
+        async with self._async_session() as session:
+            result = await session.execute(
+                select(TurnRecord).where(TurnRecord.id == turn_id)
+            )
+            return result.scalar_one_or_none()
 
     # ---------------- assistant parts ----------------
 
-    def add_part(
+    async def add_part(
         self,
         session_id: str,
         turn_id: str,
@@ -342,12 +345,12 @@ class TranscriptsMixin:
         name: str | None = None,
         tool_run_id: str | None = None,
     ) -> AssistantPartRecord:
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT COALESCE(MAX(order_index), -1) + 1 FROM assistant_parts WHERE turn_id = ?",
-                (turn_id,),
-            ).fetchone()
-            order_index = int(row[0]) if row else 0
+        async with self._async_session() as session:
+            next_order = await session.execute(
+                select(func.coalesce(func.max(AssistantPartRecord.order_index), -1) + 1)
+                .where(AssistantPartRecord.turn_id == turn_id)
+            )
+            order_index = int(next_order.scalar_one())
             part = AssistantPartRecord(
                 id=new_id(),
                 session_id=session_id,
@@ -357,29 +360,16 @@ class TranscriptsMixin:
                 content=content,
                 name=name,
                 tool_run_id=tool_run_id,
+                created_at=utcnow(),
             )
-            conn.execute(
-                """
-                INSERT INTO assistant_parts (id, session_id, turn_id, kind, order_index, content, name, tool_run_id, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    part.id,
-                    part.session_id,
-                    part.turn_id,
-                    part.kind,
-                    part.order_index,
-                    part.content,
-                    part.name,
-                    part.tool_run_id,
-                    part.created_at,
-                ),
-            )
+            session.add(part)
+            await session.commit()
+            await session.refresh(part)
         return part
 
     # ---------------- tool runs ----------------
 
-    def create_tool_run(
+    async def create_tool_run(
         self,
         session_id: str,
         turn_id: str,
@@ -395,75 +385,54 @@ class TranscriptsMixin:
             session_id=session_id,
             turn_id=turn_id,
             tool_name=tool_name,
-            input_json=json.dumps(input_data, sort_keys=True),
+            input=dict(input_data),
             status=status,
-            result_text=None,
-            error_text=None,
-            hint=None,
-            duration_ms=None,
             compacted=False,
+            raw_input_text=raw_input_text,
             created_at=now,
             updated_at=now,
-            raw_input_text=raw_input_text,
         )
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO tool_runs (
-                    id, session_id, turn_id, tool_name, input_json, status,
-                    result_text, error_text, hint, duration_ms, compacted,
-                    created_at, updated_at, raw_input_text
-                ) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, 0, ?, ?, ?)
-                """,
-                (
-                    tool_run.id,
-                    tool_run.session_id,
-                    tool_run.turn_id,
-                    tool_run.tool_name,
-                    tool_run.input_json,
-                    tool_run.status,
-                    tool_run.created_at,
-                    tool_run.updated_at,
-                    tool_run.raw_input_text,
-                ),
-            )
+        async with self._async_session() as session:
+            session.add(tool_run)
+            await session.commit()
         return tool_run
 
-    def update_tool_run(self, tool_run_id: str, **changes) -> ToolRunRecord:
+    async def update_tool_run(self, tool_run_id: str, **changes) -> ToolRunRecord | None:
         if not changes:
-            return self.get_tool_run(tool_run_id)
-        fields = []
-        values = []
-        for key, value in changes.items():
-            fields.append(f"{key} = ?")
-            values.append(value)
-        values.extend([utcnow(), tool_run_id])
-        sql = f"UPDATE tool_runs SET {', '.join(fields)}, updated_at = ? WHERE id = ?"
-        with self._connect() as conn:
-            conn.execute(sql, values)
-        return self.get_tool_run(tool_run_id)
+            return await self.get_tool_run(tool_run_id)
+        async with self._async_session() as session:
+            await session.execute(
+                update(ToolRunRecord)
+                .where(ToolRunRecord.id == tool_run_id)
+                .values(**changes, updated_at=utcnow())
+            )
+            await session.commit()
+        return await self.get_tool_run(tool_run_id)
 
-    def get_tool_run(self, tool_run_id: str) -> ToolRunRecord | None:
-        with self._connect() as conn:
-            row = conn.execute("SELECT * FROM tool_runs WHERE id = ?", (tool_run_id,)).fetchone()
-        return row_to_tool_run(row) if row else None
+    async def get_tool_run(self, tool_run_id: str) -> ToolRunRecord | None:
+        async with self._async_session() as session:
+            result = await session.execute(
+                select(ToolRunRecord).where(ToolRunRecord.id == tool_run_id)
+            )
+            return result.scalar_one_or_none()
 
-    def get_recent_tool_runs(self, session_id: str, limit: int = 3) -> list[ToolRunRecord]:
-        with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT * FROM tool_runs
-                WHERE session_id = ?
-                ORDER BY created_at DESC
-                LIMIT ?
-                """,
-                (session_id, limit),
-            ).fetchall()
-        return [row_to_tool_run(r) for r in rows]
+    async def get_recent_tool_runs(
+        self, session_id: str, limit: int = 3
+    ) -> list[ToolRunRecord]:
+        async with self._async_session() as session:
+            result = await session.execute(
+                select(ToolRunRecord)
+                .where(ToolRunRecord.session_id == session_id)
+                .order_by(ToolRunRecord.created_at.desc())
+                .limit(limit)
+            )
+            return list(result.scalars().all())
 
     # ---------------- compaction ----------------
 
-    def record_compaction(self, session_id: str, summary_text: str, source_turn_ids: list[str]) -> CompactionSummaryRecord:
+    async def record_compaction(
+        self, session_id: str, summary_text: str, source_turn_ids: list[str]
+    ) -> CompactionSummaryRecord:
         now = utcnow()
         summary_turn = TurnRecord(
             id=new_id(),
@@ -471,6 +440,9 @@ class TranscriptsMixin:
             role="summary",
             status="completed",
             text=summary_text,
+            compacted=False,
+            input_tokens=0,
+            output_tokens=0,
             created_at=now,
             updated_at=now,
         )
@@ -478,103 +450,96 @@ class TranscriptsMixin:
             id=new_id(),
             session_id=session_id,
             summary_turn_id=summary_turn.id,
-            source_turn_ids=source_turn_ids,
+            source_turn_ids=list(source_turn_ids),
             created_at=now,
         )
-        encoded = json.dumps(source_turn_ids)
-        # All writes share one connection/transaction so a crash mid-compaction
+        # All writes share one AsyncSession/transaction so a crash mid-compaction
         # can't leave an orphan summary turn without its compaction_summaries
         # row (or with source turns still marked active).
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO turns (id, session_id, role, status, text, compacted, error, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, 0, NULL, ?, ?)
-                """,
-                (
-                    summary_turn.id, summary_turn.session_id, summary_turn.role,
-                    summary_turn.status, summary_turn.text,
-                    summary_turn.created_at, summary_turn.updated_at,
-                ),
-            )
-            conn.execute("UPDATE sessions SET updated_at = ? WHERE id = ?", (now, session_id))
-            conn.execute(
-                """
-                INSERT INTO compaction_summaries (id, session_id, summary_turn_id, source_turn_ids, created_at)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (summary.id, session_id, summary.summary_turn_id, encoded, summary.created_at),
+        async with self._async_session() as session:
+            session.add(summary_turn)
+            # Flush the summary turn so the `compaction_summaries.summary_turn_id`
+            # FK resolves when the summary row is inserted in the same transaction.
+            await session.flush()
+            session.add(summary)
+            await session.execute(
+                update(SessionRecord)
+                .where(SessionRecord.id == session_id)
+                .values(updated_at=now)
             )
             if source_turn_ids:
-                placeholders = ", ".join("?" for _ in source_turn_ids)
-                conn.execute(
-                    f"UPDATE turns SET compacted = 1, updated_at = ? WHERE id IN ({placeholders})",
-                    (now, *source_turn_ids),
+                await session.execute(
+                    update(TurnRecord)
+                    .where(TurnRecord.id.in_(source_turn_ids))
+                    .values(compacted=True, updated_at=now)
                 )
-                conn.execute(
-                    f"""
-                    UPDATE tool_runs
-                    SET compacted = 1, updated_at = ?
-                    WHERE turn_id IN ({placeholders}) AND status = 'completed'
-                    """,
-                    (now, *source_turn_ids),
+                await session.execute(
+                    update(ToolRunRecord)
+                    .where(
+                        ToolRunRecord.turn_id.in_(source_turn_ids),
+                        ToolRunRecord.status == "completed",
+                    )
+                    .values(compacted=True, updated_at=now)
                 )
+            await session.commit()
         return summary
 
     # ---------------- transcript + message build ----------------
 
-    def get_transcript(self, session_id: str) -> SessionTranscript:
+    async def get_transcript(self, session_id: str) -> SessionTranscript:
         """Snapshot the full transcript: session + turns + parts + tool runs + summaries.
 
-        Issues four separate SELECTs in a single connection but without an
-        explicit `BEGIN`, so each statement is its own autocommit read. In
-        WAL mode this is *read-consistent only when no concurrent writer
-        commits between statements*. The runtime hot path guarantees that
-        by holding `conversations.lock(session_id)` around any write, so
-        compaction and message-building see a coherent snapshot. The HTTP
-        transcript endpoint does *not* take the lock — if a turn is
-        actively streaming when the user opens the session, the response
-        can show a half-written assistant turn. That's treated as cosmetic:
-        the next poll returns a consistent view. Do not loosen the lock
-        contract for writers without wrapping this body in a deferred
-        transaction.
+        Issues four SELECTs in a single `AsyncSession`. SA's default
+        transactional state makes these statements see a coherent snapshot
+        within the session. The runtime hot path also holds
+        `store.lock(session_id)` around any write, so compaction and
+        message-building see a consistent view. The HTTP transcript endpoint
+        does *not* take the lock — if a turn is actively streaming when the
+        user opens the session, the response can show a half-written
+        assistant turn. That's treated as cosmetic: the next poll returns
+        a consistent view.
         """
-        session = self.get_session(session_id)
-        if session is None:
-            raise KeyError(f"Unknown session {session_id}")
-        with self._connect() as conn:
-            turn_rows = conn.execute(
-                "SELECT * FROM turns WHERE session_id = ? ORDER BY created_at, id",
-                (session_id,),
-            ).fetchall()
-            part_rows = conn.execute(
-                """
-                SELECT * FROM assistant_parts
-                WHERE session_id = ?
-                ORDER BY turn_id, order_index, created_at
-                """,
-                (session_id,),
-            ).fetchall()
-            tool_rows = conn.execute(
-                "SELECT * FROM tool_runs WHERE session_id = ? ORDER BY created_at, id",
-                (session_id,),
-            ).fetchall()
-            summary_rows = conn.execute(
-                "SELECT * FROM compaction_summaries WHERE session_id = ? ORDER BY created_at, id",
-                (session_id,),
-            ).fetchall()
-        turns = [row_to_turn(r) for r in turn_rows]
+        async with self._async_session() as session:
+            session_row = await session.execute(
+                select(SessionRecord).where(SessionRecord.id == session_id)
+            )
+            record = session_row.scalar_one_or_none()
+            if record is None:
+                raise KeyError(f"Unknown session {session_id}")
+            turn_rows = await session.execute(
+                select(TurnRecord)
+                .where(TurnRecord.session_id == session_id)
+                .order_by(TurnRecord.created_at, TurnRecord.id)
+            )
+            part_rows = await session.execute(
+                select(AssistantPartRecord)
+                .where(AssistantPartRecord.session_id == session_id)
+                .order_by(
+                    AssistantPartRecord.turn_id,
+                    AssistantPartRecord.order_index,
+                    AssistantPartRecord.created_at,
+                )
+            )
+            tool_rows = await session.execute(
+                select(ToolRunRecord)
+                .where(ToolRunRecord.session_id == session_id)
+                .order_by(ToolRunRecord.created_at, ToolRunRecord.id)
+            )
+            summary_rows = await session.execute(
+                select(CompactionSummaryRecord)
+                .where(CompactionSummaryRecord.session_id == session_id)
+                .order_by(CompactionSummaryRecord.created_at, CompactionSummaryRecord.id)
+            )
+        turns = list(turn_rows.scalars().all())
         parts_by_turn: dict[str, list[AssistantPartRecord]] = {}
-        for row in part_rows:
-            part = row_to_part(row)
+        for part in part_rows.scalars().all():
             parts_by_turn.setdefault(part.turn_id, []).append(part)
         tool_runs_by_turn: dict[str, list[ToolRunRecord]] = {}
-        for row in tool_rows:
-            tool_run = row_to_tool_run(row)
-            tool_runs_by_turn.setdefault(tool_run.turn_id, []).append(tool_run)
-        summaries = [row_to_summary(r) for r in summary_rows]
+        for run in tool_rows.scalars().all():
+            tool_runs_by_turn.setdefault(run.turn_id, []).append(run)
+        summaries = list(summary_rows.scalars().all())
         return SessionTranscript(
-            session=session,
+            session=record,
             turns=turns,
             parts_by_turn=parts_by_turn,
             tool_runs_by_turn=tool_runs_by_turn,

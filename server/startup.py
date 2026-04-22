@@ -34,23 +34,23 @@ def validate_encryption() -> None:
         raise
 
 
-def run_housekeeping(app: FastAPI) -> None:
+async def run_housekeeping(app: FastAPI) -> None:
     store: RuntimeStore = app.state.store
 
-    purged = store.purge_expired_auth_sessions()
+    purged = await store.purge_expired_auth_sessions()
     if purged:
         logger.info("Purged %d expired auth session(s)", purged)
 
-    user_count = store.count_users()
+    user_count = await store.count_users()
     if user_count == 0:
         logger.info("No users registered yet — first visitor to the UI will be prompted to create an account.")
         return
 
     logger.info("%d user account(s) registered", user_count)
-    promoted = store.ensure_admin_exists()
+    promoted = await store.ensure_admin_exists()
     if promoted is not None:
         logger.info("Promoted user %d to admin (no admin existed yet)", promoted)
-    orphans = store.count_orphan_rows()
+    orphans = await store.count_orphan_rows()
     if any(orphans.values()):
         logger.warning(
             "Found orphan rows with NULL user_id — invisible to scoped queries: %s",
