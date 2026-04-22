@@ -39,7 +39,9 @@ primary_region = "iad"
   processes = ["app"]
 
   [[http_service.checks]]
-    grace_period = "10s"
+    # Temporarily bumped from 10s to absorb the first Alembic migration on
+    # the pre-Alembic prod DB. Restore to 10s after the first healthy boot.
+    grace_period = "30s"
     interval = "30s"
     method = "GET"
     timeout = "5s"
