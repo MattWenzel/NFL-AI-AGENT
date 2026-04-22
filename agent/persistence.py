@@ -43,11 +43,13 @@ class RuntimePersistence:
         title_preview_chars: int,
         user_text: str,
     ) -> None:
+        changes = {
+            "provider": provider_name,
+            "model": model,
+        }
         if not session.title:
-            session.title = user_text[:title_preview_chars]
-        session.provider = provider_name
-        session.model = model
-        await self.store.update_session(session)
+            changes["title"] = user_text[:title_preview_chars]
+        await self.store.update_session(session.id, **changes)
 
     async def append_assistant_text(self, session_id: str, turn_id: str, text: str) -> None:
         await self.store.append_assistant_text(session_id, turn_id, text)
@@ -59,7 +61,6 @@ class RuntimePersistence:
         *,
         tool_name: str,
         input_data: dict,
-        raw_input_text: str | None,
         tool_call_json: str,
     ) -> ToolRunRecord:
         tool_run = await self.store.create_tool_run(
@@ -68,7 +69,6 @@ class RuntimePersistence:
             tool_name,
             input_data,
             status="pending",
-            raw_input_text=raw_input_text,
         )
         await self.store.add_part(
             session_id,

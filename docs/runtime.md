@@ -123,7 +123,7 @@ The fingerprint is `json.dumps(tool_run.input, sort_keys=True)` — canonical JS
 `runtime.py:332`. Called once per queued tool run under `asyncio.gather`. Responsibilities:
 
 1. Mark the tool run `running`; emit a `tool_status` part so the UI can show the spinner.
-2. The streamed tool input has already been decoded to a `dict` by the provider adapter (and any parse failure captured in `raw_input_text` for debugging). Handlers receive the dict directly.
+2. The streamed tool input has already been decoded to a `dict` by the provider adapter. Handlers receive the dict directly.
 3. Build a `ctx` dict (`runtime.py:358`) with a `register_export` callback. This is the **side-channel** handlers use to reach the persistence layer without importing it. `create_csv_export` uses it to index generated files in the export library.
 4. Call `execute_tool_structured(name, input, ctx=ctx)` (see [tools.md](tools.md)).
 5. Persist the result: status, result text, error text, hint, duration, plus a `tool_result` assistant part.

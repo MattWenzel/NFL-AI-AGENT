@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
 from agent.persistence import RuntimePersistence
-from storage import RuntimeStore, TurnRecord
+from storage import RuntimeStore, ToolRunRecord, TurnRecord
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +40,7 @@ class ToolExecutionService:
         self,
         session_id: str,
         assistant_turn: TurnRecord,
-        tool_runs: list,
+        tool_runs: list[ToolRunRecord],
     ) -> list[ToolExecutionResult]:
         return await asyncio.gather(
             *(self.execute_one(session_id, assistant_turn, tool_run) for tool_run in tool_runs)
@@ -51,7 +50,7 @@ class ToolExecutionService:
         self,
         session_id: str,
         assistant_turn: TurnRecord,
-        tool_run,
+        tool_run: ToolRunRecord,
     ) -> ToolExecutionResult:
         await self.persistence.begin_tool_execution(
             session_id,

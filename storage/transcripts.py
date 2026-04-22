@@ -7,7 +7,7 @@ Mixed into `RuntimeStore` — every method is async-native via the store's
 
 from __future__ import annotations
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, insert, literal, select, update
 
 from storage.models import (
     AssistantPartRecord,
@@ -83,18 +83,18 @@ class TranscriptsMixin:
     ) -> SessionRecord:
         existing = await self.get_session(session_id, user_id=user_id) if session_id else None
         if existing:
-            changed = False
+            changes: dict[str, object] = {}
             if provider and existing.provider != provider:
                 existing.provider = provider
-                changed = True
+                changes["provider"] = provider
             if model and existing.model != model:
                 existing.model = model
-                changed = True
+                changes["model"] = model
             if context_window and existing.context_window != context_window:
                 existing.context_window = context_window
-                changed = True
-            if changed:
-                await self.update_session(existing)
+                changes["context_window"] = context_window
+            if changes:
+                await self.update_session(existing.id, **changes)
             return existing
 
         now = utcnow()
@@ -112,23 +112,18 @@ class TranscriptsMixin:
             await session.commit()
         return record
 
-    async def update_session(self, record: SessionRecord) -> None:
-        record.updated_at = utcnow()
+    async def update_session(self, session_id: str, **changes) -> SessionRecord | None:
+        if not changes:
+            return await self.get_session(session_id)
+        now = utcnow()
         async with self._async_session() as session:
             await session.execute(
                 update(SessionRecord)
-                .where(SessionRecord.id == record.id)
-                .values(
-                    updated_at=record.updated_at,
-                    provider=record.provider,
-                    model=record.model,
-                    title=record.title,
-                    context_window=record.context_window,
-                    pinned_at=record.pinned_at,
-                    source_csv_id=record.source_csv_id,
-                )
+                .where(SessionRecord.id == session_id)
+                .values(**changes, updated_at=now)
             )
             await session.commit()
+        return await self.get_session(session_id)
 
     async def set_session_pinned(
         self, session_id: str, pinned: bool, *, user_id: int | None = None
@@ -309,21 +304,16 @@ class TranscriptsMixin:
                     updated_at=now,
                 )
             )
-            next_order = await session.execute(
-                select(func.coalesce(func.max(AssistantPartRecord.order_index), -1) + 1)
-                .where(AssistantPartRecord.turn_id == turn_id)
+            await session.execute(
+                self._assistant_part_insert_statement(
+                    part_id=new_id(),
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    kind="text",
+                    content=text_delta,
+                    created_at=now,
+                )
             )
-            order_index = int(next_order.scalar_one())
-            part = AssistantPartRecord(
-                id=new_id(),
-                session_id=session_id,
-                turn_id=turn_id,
-                kind="text",
-                order_index=order_index,
-                content=text_delta,
-                created_at=now,
-            )
-            session.add(part)
             await session.commit()
         return await self.get_turn(turn_id)
 
@@ -346,27 +336,26 @@ class TranscriptsMixin:
         name: str | None = None,
         tool_run_id: str | None = None,
     ) -> AssistantPartRecord:
+        part_id = new_id()
+        created_at = utcnow()
         async with self._async_session() as session:
-            next_order = await session.execute(
-                select(func.coalesce(func.max(AssistantPartRecord.order_index), -1) + 1)
-                .where(AssistantPartRecord.turn_id == turn_id)
+            await session.execute(
+                self._assistant_part_insert_statement(
+                    part_id=part_id,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    kind=kind,
+                    content=content,
+                    name=name,
+                    tool_run_id=tool_run_id,
+                    created_at=created_at,
+                )
             )
-            order_index = int(next_order.scalar_one())
-            part = AssistantPartRecord(
-                id=new_id(),
-                session_id=session_id,
-                turn_id=turn_id,
-                kind=kind,
-                order_index=order_index,
-                content=content,
-                name=name,
-                tool_run_id=tool_run_id,
-                created_at=utcnow(),
-            )
-            session.add(part)
             await session.commit()
-            await session.refresh(part)
-        return part
+            result = await session.execute(
+                select(AssistantPartRecord).where(AssistantPartRecord.id == part_id)
+            )
+            return result.scalar_one()
 
     # ---------------- tool runs ----------------
 
@@ -377,8 +366,6 @@ class TranscriptsMixin:
         tool_name: str,
         input_data: dict,
         status: str = "pending",
-        *,
-        raw_input_text: str | None = None,
     ) -> ToolRunRecord:
         now = utcnow()
         tool_run = ToolRunRecord(
@@ -389,7 +376,6 @@ class TranscriptsMixin:
             input=dict(input_data),
             status=status,
             compacted=False,
-            raw_input_text=raw_input_text,
             created_at=now,
             updated_at=now,
         )
@@ -545,4 +531,42 @@ class TranscriptsMixin:
             parts_by_turn=parts_by_turn,
             tool_runs_by_turn=tool_runs_by_turn,
             summaries=summaries,
+        )
+
+    def _assistant_part_insert_statement(
+        self,
+        *,
+        part_id: str,
+        session_id: str,
+        turn_id: str,
+        kind: str,
+        content: str,
+        created_at: str,
+        name: str | None = None,
+        tool_run_id: str | None = None,
+    ):
+        next_order = func.coalesce(func.max(AssistantPartRecord.order_index), -1) + 1
+        return insert(AssistantPartRecord).from_select(
+            [
+                AssistantPartRecord.id,
+                AssistantPartRecord.session_id,
+                AssistantPartRecord.turn_id,
+                AssistantPartRecord.kind,
+                AssistantPartRecord.order_index,
+                AssistantPartRecord.content,
+                AssistantPartRecord.name,
+                AssistantPartRecord.tool_run_id,
+                AssistantPartRecord.created_at,
+            ],
+            select(
+                literal(part_id),
+                literal(session_id),
+                literal(turn_id),
+                literal(kind),
+                next_order,
+                literal(content),
+                literal(name),
+                literal(tool_run_id),
+                literal(created_at),
+            ).where(AssistantPartRecord.turn_id == turn_id),
         )

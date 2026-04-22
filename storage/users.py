@@ -51,7 +51,6 @@ class UsersMixin:
         async with self._async_session() as session:
             session.add(user)
             await session.commit()
-            await session.refresh(user)
         return user
 
     async def get_user_by_email(self, email: str) -> UserRecord | None:

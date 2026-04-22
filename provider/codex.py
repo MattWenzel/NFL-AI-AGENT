@@ -321,16 +321,13 @@ class OpenAICodexClient(BaseLLMClient):
     @staticmethod
     def _assemble_tool_event(call_id: str, slot: dict) -> ToolUseEvent:
         args_str = slot.get("arguments") or ""
-        raw_for_debug: str | None = None
         try:
             tool_input = json.loads(args_str) if args_str else {}
         except json.JSONDecodeError:
             logger.warning("Codex tool %s: invalid JSON arguments %r", slot.get("name"), args_str[:200])
             tool_input = {}
-            raw_for_debug = args_str
         return ToolUseEvent(
             id=call_id, name=slot.get("name", ""), input=tool_input,
-            raw_input_json=raw_for_debug,
         )
 
     @staticmethod

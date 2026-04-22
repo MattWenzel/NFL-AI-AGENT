@@ -83,8 +83,7 @@ class ConversationApplicationService:
         if session is None:
             raise ConversationNotFoundError("Conversation not found")
         if title is not None:
-            session.title = title.strip()
-            await self.store.update_session(session)
+            await self.store.update_session(conversation_id, title=title.strip())
         if pinned is not None:
             session = await self.store.set_session_pinned(
                 conversation_id,

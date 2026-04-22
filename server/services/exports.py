@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import csv
-import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,22 +34,13 @@ class ExportApplicationService:
     store: RuntimeStore
     exports_dir: Path = EXPORTS_DIR
 
-    def _columns(self, record) -> list[str]:
-        try:
-            cols = json.loads(record.columns_json)
-            if isinstance(cols, list):
-                return [str(c) for c in cols]
-        except json.JSONDecodeError:
-            logger.warning("Malformed columns_json for export %s", record.id)
-        return []
-
     def _to_info(self, record) -> ExportInfo:
         return ExportInfo(
             id=record.id,
             filename=record.filename,
             title=record.title,
             row_count=record.row_count,
-            columns=self._columns(record),
+            columns=list(record.columns),
             file_size=record.file_size,
             created_at=record.created_at,
             updated_at=record.updated_at,
@@ -141,10 +131,9 @@ class ExportApplicationService:
             context_window=info.effective_context_window,
             user_id=user_id,
         )
-        session.title = record.title
-        await self.store.update_session(session)
+        await self.store.update_session(session.id, title=record.title)
         await self.store.set_session_source_csv(session.id, export_id, user_id=user_id)
-        columns = self._columns(record)
+        columns = list(record.columns)
         summary_text = (
             f"The user has opened a saved CSV for this conversation.\n"
             f"- Title: {record.title}\n"

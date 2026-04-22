@@ -12,8 +12,6 @@ server/, auth/) keep working unchanged.
 
 from __future__ import annotations
 
-import json
-import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -22,9 +20,6 @@ from sqlalchemy import Column, ForeignKey, Index, Integer, desc
 from sqlmodel import Field, SQLModel
 
 from storage.types import TolerantJSONList, ToolInputJSON
-
-logger = logging.getLogger(__name__)
-
 
 def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -141,11 +136,6 @@ class ToolRunRecord(SQLModel, table=True):
     hint: str | None = None
     duration_ms: int | None = None
     compacted: bool = False
-    # Preserved when the model's streamed JSON arguments fail to parse —
-    # `input` gets the {} fallback so the loop keeps moving, and this
-    # captures the original bytes for post-hoc debugging. Internal; not
-    # exposed on the wire.
-    raw_input_text: str | None = Field(default=None, exclude=True)
     created_at: str
     updated_at: str
 
@@ -174,7 +164,10 @@ class ExportRecord(SQLModel, table=True):
     title: str
     sql: str
     row_count: int
-    columns_json: str
+    columns: list[str] = Field(
+        default_factory=list,
+        sa_column=Column("columns_json", TolerantJSONList, nullable=False),
+    )
     file_size: int
     source_session_id: str | None = None
     source_tool_run_id: str | None = None

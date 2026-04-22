@@ -212,18 +212,15 @@ class AnthropicClient(BaseLLMClient):
                         current_tool_input_json += event.delta.partial_json
                 elif event.type == "content_block_stop":
                     if current_tool_id and current_tool_name:
-                        raw_for_debug: str | None = None
                         try:
                             tool_input = json.loads(current_tool_input_json) if current_tool_input_json else {}
                         except json.JSONDecodeError:
                             logger.warning("Failed to parse tool input JSON: %s", current_tool_input_json[:200])
                             tool_input = {}
-                            raw_for_debug = current_tool_input_json
                         yield ToolUseEvent(
                             id=current_tool_id,
                             name=current_tool_name,
                             input=tool_input,
-                            raw_input_json=raw_for_debug,
                         )
                         current_tool_id = None
                         current_tool_name = None

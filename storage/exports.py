@@ -1,12 +1,6 @@
-"""CSV export registry CRUD.
-
-Mixed into `RuntimeStore` — async-native against the store's
-`async_sessionmaker` (`self._async_session`).
-"""
+"""CSV export registry CRUD."""
 
 from __future__ import annotations
-
-import json
 
 from sqlalchemy import delete, select, update
 
@@ -40,7 +34,7 @@ class ExportsMixin:
             title=title,
             sql=sql,
             row_count=row_count,
-            columns_json=json.dumps(columns),
+            columns=list(columns),
             file_size=file_size,
             source_session_id=source_session_id,
             source_tool_run_id=source_tool_run_id,

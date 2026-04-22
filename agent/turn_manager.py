@@ -97,7 +97,6 @@ class AssistantTurnManager:
             context.assistant_turn.id,
             tool_name=event.name,
             input_data=event.input,
-            raw_input_text=event.raw_input_json,
             tool_call_json=json.dumps(event.input, separators=(",", ":"), sort_keys=True),
         )
         context.tool_runs.append(tool_run)

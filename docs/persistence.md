@@ -77,7 +77,7 @@ tool_runs                             ── one row per tool call
 ├─ status                             ── pending → running → completed | error | interrupted
 ├─ result                             ── TEXT, tool output
 ├─ error                              ── TEXT, populated on status=error|interrupted
-├─ hint, duration_ms, compacted, raw_input_text
+├─ hint, duration_ms, compacted
 └─ created_at, updated_at
 
 compaction_summaries                  ── one row per compaction event

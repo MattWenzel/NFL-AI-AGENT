@@ -89,16 +89,10 @@ class TextEvent:
 
 @dataclass
 class ToolUseEvent:
-    """A tool call from the model.
-
-    `raw_input_json` is set only when the streamed JSON arguments failed
-    to parse — the runtime captures it to disk so a corrupted call is
-    debuggable post-hoc instead of disappearing into a {} fallback.
-    """
+    """A tool call from the model."""
     id: str
     name: str
     input: dict
-    raw_input_json: str | None = None
 
 
 @dataclass

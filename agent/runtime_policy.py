@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from agent.compaction import compact_if_needed
 from agent.events import RuntimeEvent, RuntimeLoopError
 from provider import BaseLLMClient, ToolChoice
-from storage import RuntimeStore, SessionRecord
+from storage import RuntimeStore, SessionRecord, ToolRunRecord
 
 
 # Doom-loop detector: if the agent calls the same tool with the same input
@@ -22,7 +22,7 @@ from storage import RuntimeStore, SessionRecord
 DOOM_LOOP_MATCH = 3
 
 
-def raise_if_doom_loop(tool_runs) -> None:
+def raise_if_doom_loop(tool_runs: list[ToolRunRecord]) -> None:
     if len(tool_runs) < DOOM_LOOP_MATCH:
         return
     # Canonical JSON of input makes the fingerprint insensitive to dict key
@@ -45,7 +45,7 @@ class RuntimeLoopState:
     force_tool_choice_next_iter: ToolChoice | None = None
     force_overflow_compaction: bool = False
     overflow_retry_used: bool = False
-    user_turn_tool_runs: list = field(default_factory=list)
+    user_turn_tool_runs: list[ToolRunRecord] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.force_tool_choice_next_iter = self.initial_tool_choice
@@ -91,7 +91,7 @@ class RuntimeLoopState:
             meta=compaction_info,
         )
 
-    def record_tool_runs(self, tool_runs: list) -> None:
+    def record_tool_runs(self, tool_runs: list[ToolRunRecord]) -> None:
         self.user_turn_tool_runs.extend(tool_runs)
         raise_if_doom_loop(self.user_turn_tool_runs)
 
