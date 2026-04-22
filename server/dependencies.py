@@ -8,7 +8,7 @@ from fastapi import Depends, HTTPException, Request, status
 
 from agent.runtime import ChatRuntime
 from auth.primitives import AuthenticatedUser, _extract_bearer
-from config import AUTH_SESSION_TOUCH_INTERVAL_SECONDS
+from config import AUTH_SESSION_TOUCH_INTERVAL_SECONDS, EXPORTS_DIR
 from server.process_state import (
     AppProcessState,
     ChatStreamGate,
@@ -16,10 +16,12 @@ from server.process_state import (
     PerUserLockRegistry,
     RequestRateLimiter,
 )
+from server.services.auth import AuthApplicationService
 from server.services.chat import ChatApplicationService
 from server.services.codex_oauth import CodexOAuthApplicationService
 from server.services.conversations import ConversationApplicationService
 from server.services.exports import ExportApplicationService
+from server.services.settings import SettingsApplicationService
 from storage import RuntimeStore
 
 
@@ -138,3 +140,15 @@ def get_export_service(
     store: RuntimeStore = Depends(get_store),
 ) -> ExportApplicationService:
     return ExportApplicationService(store)
+
+
+def get_auth_service(
+    store: RuntimeStore = Depends(get_store),
+) -> AuthApplicationService:
+    return AuthApplicationService(store, EXPORTS_DIR)
+
+
+def get_settings_service(
+    store: RuntimeStore = Depends(get_store),
+) -> SettingsApplicationService:
+    return SettingsApplicationService(store)

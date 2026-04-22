@@ -5,14 +5,13 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from auth.primitives import AuthenticatedUser
-from server.dependencies import get_current_user, get_store
+from server.dependencies import get_current_user, get_settings_service
 from server.schemas.settings import ApiKeyStatus, ApiKeyUpdate
 from server.services.settings import (
     SettingsApplicationService,
     SettingsNotFoundError,
     SettingsServiceError,
 )
-from storage import RuntimeStore
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -20,9 +19,8 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 @router.get("/api-keys", response_model=list[ApiKeyStatus])
 async def list_api_key_status(
     user: AuthenticatedUser = Depends(get_current_user),
-    store: RuntimeStore = Depends(get_store),
+    service: SettingsApplicationService = Depends(get_settings_service),
 ) -> list[ApiKeyStatus]:
-    service = SettingsApplicationService(store)
     return await service.list_api_key_status(user.id)
 
 
@@ -31,9 +29,8 @@ async def update_api_key(
     provider: str,
     payload: ApiKeyUpdate,
     user: AuthenticatedUser = Depends(get_current_user),
-    store: RuntimeStore = Depends(get_store),
+    service: SettingsApplicationService = Depends(get_settings_service),
 ) -> ApiKeyStatus:
-    service = SettingsApplicationService(store)
     try:
         return await service.update_api_key(
             user_id=user.id,
