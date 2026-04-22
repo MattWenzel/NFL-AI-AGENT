@@ -2,6 +2,7 @@ import { state } from "./state.js";
 import { confirmDialog } from "./confirm.js";
 import { openCsv } from "./csv.js";
 import { loadTranscript, refreshConversations } from "./api.js";
+import { setSidebarView } from "./navigation.js";
 import { requestRender } from "./render-dispatch.js";
 import { fetchJSON, escapeHtml, formatTime } from "./utils.js";
 
