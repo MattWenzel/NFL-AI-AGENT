@@ -112,18 +112,18 @@ Defined at `events.py:29`. One exception type for unrecoverable loop states. Thr
 
 ## Doom-loop detector
 
-`runtime_policy.py:raise_if_doom_loop`. Before dispatching a pass's tool calls, the runtime fingerprints the tail `DOOM_LOOP_MATCH = 3` tool runs accumulated across the current user turn. If all three are identical (same `tool_name`, same `input_json`), it raises. Scope is one user turn — `RuntimeLoopState.user_turn_tool_runs` resets when the next user message arrives, so a follow-up turn that re-runs the same query ("try again") starts with a fresh list.
+`runtime_policy.py:raise_if_doom_loop`. Before dispatching a pass's tool calls, the runtime fingerprints the tail `DOOM_LOOP_MATCH = 3` tool runs accumulated across the current user turn. If all three are identical (same `tool_name`, same `input`), it raises. Scope is one user turn — `RuntimeLoopState.user_turn_tool_runs` resets when the next user message arrives, so a follow-up turn that re-runs the same query ("try again") starts with a fresh list.
 
 Why this shape: a model stuck in a loop typically repeats the *same* call over and over. Three identical calls in a row is a strong signal — it's unlikely in healthy use (the model usually varies SQL between retries) and catches common failure modes before the iteration budget exhausts.
 
-The fingerprint uses raw `input_json` string equality. This is intentional: semantically-equivalent JSON with different key ordering isn't caught, but both sides of the comparison come from the same serializer (`create_tool_run` writes canonical JSON), so equality is stable in practice.
+The fingerprint is `json.dumps(tool_run.input, sort_keys=True)` — canonical JSON so dict key order doesn't defeat equality. `.input` is always a parsed dict (ToolInputJSON enforces that at the storage boundary), so two semantically-equivalent inputs always fingerprint identically.
 
 ## Tool execution (`_execute_tool`)
 
 `runtime.py:332`. Called once per queued tool run under `asyncio.gather`. Responsibilities:
 
 1. Mark the tool run `running`; emit a `tool_status` part so the UI can show the spinner.
-2. Decode `input_json`. Malformed JSON is logged, persisted as an error, and returned as an error envelope — the model sees the error message as the tool result.
+2. The streamed tool input has already been decoded to a `dict` by the provider adapter (and any parse failure captured in `raw_input_text` for debugging). Handlers receive the dict directly.
 3. Build a `ctx` dict (`runtime.py:358`) with a `register_export` callback. This is the **side-channel** handlers use to reach the persistence layer without importing it. `create_csv_export` uses it to index generated files in the export library.
 4. Call `execute_tool_structured(name, input, ctx=ctx)` (see [tools.md](tools.md)).
 5. Persist the result: status, result text, error text, hint, duration, plus a `tool_result` assistant part.

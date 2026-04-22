@@ -73,10 +73,10 @@ assistant_parts                       ── per-block record within an assistan
 
 tool_runs                             ── one row per tool call
 ├─ id, session_id, turn_id, tool_name
-├─ input                              ── dict on the Python side; column is `input_json` (canonical JSON TEXT) via ToolInputJSON TypeDecorator
+├─ input                              ── dict on the Python side; canonical JSON TEXT on disk via ToolInputJSON TypeDecorator
 ├─ status                             ── pending → running → completed | error | interrupted
-├─ result                             ── result_text column
-├─ error                              ── error_text column
+├─ result                             ── TEXT, tool output
+├─ error                              ── TEXT, populated on status=error|interrupted
 ├─ hint, duration_ms, compacted, raw_input_text
 └─ created_at, updated_at
 
@@ -176,7 +176,7 @@ ChatRuntime.run_session:
     │    │
     │    ├─ on ToolUseEvent:
     │    │    ├─ create_tool_run(status='pending', input=dict)
-    │    │    └─ add_part(kind='tool_call', content=input_json, tool_run_id)
+    │    │    └─ add_part(kind='tool_call', content=tool_call_json, tool_run_id)
     │    │
     │    ├─ update_turn(status='completed', input_tokens, output_tokens)
     │    │
@@ -185,7 +185,7 @@ ChatRuntime.run_session:
     │         ├─ add_part(kind='tool_status', content='running')
     │         ├─ execute the tool
     │         ├─ update_tool_run(status='completed'|'error', result, hint, duration_ms)
-    │         └─ add_part(kind='tool_result', content=result_text)
+    │         └─ add_part(kind='tool_result', content=result_content)
     │
     └─ on crash:
          finally block → update_turn(status='interrupted'), update_tool_run(status='interrupted')

@@ -30,8 +30,8 @@ The returned dict is surfaced as a `compaction_started` `RuntimeEvent` with fiel
 | Assistant turn | `output_tokens` reported by the provider. `max(1, output_tokens)` so zero-token turns still count. |
 | Assistant turn with no usage data | `count_text_tokens(turn.text)` via tiktoken. |
 | User turn | `count_text_tokens(turn.text)`. |
-| Tool result (uncompacted, has `result_text`) | `count_text_tokens(result_text)`. |
-| Tool call | `count_text_tokens(input_json_part) + TOOL_CALL_OVERHEAD_TOKENS` (20 tokens for the JSON envelope). |
+| Tool result (uncompacted, `tool_run.result` populated) | `count_text_tokens(tool_run.result)`. |
+| Tool call | `count_text_tokens(tool_call_part.content) + TOOL_CALL_OVERHEAD_TOKENS` (20 tokens for the JSON envelope). |
 
 The subtle bit is **assistant turns use `output_tokens`, not `input_tokens`** (`compaction.py:86`). `input_tokens` is what the provider billed — which includes every earlier message — so summing input_tokens across turns double-counts massively. An 11-turn session would read as ~150K "transcript tokens" when the real transcript is ~15K. Using output_tokens counts only what each turn *added*; tool calls and tool results are summed separately in the same function.
 

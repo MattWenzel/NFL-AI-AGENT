@@ -73,7 +73,7 @@ export function renderInspector() {
                 <div class="detail-name">${escapeHtml(run.tool_name)}</div>
                 <div class="pill">${escapeHtml(run.status)}</div>
               </div>
-              <div class="detail-json">${escapeHtml(JSON.stringify(run.input || run.input_json || {}, null, 2))}</div>
+              <div class="detail-json">${escapeHtml(JSON.stringify(run.input || {}, null, 2))}</div>
               ${run.result ? `<div class="detail-text">${escapeHtml(run.result)}</div>` : ""}
               ${run.error ? `<div class="detail-text" style="background:var(--red-soft);color:var(--red)">${escapeHtml(run.error)}</div>` : ""}
             </div>

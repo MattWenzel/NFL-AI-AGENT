@@ -18,7 +18,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, ForeignKey, Index, Integer, String, desc
+from sqlalchemy import Column, ForeignKey, Index, Integer, desc
 from sqlmodel import Field, SQLModel
 
 from storage.types import TolerantJSONList, ToolInputJSON
@@ -128,21 +128,16 @@ class ToolRunRecord(SQLModel, table=True):
     session_id: str = Field(foreign_key="sessions.id", exclude=True)
     turn_id: str = Field(foreign_key="turns.id")
     tool_name: str
-    # `input` is the parsed dict the handler received. On the wire and
-    # in Python it reads as `dict`; on disk it's canonical JSON in the
-    # `input_json` column. ToolInputJSON's tolerant decoder returns `{}`
-    # on malformed rows so one bad row doesn't wedge the session.
+    # Parsed dict on the Python side and in the wire shape; canonical JSON
+    # on disk. ToolInputJSON's tolerant decoder returns `{}` on malformed
+    # rows so one bad row doesn't wedge the session.
     input: dict = Field(
         default_factory=dict,
-        sa_column=Column("input_json", ToolInputJSON, nullable=False),
+        sa_column=Column(ToolInputJSON, nullable=False),
     )
     status: str
-    result: str | None = Field(
-        default=None, sa_column=Column("result_text", String, nullable=True)
-    )
-    error: str | None = Field(
-        default=None, sa_column=Column("error_text", String, nullable=True)
-    )
+    result: str | None = None
+    error: str | None = None
     hint: str | None = None
     duration_ms: int | None = None
     compacted: bool = False
