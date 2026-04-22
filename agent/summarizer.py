@@ -20,7 +20,6 @@ import logging
 from storage import (
     ToolRunRecord,
     TurnRecord,
-    safe_load_tool_input,
 )
 from provider.base import BaseLLMClient, Message, MessageResponse, TextEvent
 from agent.token_counting import count_text_tokens
@@ -139,17 +138,16 @@ def _flatten_turns(
 
 
 def _format_tool_run(tool_run: ToolRunRecord, result_char_cap: int) -> str:
-    input_data = safe_load_tool_input(tool_run.input_json, tool_run_id=tool_run.id)
-    input_json = json.dumps(input_data, sort_keys=True)
+    input_json = json.dumps(tool_run.input, sort_keys=True)
     if len(input_json) > 400:
         input_json = input_json[:400] + "…"
-    result = (tool_run.result_text or "").strip()
+    result = (tool_run.result or "").strip()
     if len(result) > result_char_cap:
-        result = result[:result_char_cap] + f"\n…[truncated, {len(tool_run.result_text or '')} chars total]"
+        result = result[:result_char_cap] + f"\n…[truncated, {len(tool_run.result or '')} chars total]"
     status = tool_run.status
     lines = [f"TOOL {tool_run.tool_name} ({status})", f"  input: {input_json}"]
     if result:
         lines.append(f"  result: {result}")
-    if tool_run.error_text:
-        lines.append(f"  error: {tool_run.error_text}")
+    if tool_run.error:
+        lines.append(f"  error: {tool_run.error}")
     return "\n".join(lines)

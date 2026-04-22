@@ -20,7 +20,7 @@ class RuntimePersistence:
     store: RuntimeStore
 
     async def create_user_turn(self, session_id: str, text: str) -> TurnRecord:
-        return await self.store.create_turn_async(
+        return await self.store.create_turn(
             session_id,
             "user",
             text=text,
@@ -28,7 +28,7 @@ class RuntimePersistence:
         )
 
     async def open_assistant_turn(self, session_id: str) -> TurnRecord:
-        return await self.store.create_turn_async(
+        return await self.store.create_turn(
             session_id,
             "assistant",
             status="running",
@@ -47,10 +47,10 @@ class RuntimePersistence:
             session.title = user_text[:title_preview_chars]
         session.provider = provider_name
         session.model = model
-        await self.store.update_session_async(session)
+        await self.store.update_session(session)
 
     async def append_assistant_text(self, session_id: str, turn_id: str, text: str) -> None:
-        await self.store.append_assistant_text_async(session_id, turn_id, text)
+        await self.store.append_assistant_text(session_id, turn_id, text)
 
     async def record_tool_call(
         self,
@@ -62,7 +62,7 @@ class RuntimePersistence:
         raw_input_text: str | None,
         tool_call_json: str,
     ) -> ToolRunRecord:
-        tool_run = await self.store.create_tool_run_async(
+        tool_run = await self.store.create_tool_run(
             session_id,
             turn_id,
             tool_name,
@@ -70,7 +70,7 @@ class RuntimePersistence:
             status="pending",
             raw_input_text=raw_input_text,
         )
-        await self.store.add_part_async(
+        await self.store.add_part(
             session_id,
             turn_id,
             "tool_call",
@@ -81,17 +81,17 @@ class RuntimePersistence:
         return tool_run
 
     async def update_turn(self, turn_id: str, **changes) -> TurnRecord:
-        return await self.store.update_turn_async(turn_id, **changes)
+        return await self.store.update_turn(turn_id, **changes)
 
     async def get_turn(self, turn_id: str) -> TurnRecord | None:
-        return await self.store.get_turn_async(turn_id)
+        return await self.store.get_turn(turn_id)
 
     async def get_tool_run(self, tool_run_id: str) -> ToolRunRecord | None:
-        return await self.store.get_tool_run_async(tool_run_id)
+        return await self.store.get_tool_run(tool_run_id)
 
     async def begin_tool_execution(self, session_id: str, turn_id: str, tool_run_id: str, tool_name: str) -> None:
-        await self.store.update_tool_run_async(tool_run_id, status="running")
-        await self.store.add_part_async(
+        await self.store.update_tool_run(tool_run_id, status="running")
+        await self.store.add_part(
             session_id,
             turn_id,
             "tool_status",
@@ -109,19 +109,19 @@ class RuntimePersistence:
         *,
         result_content: str,
         status: str,
-        error_text: str | None,
+        error: str | None,
         hint: str | None,
         duration_ms: int | None,
     ) -> None:
-        await self.store.update_tool_run_async(
+        await self.store.update_tool_run(
             tool_run_id,
             status=status,
-            result_text=result_content,
-            error_text=error_text,
+            result=result_content,
+            error=error,
             hint=hint,
             duration_ms=duration_ms,
         )
-        await self.store.add_part_async(
+        await self.store.add_part(
             session_id,
             turn_id,
             "tool_result",
@@ -131,11 +131,11 @@ class RuntimePersistence:
         )
 
     async def interrupt_turn(self, turn_id: str, error: str) -> None:
-        await self.store.update_turn_async(turn_id, status="interrupted", error=error)
+        await self.store.update_turn(turn_id, status="interrupted", error=error)
 
-    async def interrupt_tool_run(self, tool_run_id: str, error_text: str) -> None:
-        await self.store.update_tool_run_async(
+    async def interrupt_tool_run(self, tool_run_id: str, error: str) -> None:
+        await self.store.update_tool_run(
             tool_run_id,
             status="interrupted",
-            error_text=error_text,
+            error=error,
         )

@@ -4,6 +4,7 @@ trigger, doom-loop detection, and overflow retry bookkeeping.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 
 from agent.compaction import compact_if_needed
@@ -24,7 +25,13 @@ DOOM_LOOP_MATCH = 3
 def raise_if_doom_loop(tool_runs) -> None:
     if len(tool_runs) < DOOM_LOOP_MATCH:
         return
-    tail = [(r.tool_name, r.input_json) for r in tool_runs[-DOOM_LOOP_MATCH:]]
+    # Canonical JSON of input makes the fingerprint insensitive to dict key
+    # ordering — two equivalent inputs fingerprint identically. Matches the
+    # invariant the storage layer already enforces via ToolInputJSON.
+    tail = [
+        (r.tool_name, json.dumps(r.input, sort_keys=True))
+        for r in tool_runs[-DOOM_LOOP_MATCH:]
+    ]
     if all(fp == tail[0] for fp in tail):
         raise RuntimeLoopError(
             f"Detected repeated tool loop on {tail[0][0]} with identical input"

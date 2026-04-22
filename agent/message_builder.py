@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 
 from provider.base import Message, ToolUseEvent
-from storage import SessionTranscript, safe_load_tool_input
-from storage.records import wrap_summaries_for_prompt
+from storage import SessionTranscript
+from storage.models import wrap_summaries_for_prompt
 
 
 def build_model_messages(transcript: SessionTranscript) -> list[Message]:
@@ -47,7 +47,7 @@ def build_model_messages(transcript: SessionTranscript) -> list[Message]:
             ToolUseEvent(
                 id=tool_run.id,
                 name=tool_run.tool_name,
-                input=safe_load_tool_input(tool_run.input_json, tool_run_id=tool_run.id),
+                input=tool_run.input,
             )
             for tool_run in transcript.tool_runs_by_turn.get(turn.id, [])
         ]
@@ -60,10 +60,10 @@ def build_model_messages(transcript: SessionTranscript) -> list[Message]:
         for tool_run in transcript.tool_runs_by_turn.get(turn.id, []):
             if tool_run.compacted:
                 continue
-            content = tool_run.result_text or json.dumps(
+            content = tool_run.result or json.dumps(
                 {
                     "status": tool_run.status,
-                    "error": tool_run.error_text or "Tool run incomplete",
+                    "error": tool_run.error or "Tool run incomplete",
                     "hint": tool_run.hint,
                 },
                 separators=(",", ":"),

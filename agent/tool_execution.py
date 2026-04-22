@@ -59,24 +59,6 @@ class ToolExecutionService:
             tool_run.id,
             tool_run.tool_name,
         )
-        try:
-            tool_input = json.loads(tool_run.input_json) if tool_run.input_json else {}
-        except json.JSONDecodeError as exc:
-            err = f"Malformed tool input JSON: {exc}"
-            logger.warning("tool_run %s has malformed input_json: %s", tool_run.id, exc)
-            await self.persistence.complete_tool_execution(
-                session_id,
-                assistant_turn.id,
-                tool_run.id,
-                tool_run.tool_name,
-                result_content=err,
-                status="error",
-                error_text=err,
-                hint=None,
-                duration_ms=None,
-            )
-            return ToolExecutionResult(status="error", content=err, error=err)
-
         ctx = {
             "register_export": lambda meta: self.store.register_export(
                 **meta,
@@ -84,7 +66,7 @@ class ToolExecutionService:
                 source_tool_run_id=tool_run.id,
             ),
         }
-        raw_result = await self.execute_tool(tool_run.tool_name, tool_input, ctx=ctx)
+        raw_result = await self.execute_tool(tool_run.tool_name, tool_run.input, ctx=ctx)
         result = ToolExecutionResult(
             status="completed" if raw_result["status"] == "completed" else "error",
             content=raw_result["content"],
@@ -99,7 +81,7 @@ class ToolExecutionService:
             tool_run.tool_name,
             result_content=result.content,
             status=result.status,
-            error_text=result.error,
+            error=result.error,
             hint=result.hint,
             duration_ms=result.duration_ms,
         )

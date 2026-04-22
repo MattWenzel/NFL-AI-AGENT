@@ -23,7 +23,6 @@ from storage import (
     SessionRecord,
     ToolRunRecord,
     TurnRecord,
-    safe_load_tool_input,
 )
 from provider import BaseLLMClient, LLMError, get_provider
 from agent.token_counting import count_text_tokens
@@ -145,8 +144,8 @@ def _turn_keep_cost(
     """Total tokens this turn contributes when kept raw in the active prompt."""
     cost = _estimate_turn_tokens(turn)
     for tool_run in tool_runs_by_turn.get(turn.id, []):
-        if not tool_run.compacted and tool_run.result_text:
-            cost += count_text_tokens(tool_run.result_text)
+        if not tool_run.compacted and tool_run.result:
+            cost += count_text_tokens(tool_run.result)
     for part in parts_by_turn.get(turn.id, []):
         if part.kind == "tool_call":
             cost += count_text_tokens(part.content) + TOOL_CALL_OVERHEAD_TOKENS
@@ -154,7 +153,7 @@ def _turn_keep_cost(
 
 
 async def estimate_active_tokens(store: RuntimeStore, session_id: str) -> int:
-    transcript = await store.get_transcript_async(session_id)
+    transcript = await store.get_transcript(session_id)
     return sum(
         _turn_keep_cost(turn, transcript.tool_runs_by_turn, transcript.parts_by_turn)
         for turn in transcript.turns
@@ -205,7 +204,7 @@ async def _compact_old_tool_runs(
     Returns the number of tool runs newly marked compacted so callers
     can decide whether the prune freed enough headroom.
     """
-    transcript = await store.get_transcript_async(session_id)
+    transcript = await store.get_transcript(session_id)
     active_completed = [
         run
         for runs in transcript.tool_runs_by_turn.values()
@@ -216,7 +215,7 @@ async def _compact_old_tool_runs(
         return 0
     stale = active_completed[: -policy.recent_raw_tool_runs]
     for run in stale:
-        await store.update_tool_run_async(run.id, compacted=1)
+        await store.update_tool_run(run.id, compacted=1)
     return len(stale)
 
 
@@ -232,10 +231,9 @@ def _heuristic_summary(
             preview = text.replace("\n", " ")[:COMPACTION_TEXT_PREVIEW_CHARS]
             lines.append(f"- {turn.role}: {preview}")
         for tool_run in tool_runs_by_turn.get(turn.id, []):
-            input_data = safe_load_tool_input(tool_run.input_json, tool_run_id=tool_run.id)
             lines.append(
                 f"- tool {tool_run.tool_name} ({tool_run.status}): "
-                f"input={json.dumps(input_data, sort_keys=True)[:COMPACTION_TOOL_INPUT_PREVIEW_CHARS]}"
+                f"input={json.dumps(tool_run.input, sort_keys=True)[:COMPACTION_TOOL_INPUT_PREVIEW_CHARS]}"
             )
     return "\n".join(lines)
 
@@ -333,7 +331,7 @@ async def _compact_if_needed_inner(
             recent_raw_tool_runs=policy.recent_raw_tool_runs,
             retention_budget_tokens=max(MIN_RETENTION_BUDGET_TOKENS, retention_budget_override),
         )
-    transcript = await store.get_transcript_async(session.id)
+    transcript = await store.get_transcript(session.id)
     active_turns = [t for t in transcript.turns if not t.compacted and t.role in {"user", "assistant"}]
     source_turns = _select_source_turns(
         active_turns,
@@ -349,7 +347,7 @@ async def _compact_if_needed_inner(
         source_turns=source_turns,
         tool_runs_by_turn=transcript.tool_runs_by_turn,
     )
-    summary = await store.record_compaction_async(
+    summary = await store.record_compaction(
         session.id,
         summary_text,
         [turn.id for turn in source_turns],
