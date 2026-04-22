@@ -5,14 +5,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from auth.primitives import AuthenticatedUser
 from server.dependencies import get_conversation_service, get_current_user
 from server.schemas.conversations import ConversationInfo, ConversationTranscriptResponse, ConversationUpdate
-from server.services.conversations import ConversationApplicationService, ConversationNotFoundError
+from server.services.conversations import ConversationService, ConversationNotFoundError
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
 @router.get("/conversations", response_model=list[ConversationInfo])
 async def list_conversations(
-    service: ConversationApplicationService = Depends(get_conversation_service),
+    service: ConversationService = Depends(get_conversation_service),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     return await service.list_conversations(user.id)
@@ -21,7 +21,7 @@ async def list_conversations(
 @router.get("/conversations/{conversation_id}/transcript", response_model=ConversationTranscriptResponse)
 async def get_conversation_transcript(
     conversation_id: str,
-    service: ConversationApplicationService = Depends(get_conversation_service),
+    service: ConversationService = Depends(get_conversation_service),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     try:
@@ -34,7 +34,7 @@ async def get_conversation_transcript(
 async def update_conversation(
     conversation_id: str,
     body: ConversationUpdate,
-    service: ConversationApplicationService = Depends(get_conversation_service),
+    service: ConversationService = Depends(get_conversation_service),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     if body.title is None and body.pinned is None:
@@ -53,7 +53,7 @@ async def update_conversation(
 @router.delete("/conversations/{conversation_id}")
 async def delete_conversation(
     conversation_id: str,
-    service: ConversationApplicationService = Depends(get_conversation_service),
+    service: ConversationService = Depends(get_conversation_service),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     try:

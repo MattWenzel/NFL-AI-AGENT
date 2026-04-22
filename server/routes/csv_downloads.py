@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 from auth.primitives import AuthenticatedUser
 from config import EXPORTS_DIR
 from server.dependencies import get_current_user, get_export_service
-from server.services.exports import ExportApplicationService, ExportNotFoundError
+from server.services.exports import ExportService, ExportNotFoundError
 
 router = APIRouter(tags=["exports"])
 
@@ -18,7 +18,7 @@ _SAFE_FILENAME = re.compile(r"^[a-zA-Z0-9_\-]+\.csv$")
 @router.get("/exports/{filename}")
 async def download_export(
     filename: str,
-    service: ExportApplicationService = Depends(get_export_service),
+    service: ExportService = Depends(get_export_service),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     if not _SAFE_FILENAME.match(filename):

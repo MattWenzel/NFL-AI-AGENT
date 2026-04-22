@@ -84,7 +84,7 @@ async def close_client(client: BaseLLMClient) -> None:
         pass
 
 
-class ChatApplicationService:
+class ChatService:
     """Owns chat request preparation and non-streaming response aggregation."""
 
     def __init__(

@@ -24,7 +24,7 @@ class SettingsNotFoundError(SettingsServiceError):
 
 
 @dataclass
-class SettingsApplicationService:
+class SettingsService:
     store: RuntimeStore
 
     def _provider_info(self, provider: str) -> ProviderInfo:

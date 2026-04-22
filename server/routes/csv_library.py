@@ -12,7 +12,7 @@ from server.schemas.exports import (
     NewSessionFromExportResponse,
 )
 from server.services.exports import (
-    ExportApplicationService,
+    ExportService,
     ExportNotFoundError,
     ExportServiceError,
 )
@@ -22,7 +22,7 @@ router = APIRouter(prefix="/chat/exports", tags=["csv-library"])
 
 @router.get("", response_model=list[ExportInfo])
 async def list_csvs(
-    service: ExportApplicationService = Depends(get_export_service),
+    service: ExportService = Depends(get_export_service),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     return await service.list_exports(user.id)
@@ -31,7 +31,7 @@ async def list_csvs(
 @router.get("/{export_id}", response_model=ExportDetail)
 async def get_csv_detail(
     export_id: str,
-    service: ExportApplicationService = Depends(get_export_service),
+    service: ExportService = Depends(get_export_service),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     try:
@@ -44,7 +44,7 @@ async def get_csv_detail(
 async def rename_csv(
     export_id: str,
     body: ExportUpdate,
-    service: ExportApplicationService = Depends(get_export_service),
+    service: ExportService = Depends(get_export_service),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     try:
@@ -56,7 +56,7 @@ async def rename_csv(
 @router.delete("/{export_id}")
 async def delete_csv(
     export_id: str,
-    service: ExportApplicationService = Depends(get_export_service),
+    service: ExportService = Depends(get_export_service),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     try:
@@ -70,7 +70,7 @@ async def delete_csv(
 async def new_session_from_csv(
     export_id: str,
     body: NewSessionFromExportRequest,
-    service: ExportApplicationService = Depends(get_export_service),
+    service: ExportService = Depends(get_export_service),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     try:

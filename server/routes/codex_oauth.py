@@ -9,7 +9,7 @@ from server.dependencies import get_codex_oauth_service, get_codex_start_limiter
 from server.process_state import RequestRateLimiter
 from server.schemas.codex_oauth import CodexOAuthStartResponse, CodexOAuthStatusResponse
 from server.services.codex_oauth import (
-    CodexOAuthApplicationService,
+    CodexOAuthService,
     CodexOAuthUpstreamError,
     CodexOAuthUnknownFlowError,
 )
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/settings/oauth/codex", tags=["settings"])
 async def start_codex_oauth(
     request: Request,
     user: AuthenticatedUser = Depends(get_current_user),
-    service: CodexOAuthApplicationService = Depends(get_codex_oauth_service),
+    service: CodexOAuthService = Depends(get_codex_oauth_service),
     start_limiter: RequestRateLimiter = Depends(get_codex_start_limiter),
 ) -> CodexOAuthStartResponse:
     start_limiter.check(request)
@@ -37,7 +37,7 @@ async def start_codex_oauth(
 @router.get("/status", response_model=CodexOAuthStatusResponse)
 async def status_codex_oauth(
     pending_id: str = Query(..., min_length=16, max_length=64),
-    service: CodexOAuthApplicationService = Depends(get_codex_oauth_service),
+    service: CodexOAuthService = Depends(get_codex_oauth_service),
     user: AuthenticatedUser = Depends(get_current_user),
 ) -> CodexOAuthStatusResponse:
     try:
@@ -49,7 +49,7 @@ async def status_codex_oauth(
 @router.delete("/cancel")
 async def cancel_codex_oauth(
     pending_id: str = Query(..., min_length=16, max_length=64),
-    service: CodexOAuthApplicationService = Depends(get_codex_oauth_service),
+    service: CodexOAuthService = Depends(get_codex_oauth_service),
     user: AuthenticatedUser = Depends(get_current_user),
 ) -> dict:
     try:

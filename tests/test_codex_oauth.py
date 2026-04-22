@@ -45,7 +45,7 @@ from auth.codex_oauth import (
     poll_device_code,
     refresh_access_token,
 )
-from server.services.codex_oauth import CodexOAuthApplicationService
+from server.services.codex_oauth import CodexOAuthService
 from storage import RuntimeStore
 from provider.base import StopReason
 from provider.codex import OpenAICodexClient
@@ -525,7 +525,7 @@ def _patch_device_flow(monkeypatch, user_code="USER-CODE"):
         await asyncio.sleep(300)
 
     monkeypatch.setattr(codex_oauth, "request_device_code", fake_request)
-    monkeypatch.setattr(CodexOAuthApplicationService, "run_device_flow", fake_run_flow)
+    monkeypatch.setattr(CodexOAuthService, "run_device_flow", fake_run_flow)
 
 
 class TestCodexRouter:

@@ -38,7 +38,7 @@ def _to_auth_user(user: AuthenticatedUser | object) -> AuthUser:
 
 
 @dataclass
-class AuthApplicationService:
+class AuthService:
     store: RuntimeStore
     exports_dir: Path
 

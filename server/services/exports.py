@@ -30,7 +30,7 @@ class ExportNotFoundError(ExportServiceError):
 
 
 @dataclass
-class ExportApplicationService:
+class ExportService:
     store: RuntimeStore
     exports_dir: Path = EXPORTS_DIR
 

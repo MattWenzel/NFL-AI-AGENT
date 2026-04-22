@@ -27,7 +27,7 @@ from server.schemas.auth import (
     RegisterRequest,
 )
 from server.services.auth import (
-    AuthApplicationService,
+    AuthService,
     AuthConflictError,
     AuthCredentialsError,
     AuthValidationError,
@@ -40,7 +40,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.get("/status", response_model=AuthStatusResponse)
 async def auth_status(
-    service: AuthApplicationService = Depends(get_auth_service),
+    service: AuthService = Depends(get_auth_service),
     user: AuthenticatedUser | None = Depends(get_current_user_optional),
 ) -> AuthStatusResponse:
     return await service.auth_status(user)
@@ -50,7 +50,7 @@ async def auth_status(
 async def register(
     payload: RegisterRequest,
     request: Request,
-    service: AuthApplicationService = Depends(get_auth_service),
+    service: AuthService = Depends(get_auth_service),
     process_state: AppProcessState = Depends(get_process_state),
 ) -> AuthTokenResponse:
     process_state.register_limiter.check(request)
@@ -72,7 +72,7 @@ async def register(
 async def login(
     payload: LoginRequest,
     request: Request,
-    service: AuthApplicationService = Depends(get_auth_service),
+    service: AuthService = Depends(get_auth_service),
     process_state: AppProcessState = Depends(get_process_state),
 ) -> AuthTokenResponse:
     process_state.login_limiter.check(request)
@@ -85,7 +85,7 @@ async def login(
 @router.post("/logout")
 async def logout(
     request: Request,
-    service: AuthApplicationService = Depends(get_auth_service),
+    service: AuthService = Depends(get_auth_service),
     user: AuthenticatedUser = Depends(get_current_user),
 ) -> dict:
     await service.logout(_extract_bearer(request))
@@ -96,7 +96,7 @@ async def logout(
 async def change_password(
     payload: PasswordChangeRequest,
     request: Request,
-    service: AuthApplicationService = Depends(get_auth_service),
+    service: AuthService = Depends(get_auth_service),
     process_state: AppProcessState = Depends(get_process_state),
     user: AuthenticatedUser = Depends(get_current_user),
 ) -> AuthOkResponse:
@@ -117,7 +117,7 @@ async def change_password(
 async def delete_account(
     payload: DeleteAccountRequest,
     request: Request,
-    service: AuthApplicationService = Depends(get_auth_service),
+    service: AuthService = Depends(get_auth_service),
     process_state: AppProcessState = Depends(get_process_state),
     user: AuthenticatedUser = Depends(get_current_user),
 ) -> AuthOkResponse:

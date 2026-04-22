@@ -1,6 +1,6 @@
 """POST /chat/message + POST /chat/stream — drive a single chat turn.
 
-Both endpoints delegate orchestration to `ChatApplicationService`, which
+Both endpoints delegate orchestration to `ChatService`, which
 owns provider selection, session creation, and runtime invocation. The
 route's job is purely transport: `/message` buffers the service's event
 stream into one JSON response; `/stream` emits each event as SSE and
@@ -25,7 +25,7 @@ from server.dependencies import get_chat_service, get_chat_stream_gate, get_curr
 from server.process_state import ChatStreamGate
 from server.schemas.chat import ChatRequest, ChatResponse
 from server.services.chat import (
-    ChatApplicationService,
+    ChatService,
     ChatConfigurationError,
     ChatNotFoundError,
     ChatServiceError,
@@ -64,7 +64,7 @@ async def _release_stream_slot(stream_gate: ChatStreamGate, user_id: int) -> Non
 @router.post("/message", response_model=ChatResponse)
 async def chat_message(
     body: ChatRequest,
-    service: ChatApplicationService = Depends(get_chat_service),
+    service: ChatService = Depends(get_chat_service),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     """Send a message and get a complete response."""
@@ -96,7 +96,7 @@ _PRODUCER_DONE = object()  # sentinel put on the queue when the producer finishe
 async def chat_stream(
     request: Request,
     body: ChatRequest,
-    service: ChatApplicationService = Depends(get_chat_service),
+    service: ChatService = Depends(get_chat_service),
     stream_gate: ChatStreamGate = Depends(get_chat_stream_gate),
     user: AuthenticatedUser = Depends(get_current_user),
 ):

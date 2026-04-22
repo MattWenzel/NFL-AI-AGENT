@@ -51,7 +51,7 @@ class ConversationNotFoundError(ConversationServiceError):
 
 
 @dataclass
-class ConversationApplicationService:
+class ConversationService:
     store: RuntimeStore
 
     async def list_conversations(self, user_id: int) -> list[ConversationInfo]:

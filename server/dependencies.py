@@ -16,12 +16,12 @@ from server.process_state import (
     PerUserLockRegistry,
     RequestRateLimiter,
 )
-from server.services.auth import AuthApplicationService
-from server.services.chat import ChatApplicationService
-from server.services.codex_oauth import CodexOAuthApplicationService
-from server.services.conversations import ConversationApplicationService
-from server.services.exports import ExportApplicationService
-from server.services.settings import SettingsApplicationService
+from server.services.auth import AuthService
+from server.services.chat import ChatService
+from server.services.codex_oauth import CodexOAuthService
+from server.services.conversations import ConversationService
+from server.services.exports import ExportService
+from server.services.settings import SettingsService
 from storage import RuntimeStore
 
 
@@ -115,8 +115,8 @@ def get_chat_service(
     runtime: ChatRuntime = Depends(get_runtime),
     store: RuntimeStore = Depends(get_store),
     refresh_locks: PerUserLockRegistry = Depends(get_codex_refresh_locks),
-) -> ChatApplicationService:
-    return ChatApplicationService(
+) -> ChatService:
+    return ChatService(
         runtime,
         store,
         refresh_locks=refresh_locks,
@@ -125,30 +125,30 @@ def get_chat_service(
 
 def get_conversation_service(
     store: RuntimeStore = Depends(get_store),
-) -> ConversationApplicationService:
-    return ConversationApplicationService(store)
+) -> ConversationService:
+    return ConversationService(store)
 
 
 def get_codex_oauth_service(
     store: RuntimeStore = Depends(get_store),
     pending_flows: PendingCodexOAuthFlowStore = Depends(get_codex_pending_flows),
-) -> CodexOAuthApplicationService:
-    return CodexOAuthApplicationService(store, pending_flows)
+) -> CodexOAuthService:
+    return CodexOAuthService(store, pending_flows)
 
 
 def get_export_service(
     store: RuntimeStore = Depends(get_store),
-) -> ExportApplicationService:
-    return ExportApplicationService(store)
+) -> ExportService:
+    return ExportService(store)
 
 
 def get_auth_service(
     store: RuntimeStore = Depends(get_store),
-) -> AuthApplicationService:
-    return AuthApplicationService(store, EXPORTS_DIR)
+) -> AuthService:
+    return AuthService(store, EXPORTS_DIR)
 
 
 def get_settings_service(
     store: RuntimeStore = Depends(get_store),
-) -> SettingsApplicationService:
-    return SettingsApplicationService(store)
+) -> SettingsService:
+    return SettingsService(store)

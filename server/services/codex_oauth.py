@@ -31,7 +31,7 @@ class CodexOAuthUpstreamError(CodexOAuthServiceError):
 
 
 @dataclass
-class CodexOAuthApplicationService:
+class CodexOAuthService:
     store: RuntimeStore
     pending_flows: PendingCodexOAuthFlowStore
 
