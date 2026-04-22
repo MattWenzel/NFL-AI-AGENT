@@ -23,6 +23,8 @@
   --backdrop-faint: rgba(15, 23, 42, 0.25);
   --code-bg: #0F172A;
   --code-text: #E2E8F0;
+  --scrollbar-thumb: rgba(100, 116, 139, 0.35);
+  --scrollbar-thumb-hover: rgba(100, 116, 139, 0.6);
 }
 
 :root[data-theme="dark"] {
@@ -50,10 +52,28 @@
   --backdrop-faint: rgba(0, 0, 0, 0.35);
   --code-bg: #161B22;
   --code-text: #E6EDF3;
+  --scrollbar-thumb: rgba(125, 133, 144, 0.25);
+  --scrollbar-thumb-hover: rgba(125, 133, 144, 0.5);
 }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; }
+
+/* Subtle scrollbars — visible enough to hint at scrollable content, but
+   not the chunky grey slab that browsers draw by default. Firefox uses
+   scrollbar-width/color; WebKit uses the ::-webkit-scrollbar pseudos. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
+::-webkit-scrollbar-corner { background: transparent; }
 body {
   font-family: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
   color: var(--text);
