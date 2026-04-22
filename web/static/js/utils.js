@@ -41,33 +41,6 @@ export function escapeHtml(value) {
   return div.innerHTML;
 }
 
-// Pre-renders LaTeX delimited by \[ ... \], \( ... \), or $$ ... $$ into
-// KaTeX HTML. Has to run BEFORE marked — CommonMark's backslash-escape
-// rule would otherwise turn `\[` into a bare `[`, leaving no delimiter
-// for the math renderer to find. Single-dollar `$...$` is intentionally
-// not a delimiter so NFL dollar amounts ("$20 in fines") don't false-
-// positive. No-ops silently if KaTeX hasn't loaded yet.
-function renderMathBlocks(text) {
-  const katex = typeof window !== "undefined" ? window.katex : null;
-  if (!katex) return text;
-  const render = (latex, displayMode) => {
-    try {
-      const html = katex.renderToString(latex, { displayMode, throwOnError: false });
-      // Wrap display math in a <div> so `marked` recognizes it as an HTML
-      // block and doesn't stuff the <span class="katex-display"> (which has
-      // display:block) inside a <p>, which can confuse layout.
-      return displayMode ? `<div class="math-display">${html}</div>` : html;
-    } catch (err) {
-      console.warn("KaTeX render failed:", err);
-      return latex;
-    }
-  };
-  return text
-    .replace(/\\\[([\s\S]+?)\\\]/g, (_, inner) => render(inner, true))
-    .replace(/\$\$([\s\S]+?)\$\$/g, (_, inner) => render(inner, true))
-    .replace(/\\\(([\s\S]+?)\\\)/g, (_, inner) => render(inner, false));
-}
-
 export function renderMarkdown(text) {
   // Codex/ChatGPT sometimes prefixes links to files it produced with
   // `sandbox:` — an artifact of its training environment. Strip it before
@@ -75,8 +48,7 @@ export function renderMarkdown(text) {
   // (and Firefox doesn't treat `sandbox:` as an unknown protocol and offer
   // to hand the click off to xdg-open).
   const cleaned = (text || "").replace(/\]\(sandbox:/g, "](");
-  const preMathed = renderMathBlocks(cleaned);
-  let html = marked.parse(preMathed);
+  let html = marked.parse(cleaned);
   html = html.replace(
     /<table>([\s\S]*?)<\/table>/g,
     (_, inner) => `<div class="copy-wrap" data-copy-kind="table"><button type="button" class="copy-btn" data-copy-action="table">Copy</button><div style="overflow-x:auto"><table>${inner}</table></div></div>`
