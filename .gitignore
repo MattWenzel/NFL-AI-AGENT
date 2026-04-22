@@ -29,9 +29,8 @@ exports/
 # NFLVERSE subproject (separate repo)
 NFLVERSE/
 
-# Tests (local-only; not shipped with the public repo)
-tests/
 .pytest_cache/
+tests/__pycache__/
 
 # Ad-hoc experiments (local research notebooks + raw SSE captures)
 experiments/
