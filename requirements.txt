@@ -6,6 +6,11 @@ sse-starlette>=1.8.0
 tiktoken>=0.8.0
 jsonschema>=4.20.0
 
+# Runtime persistence (ORM + async SQLite + migrations)
+sqlmodel>=0.0.16
+aiosqlite>=0.19.0
+alembic>=1.13.0
+
 # Auth + key encryption
 cryptography>=42.0.0
 bcrypt>=4.0.0
