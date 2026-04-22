@@ -4,7 +4,7 @@ import { destroyAllCharts, mountPendingCharts } from "./charts.js";
 import { renderInspector } from "./inspector.js";
 import { applySidebarView } from "./navigation.js";
 import { renderConversationList } from "./sidebar.js";
-import { renderSessionHeader, renderThread } from "./thread.js";
+import { renderProviderControls, renderSessionHeader, renderThread } from "./thread.js";
 
 function renderMain() {
   const mainEl = document.querySelector(".main");
@@ -27,6 +27,7 @@ export function render() {
   } else {
     renderConversationList();
   }
+  renderProviderControls();
   renderSessionHeader();
   renderMain();
   renderInspector();
