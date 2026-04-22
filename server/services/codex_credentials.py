@@ -20,7 +20,7 @@ class CodexCredentialError(Exception):
     """Raised when a stored Codex connection exists but refresh fails."""
 
 
-async def _load_bundle_async(
+async def _load_bundle(
     store: RuntimeStore, user_id: int, provider_name: str
 ) -> codex_oauth.TokenBundle | None:
     rec = await store.get_api_key(user_id=user_id, provider=provider_name)
@@ -45,13 +45,13 @@ async def resolve_access_token(
     *,
     refresh_locks: PerUserLockRegistry,
 ) -> str | None:
-    bundle = await _load_bundle_async(store, user_id, provider_name)
+    bundle = await _load_bundle(store, user_id, provider_name)
     if bundle is None:
         return None
     if not codex_oauth.is_near_expiry(bundle):
         return bundle.access_token
     async with refresh_locks.for_user(user_id):
-        bundle = await _load_bundle_async(store, user_id, provider_name)
+        bundle = await _load_bundle(store, user_id, provider_name)
         if bundle is None:
             return None
         if not codex_oauth.is_near_expiry(bundle):

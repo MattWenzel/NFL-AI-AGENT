@@ -134,7 +134,7 @@ Why summaries go first rather than chronologically: a summary represents compact
 
 ## The summary wrapping
 
-`wrap_summaries_for_prompt` (`storage/records.py:52`). Multiple summaries (layered compactions over a very long session) are concatenated with `---` separators, then wrapped:
+`wrap_summaries_for_prompt` (`storage/models.py:37`). Multiple summaries (layered compactions over a very long session) are concatenated with `---` separators, then wrapped:
 
 ```
 <prior_conversation_summary>

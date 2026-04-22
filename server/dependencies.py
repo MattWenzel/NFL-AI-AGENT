@@ -20,6 +20,7 @@ from server.repositories import ConversationRepository
 from server.services.chat import ChatApplicationService
 from server.services.codex_oauth import CodexOAuthApplicationService
 from server.services.conversations import ConversationApplicationService
+from server.services.exports import ExportApplicationService
 from storage import RuntimeStore
 
 
@@ -137,3 +138,9 @@ def get_codex_oauth_service(
     pending_flows: PendingCodexOAuthFlowStore = Depends(get_codex_pending_flows),
 ) -> CodexOAuthApplicationService:
     return CodexOAuthApplicationService(store, pending_flows)
+
+
+def get_export_service(
+    store: RuntimeStore = Depends(get_store),
+) -> ExportApplicationService:
+    return ExportApplicationService(store)

@@ -47,7 +47,7 @@ class ConversationListEntry:
 
 @dataclass(frozen=True)
 class ConversationRepository:
-    """Narrow mapping layer over `RuntimeStore.list_sessions_async` that
+    """Narrow mapping layer over `RuntimeStore.list_sessions` that
     shapes raw rows into `ConversationListEntry`. Everything else
     (`get_session`, `update_session`, `delete_session`, etc.) is plain
     store access — callers go through `RuntimeStore` directly."""
@@ -67,7 +67,7 @@ class ConversationRepository:
         """Fetch the single `ConversationListEntry` for this session, or
         None if it doesn't exist (or isn't owned by the user when scoped).
 
-        Uses `RuntimeStore.get_session_list_row_async` — one SELECT by id
+        Uses `RuntimeStore.get_session_list_row` — one SELECT by id
         with the same projection `list_sessions` applies — so None
         cleanly means "session gone" rather than "filter miss."
         """

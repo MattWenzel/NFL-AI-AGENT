@@ -52,6 +52,11 @@ class RuntimeStore(UsersMixin, TranscriptsMixin, ExportsMixin):
     def lock(self, session_id: str) -> asyncio.Lock:
         return self._locks.setdefault(session_id, asyncio.Lock())
 
+    def _release_lock(self, session_id: str) -> None:
+        # Called after a session is deleted so the lock registry doesn't
+        # accumulate one entry per session ever opened in this process.
+        self._locks.pop(session_id, None)
+
     # ---------------- startup helpers (sync — called once at init) ----------------
 
     def _apply_migrations(self) -> None:

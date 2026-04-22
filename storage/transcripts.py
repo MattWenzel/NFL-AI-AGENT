@@ -243,6 +243,7 @@ class TranscriptsMixin:
                 delete(SessionRecord).where(SessionRecord.id == session_id)
             )
             await session.commit()
+        self._release_lock(session_id)
         return True
 
     # ---------------- turns ----------------

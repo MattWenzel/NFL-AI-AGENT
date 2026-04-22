@@ -7,9 +7,8 @@ from fastapi.responses import FileResponse
 
 from auth.primitives import AuthenticatedUser
 from config import EXPORTS_DIR
-from server.dependencies import get_current_user, get_store
+from server.dependencies import get_current_user, get_export_service
 from server.services.exports import ExportApplicationService, ExportNotFoundError
-from storage import RuntimeStore
 
 router = APIRouter(tags=["exports"])
 
@@ -19,7 +18,7 @@ _SAFE_FILENAME = re.compile(r"^[a-zA-Z0-9_\-]+\.csv$")
 @router.get("/exports/{filename}")
 async def download_export(
     filename: str,
-    store: RuntimeStore = Depends(get_store),
+    service: ExportApplicationService = Depends(get_export_service),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     if not _SAFE_FILENAME.match(filename):
@@ -29,7 +28,6 @@ async def download_export(
     if not str(file_path).startswith(str(EXPORTS_DIR.resolve())):
         raise HTTPException(status_code=400, detail="Invalid filename")
 
-    service = ExportApplicationService(store)
     try:
         await service.get_download_record(filename, user.id)
     except ExportNotFoundError as exc:

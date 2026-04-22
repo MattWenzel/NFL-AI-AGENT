@@ -57,7 +57,7 @@ Organized by subsystem, not by layer. Top-level folders each own a concern:
 
 ```
 agent/                      # LLM conversation domain
-├── runtime.py              #   ChatRuntime: prepare_session_async, run_session
+├── runtime.py              #   ChatRuntime: prepare_session, run_session
 ├── runtime_policy.py       #   RuntimeLoopState + raise_if_doom_loop
 ├── turn_manager.py         #   AssistantTurnManager (assistant turn lifecycle)
 ├── tool_execution.py       #   ToolExecutionService (tool dispatch + persistence)

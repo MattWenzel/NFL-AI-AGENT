@@ -119,7 +119,7 @@ class ChatApplicationService:
             raise ChatConfigurationError(str(exc)) from exc
         client = create_client_for_request(body.provider, body.model, api_key=user_key)
         try:
-            session = await self.runtime.prepare_session_async(
+            session = await self.runtime.prepare_session(
                 client,
                 provider_name,
                 body.conversation_id,

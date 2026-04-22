@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from auth.primitives import AuthenticatedUser
-from server.dependencies import get_current_user, get_store
+from server.dependencies import get_current_user, get_export_service
 from server.schemas.exports import (
     ExportDetail,
     ExportInfo,
@@ -16,27 +16,24 @@ from server.services.exports import (
     ExportNotFoundError,
     ExportServiceError,
 )
-from storage import RuntimeStore
 
 router = APIRouter(prefix="/chat/exports", tags=["csv-library"])
 
 
 @router.get("", response_model=list[ExportInfo])
 async def list_csvs(
-    store: RuntimeStore = Depends(get_store),
+    service: ExportApplicationService = Depends(get_export_service),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
-    service = ExportApplicationService(store)
     return await service.list_exports(user.id)
 
 
 @router.get("/{export_id}", response_model=ExportDetail)
 async def get_csv_detail(
     export_id: str,
-    store: RuntimeStore = Depends(get_store),
+    service: ExportApplicationService = Depends(get_export_service),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
-    service = ExportApplicationService(store)
     try:
         return await service.get_export_detail(export_id, user.id)
     except ExportNotFoundError as exc:
@@ -47,10 +44,9 @@ async def get_csv_detail(
 async def rename_csv(
     export_id: str,
     body: ExportUpdate,
-    store: RuntimeStore = Depends(get_store),
+    service: ExportApplicationService = Depends(get_export_service),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
-    service = ExportApplicationService(store)
     try:
         return await service.rename_export(export_id, body.title, user.id)
     except ExportNotFoundError as exc:
@@ -60,10 +56,9 @@ async def rename_csv(
 @router.delete("/{export_id}")
 async def delete_csv(
     export_id: str,
-    store: RuntimeStore = Depends(get_store),
+    service: ExportApplicationService = Depends(get_export_service),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
-    service = ExportApplicationService(store)
     try:
         await service.delete_export(export_id, user.id)
     except ExportNotFoundError as exc:
@@ -75,10 +70,9 @@ async def delete_csv(
 async def new_session_from_csv(
     export_id: str,
     body: NewSessionFromExportRequest,
-    store: RuntimeStore = Depends(get_store),
+    service: ExportApplicationService = Depends(get_export_service),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
-    service = ExportApplicationService(store)
     try:
         return await service.create_session_from_export(
             export_id,

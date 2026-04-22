@@ -58,7 +58,7 @@ class ChatRuntime:
             execute_tool=lambda *args, **kwargs: execute_tool_structured(*args, **kwargs),
         )
 
-    async def prepare_session_async(
+    async def prepare_session(
         self,
         client: BaseLLMClient,
         provider_name: str,
