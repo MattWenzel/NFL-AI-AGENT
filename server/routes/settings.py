@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
-
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from auth.primitives import AuthenticatedUser
@@ -25,8 +23,7 @@ async def list_api_key_status(
     store: RuntimeStore = Depends(get_store),
 ) -> list[ApiKeyStatus]:
     service = SettingsApplicationService(store)
-    items = await service.list_api_key_status(user.id)
-    return [ApiKeyStatus.model_validate(asdict(item)) for item in items]
+    return await service.list_api_key_status(user.id)
 
 
 @router.put("/api-keys/{provider}", response_model=ApiKeyStatus)
@@ -38,12 +35,11 @@ async def update_api_key(
 ) -> ApiKeyStatus:
     service = SettingsApplicationService(store)
     try:
-        item = await service.update_api_key(
+        return await service.update_api_key(
             user_id=user.id,
             provider=provider,
             api_key=payload.api_key,
         )
-        return ApiKeyStatus.model_validate(asdict(item))
     except SettingsNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except SettingsServiceError as exc:
