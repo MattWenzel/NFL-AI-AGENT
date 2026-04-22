@@ -2,60 +2,70 @@
 
 Tools are how the agent does anything non-verbal. Every SQL query, schema lookup, guide load, and CSV export is a tool call from the model. This doc covers the tool registry, the validation → dispatch → handler pipeline, the SQL sandbox, and the `ctx` side-channel.
 
-The runtime's role in tool calls (concurrent dispatch under `asyncio.gather`, result persistence) is covered in [runtime.md](runtime.md#tool-execution-_execute_tool).
+The runtime's role in tool calls (concurrent dispatch under `asyncio.gather`, result persistence) is covered in [runtime.md](runtime.md#tool-execution-toolexecutionservice).
 
 ## File map
 
+The `tools/` package is flat — infrastructure modules and handlers sit side by side, one file per tool:
+
 - `tools/__init__.py` — public surface: `TOOLS`, `TOOL_DEFINITIONS`, `execute_tool`, `execute_tool_structured`.
 - `tools/definitions.py` — Anthropic-format tool schemas + typed `TOOLS` list.
-- `tools/registry.py` — dispatch table, execution helpers, drift guard.
-- `tools/validation.py` — input validation, error-hint injection.
-- `tools/sandbox.py` — read-only SQL runner with row/timeout caps.
-- `tools/` — one file per tool.
+- `tools/registry.py` — dispatch table, execution helpers (`execute_tool`, `execute_tool_structured`), drift guard.
+- `tools/validation.py` — JSON-Schema input validation, error-hint injection.
+- `tools/sandbox.py` — read-only SQL runner with row/op caps and PBP auto-attach.
+- `tools/truncate.py` — shared `truncate_text` / `truncate_rows` helpers for result formatting.
+- `tools/schema_metadata.py` — `TABLE_ALIASES`, `TABLE_DATABASE`, `JOIN_EDGES` (used by `get_schema` and for join-graph hints).
+- `tools/guide_registry.py` — `GUIDE_TOPICS` tuple + `GUIDE_INDEX_ROWS` shown in the system prompt's guide index.
+- Handlers, one per tool: `tools/execute_sql.py`, `tools/player_lookup.py` (both `_search_players` and `_get_player_info`), `tools/get_schema.py`, `tools/get_guide.py`, `tools/create_chart.py`, `tools/create_csv_export.py`.
+- `tools/guides/*.md` — seven markdown guides loaded by `get_guide`: `fantasy.md`, `player_stats.md`, `play_by_play.md`, `drives.md`, `postseason.md`, `player_profile.md`, `games.md`.
 
 ## The seven tools
 
-Declared in `definitions.py:5`:
+Declared in `tools/definitions.py`:
 
 | Tool | Handler | Purpose |
 |------|---------|---------|
-| `search_players` | `handlers/player_lookup.py` | Fuzzy name/position/team lookup; returns candidates with `gsis_id`. |
-| `get_player_info` | `handlers/player_lookup.py` | Detailed bio + cross-platform IDs for a given `gsis_id`. |
-| `get_guide` | `handlers/get_guide.py` | Load a topic-specific markdown guide (fantasy, play_by_play, etc.). |
-| `get_schema` | `handlers/get_schema.py` | Table columns + join edges; loaded on demand to save prompt tokens. |
-| `execute_sql` | `handlers/execute_sql.py` | Arbitrary `SELECT`/`WITH` against nflverse.db (500 rows, ~30s). |
-| `create_csv_export` | `handlers/create_csv_export.py` | Export query results to a downloadable CSV (10k rows, ~60s). |
-| `create_chart` | `handlers/create_chart.py` | Render an inline chart spec (bar/line/scatter/pie) from a query. |
+| `search_players` | `tools/player_lookup.py` (`_search_players`) | Fuzzy name/position/team lookup; returns candidates with `gsis_id`. |
+| `get_player_info` | `tools/player_lookup.py` (`_get_player_info`) | Detailed bio + cross-platform IDs for a given `gsis_id`. |
+| `get_guide` | `tools/get_guide.py` | Load a topic-specific markdown guide (fantasy, play_by_play, …). |
+| `get_schema` | `tools/get_schema.py` | Table columns + join edges; loaded on demand to save prompt tokens. |
+| `execute_sql` | `tools/execute_sql.py` | Arbitrary `SELECT`/`WITH` against nflverse.db (500 rows, ~30s). |
+| `create_csv_export` | `tools/create_csv_export.py` | Export query results to a downloadable CSV (10k rows, ~60s). |
+| `create_chart` | `tools/create_chart.py` | Render an inline chart spec (bar/line/scatter/pie) from a query. |
 
-Schemas use Anthropic's `tool_use` input_schema format (JSON Schema subset). The OpenAI adapter translates these at the boundary — see [providers.md](providers.md).
+Schemas use Anthropic's `tool_use` input_schema format (JSON Schema). The OpenAI adapter translates these at the boundary — see [providers.md](providers.md).
 
-`TOOLS: list[ToolDefinition]` (`definitions.py:192`) is the typed view. Import this in new code; `TOOL_DEFINITIONS` (raw dicts) is kept only because validation and hint classification iterate the raw form.
+`TOOLS: list[ToolDefinition]` (`definitions.py:172`) is the typed view derived from the raw `TOOL_DEFINITIONS` dicts. Import `TOOLS` when passing to a provider client; `TOOL_DEFINITIONS` is iterated directly by the validator and the drift guard.
 
 ## Data flow for one tool call
 
 ```
-ChatRuntime._execute_tool(tool_run)
+ToolExecutionService.execute_one(tool_run)            agent/tool_execution.py
+    │
+    ├─ persistence.begin_tool_execution (running + tool_status part)
     │
     ▼
-execute_tool_structured(name, input, ctx)          # registry.py:86
+execute_tool_structured(name, input, ctx)             registry.py:86
     │
-    ├─ validate_tool_input(name, input)            # validation.py:23
-    │     └─ fail → return error envelope
+    ├─ validate_tool_input(name, input)               validation.py:89
+    │     └─ fail → early-return error envelope (duration_ms=0)
     │
-    ├─ execute_tool(name, input, ctx)              # registry.py:56
+    ├─ execute_tool(name, input, ctx)                 registry.py:56
     │     ├─ fn = _TOOL_DISPATCH[name]
-    │     ├─ await asyncio.to_thread(fn, input, ctx)   # blocking SQLite safe
-    │     ├─ catch SQLValidationError  → JSON {"error": ...}
-    │     └─ catch Exception           → JSON {"error": ...}
-    │
-    ├─ inject_hint(result_str)                     # validation.py:70
-    │     └─ if JSON error matches pattern → append "hint" key
+    │     ├─ await asyncio.to_thread(fn, input, ctx)  registry.py:74
+    │     ├─ catch SQLValidationError → JSON {"error": ...}
+    │     ├─ catch Exception          → JSON {"error": ...}
+    │     └─ inject_hint(result_str)                  validation.py:141
+    │           └─ if JSON error matches pattern → append "hint" key
     │
     └─ parse result → envelope
           { status, tool, content, error, hint, duration_ms }
+    │
+    ▼
+persistence.complete_tool_execution (status + result_part)
 ```
 
-The runtime persists the envelope to the store and yields a `tool_completed` or `tool_failed` event. The **content** string (not the parsed dict) is what the model sees on the next turn — so tools must be careful that the JSON they return is legible to the LLM, not just to code.
+`ToolExecutionService` (in `agent/`, not here) persists the envelope to the store and the runtime yields a `tool_completed` or `tool_failed` event. The **`content` string** (not the parsed dict) is what the model sees on the next turn — so tools must be careful that the JSON they return is legible to the LLM, not just to code.
 
 ## The dispatch table
 
@@ -66,37 +76,41 @@ def _handler(input_data: dict, ctx: dict | None) -> str:
     ...  # returns JSON-string result
 ```
 
-All handlers are synchronous. The dispatcher wraps them in `asyncio.to_thread` (`registry.py:74`) so blocking SQLite I/O doesn't stall the event loop. This matters because `_execute_tool` is called under `asyncio.gather` — multiple tools from one pass run concurrently, each on its own thread.
+All handlers are synchronous. The dispatcher wraps them in `asyncio.to_thread` (`registry.py:74`) so blocking SQLite I/O doesn't stall the event loop. This matters because `ToolExecutionService.execute_many` fans out to each tool under `asyncio.gather` — multiple tools from one pass run concurrently, each on its own thread.
 
 ### Registry drift guard
 
-`registry.py:42`. Import-time assert that `_TOOL_DISPATCH.keys() == {t["name"] for t in TOOL_DEFINITIONS}`. Without this, a rename in one place (say, adding `create_chart` to definitions but forgetting dispatch) would silently produce "Unknown tool" errors and skip input validation. The assert fails loudly at startup instead.
+`registry.py:40-45`. Import-time assert that `_TOOL_DISPATCH.keys() == {t["name"] for t in TOOL_DEFINITIONS}`. Without this, a rename in one place (say, adding `create_chart` to definitions but forgetting dispatch) would silently produce "Unknown tool" errors and skip input validation. The assert fails loudly at startup instead.
 
 If you add a tool, you must edit both `definitions.py` and `registry.py`; the guard reminds you.
 
 ## Input validation
 
-`validation.py:23`. Three checks against the declared `input_schema`:
+`validation.py:89`. Validates against the declared `input_schema` using `jsonschema.Draft202012Validator` (validators are cached per tool to avoid re-parsing the schema on every call). Catches:
 
-1. **Known tool.** `validate_tool_input("unknown", ...)` returns `"Unknown tool: unknown"`.
-2. **Required fields present.** Missing any required key → `"Missing required field 'sql' for execute_sql"`.
-3. **Primitive type match.** `string`/`integer`/`object` are enforced. Other JSON-Schema features (`enum`, `pattern`, `minimum`, etc.) are **not** checked here — they rely on the provider side or the handler itself.
+- **Unknown tool** → `"Unknown tool: <name>"`.
+- **Non-object input** → `"<name> expects an object input"`.
+- **Any JSON Schema violation** — required fields, enum values, types (string / integer / number / boolean / object / array), `pattern`, array element types, nested objects. Only the first error is reported (sorted by `absolute_path`), so the model gets one clean retry signal instead of a noisy multi-line dump.
 
-Validation runs **before dispatch**. A validation failure short-circuits with an error envelope; the handler is never called. `duration_ms` is forced to 0 in that case so the transcript doesn't falsely show the handler ran.
+Error shape: `"Invalid input for <tool>: <property path>: <message>"`, so the hint injector can point at the offending property.
+
+Before validation, `_strip_codex_nulls` (`validation.py:49`) walks the input alongside the schema and drops `null` values for not-originally-required properties at every nesting level. Codex strict-mode schemas force every property into `required` and make optionals nullable, so Codex sends `{"topic": null, "extra": null}` for unused optionals; handlers use `.get()` + truthiness checks, so absent and explicit-`null` should be identical to them. Stripping lets the validator pass.
+
+Validation runs **before dispatch**. A validation failure short-circuits with an error envelope; the handler is never called. `duration_ms` is forced to 0 so the transcript doesn't falsely show the handler ran.
 
 ## Hint injection
 
-`validation.py:70`. Tool errors are often cryptic SQLite messages (`"no such column: qb_plays"`). A model with no column name often guesses and guesses. To shorten that feedback loop, `inject_hint` pattern-matches known error strings and appends a remediation hint to the JSON result:
+`validation.py:141`. Tool errors are often cryptic SQLite messages (`"no such column: qb_plays"`). A model with no column name often guesses and guesses. To shorten that feedback loop, `inject_hint` pattern-matches known error strings and appends a remediation hint to the JSON result:
 
 | Error pattern | Hint |
 |---|---|
 | `"ambiguous"` | Prefix columns with table name. |
-| `"no such column"` / `"not found in table"` | Call `get_schema(table_name)`. |
-| `"timed out"` | Add WHERE filters. |
-| `"no join path"` | Use `player_ids` as bridge. |
-| `"no such table"` / `"invalid table"` | (Lists valid tables.) |
+| `"no such column"` / `"not found in table"` / `"not found in any queried table"` | Call `get_schema(table_name)`. |
+| `"timed out"` | Add WHERE filters (season, team, or player). |
+| `"no join path"` | Use `player_ids` as bridge for snap_counts/pfr_advanced (pfr_id) or qbr (espn_id). |
+| `"no such table"` / `"invalid table"` | Lists valid tables. |
 
-Hints are additive: if no pattern matches, the original result is returned unchanged. The full list is at `validation.py:49`.
+Hints are additive: if no pattern matches, the original result is returned unchanged. The full list (`_ERROR_HINTS`) is at `validation.py:120`.
 
 This is a prompt-engineering shortcut, not a substitute for the system prompt — the goal is to make one-shot tool errors self-correcting without a dedicated retry loop.
 
@@ -110,7 +124,7 @@ This is a prompt-engineering shortcut, not a substitute for the system prompt �
 
 ### Read-only connection
 
-Opened with `file:{DB_PATH}?mode=ro` (`sandbox.py:100`). SQLite enforces read-only at driver level — even malformed whitelist bypasses cannot write. `check_same_thread=False` is safe because each tool call opens its own connection on its own thread.
+`execute_safe_sql` (`sandbox.py:159`) opens the DB with `file:{DB_PATH}?mode=ro`. SQLite enforces read-only at the driver level — any whitelist bypass still can't write. `check_same_thread=False` is safe because each tool call opens its own connection on its own thread.
 
 ### Limits
 
@@ -133,7 +147,7 @@ If `pbp.db` is missing and the query references it, `SQLValidationError` is rais
 
 Handlers have a uniform `(input_data, ctx)` signature, but most ignore `ctx`. It exists so handlers can reach runtime services without importing them. Right now only `create_csv_export` uses it.
 
-`ChatRuntime._execute_tool` (`runtime.py:358`) builds `ctx`:
+`ToolExecutionService.execute_one` (`agent/tool_execution.py:61`) builds `ctx`:
 
 ```python
 ctx = {
@@ -145,16 +159,16 @@ ctx = {
 }
 ```
 
-`create_csv_export` (`handlers/create_csv_export.py:53`) pulls the callback, calls it after writing the CSV, and unlinks the file if registration fails so orphan files don't accumulate. If `ctx` is `None` (e.g., calling the tool from a test), the handler still returns the download info but skips library registration — this is what makes handlers independently testable.
+`create_csv_export` (`tools/create_csv_export.py:53`) pulls the callback, calls it after writing the CSV, and unlinks the file if registration fails so orphan files don't accumulate. If `ctx` is `None` (e.g., calling the tool from a test), the handler still returns the download info but skips library registration — this is what makes handlers independently testable.
 
-Adding a new side-channel means: (1) build it in `_execute_tool`, (2) read it in the handler, (3) handle the `None` case for tests. No registry to touch.
+Adding a new side-channel means: (1) build it in `ToolExecutionService.execute_one`, (2) read it in the handler, (3) handle the `None` case for tests. No registry to touch.
 
 ## Handler contract
 
 Every handler returns a JSON string. The shape is tool-specific but two conventions are enforced:
 
 - **Error envelope.** On expected failure, return `{"error": "message"}`. `execute_tool` also wraps any uncaught `SQLValidationError` or `Exception` in this shape, so handlers don't need defensive `try` blocks around known error sources.
-- **Truncation note.** When row caps hit, include a `note` field so the model can warn the user (see `execute_sql.py:19`).
+- **Truncation note.** When row caps hit, include a `note` field so the model can warn the user. Helpers in `tools/truncate.py` (`truncate_rows`, `truncate_text`) do this automatically — handlers like `execute_sql.py` just pass their rows through.
 
 `execute_tool_structured` (`registry.py:86`) parses the result looking for `error` and `hint` keys; the presence of `error` flips `status` to `"error"` in the envelope. Handlers should not set `status` themselves — the dispatcher derives it.
 
@@ -163,7 +177,7 @@ Every handler returns a JSON string. The shape is tool-specific but two conventi
 1. Add the schema dict to `TOOL_DEFINITIONS` in `definitions.py`.
 2. Write the handler in `tools/<name>.py` with signature `(input_data, ctx) -> str`.
 3. Import the handler in `registry.py` and add it to `_TOOL_DISPATCH`. The drift-guard assert will fail otherwise.
-4. If the handler needs runtime state, extend `ctx` in `runtime.py:358`. Otherwise ignore `ctx`.
+4. If the handler needs runtime state, extend `ctx` in `agent/tool_execution.py:61`. Otherwise ignore `ctx`.
 5. If tool output can produce novel error strings users should correct, add a `(pattern, hint)` pair to `_ERROR_HINTS` in `validation.py`.
 
 No test fixtures, no registration decorators, no boot-time side effects. The drift-guard assert and the uniform handler signature are the only contracts.

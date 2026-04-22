@@ -1,6 +1,6 @@
 # Architecture
 
-The app is an AI chat agent over an NFL stats SQLite database. A browser UI, an HTTP/SSE API, a model-driven tool-use loop, and two SDK adapters for Claude and GPT. Everything in this doc is about the plumbing — the NFL data layer (schemas, join graph) lives in `NFLVERSE/docs/DATABASE.md` and isn't reproduced here.
+The app is an AI chat agent over an NFL stats SQLite database. A browser UI, an HTTP/SSE API, a model-driven tool-use loop, and three provider adapters (Anthropic, OpenAI, and OpenAI Codex via ChatGPT OAuth). Everything in this doc is about the plumbing — the NFL data layer (schemas, join graph) lives in `NFLVERSE/docs/DATABASE.md` and isn't reproduced here.
 
 ## The one-line summary
 
@@ -21,24 +21,26 @@ One user message drives one call to `ChatRuntime.run_session`, which drives the 
 Top-level folders are organized by subsystem rather than layer:
 
 ```
-agent/     LLM conversation domain (runtime loop, compaction, prompts)
-tools/     Tool registry + handlers (SQL sandbox, schema, CSV export, ...)
-auth/      Auth primitives, encryption, Codex OAuth, credential refresh
-provider/  LLM adapters             (Anthropic, OpenAI, OpenAI Codex)
-storage/   SQLite persistence       (RuntimeStore facade composed of mixins)
-server/    HTTP transport           (FastAPI app factory, routes, schemas)
+agent/            LLM conversation domain (runtime loop, compaction, prompts)
+tools/            Tool registry + handlers (SQL sandbox, schema, CSV export, ...)
+auth/             Auth primitives, encryption, Codex OAuth
+provider/         LLM adapters             (Anthropic, OpenAI, OpenAI Codex)
+storage/          SQLModel + aiosqlite persistence (RuntimeStore mixin facade)
+server/routes/    HTTP transport shells    (FastAPI routers, SSE serialization)
+server/services/  Application services     (cross-subsystem orchestration)
 ```
 
-Dependencies flow from `server/` (entry point) → `agent/` (domain) → `tools/`, `provider/`, `storage/`, `auth/` (subsystems). Subsystems don't import from `server/` or each other except where noted (e.g. `auth/codex_credentials.py` uses `storage` to persist refreshed bundles).
+Dependencies flow from `server/routes/` (entry point) → `server/services/` (orchestration) → `agent/` (domain) → `tools/`, `provider/`, `storage/`, `auth/` (subsystems). Services are where cross-subsystem wiring lives — decrypting a user credential, building a client, preparing a session, refreshing a Codex bundle — so routes and the agent stay focused on their own concerns.
 
 | Dir | Contents | Doc |
 |-----|----------|-----|
 | `agent/` | `ChatRuntime`, event types, compaction, system prompt, guides | [runtime.md](runtime.md), [compaction.md](compaction.md), [prompts.md](prompts.md) |
 | `tools/` | Tool definitions, registry/dispatch, validation, SQL sandbox, handlers | [tools.md](tools.md) |
-| `auth/` | Password hashing, bearer-token issuance, Fernet encryption, Codex OAuth | [auth.md](auth.md) |
+| `auth/` | Password hashing, bearer-token issuance, Fernet encryption, Codex OAuth protocol | [auth.md](auth.md) |
 | `provider/` | `BaseLLMClient`, Anthropic + OpenAI + OpenAI Codex adapters, retry/overflow helpers | [providers.md](providers.md) |
-| `storage/` | SQLite store (sessions, turns, tool runs, users, keys, exports) | [persistence.md](persistence.md) |
-| `server/` | FastAPI app factory, routes, schemas, SSE serialization, rate limit | [transport.md](transport.md), [auth.md](auth.md) |
+| `storage/` | Async SQLModel store (sessions, turns, tool runs, users, keys, exports) + Alembic migrations | [persistence.md](persistence.md) |
+| `server/routes/` | FastAPI routers + SSE transport | [transport.md](transport.md) |
+| `server/services/` | Application services: chat, conversations, auth, credentials, exports, settings, Codex OAuth + refresh | [transport.md](transport.md) |
 | `web/` | Browser app | [ui.md](ui.md) |
 
 ## Data flow of one user turn
@@ -53,22 +55,28 @@ Following a single message from the browser back to the browser:
  └───────────────────────────────────┘
                 │
                 ▼
- ┌── server/routes/chat.py ────────────┐
- │ POST /chat/stream                 │        chat.py:195
+ ┌── server/routes/chat.py ──────────┐
+ │ POST /chat/stream                 │        chat.py:95
  │  ├─ get_current_user (401 guard)  │
- │  ├─ _prepare_chat:                │
- │  │    ├─ IDOR check               │
- │  │    ├─ decrypt user API key     │
- │  │    ├─ create LLM client        │
- │  │    └─ prepare session          │
+ │  ├─ acquire per-user stream slot  │
+ │  ├─ delegate to ChatService       │
  │  ├─ producer/consumer queue       │
  │  │   with 15s heartbeat ping      │
  │  └─ SSE yield per RuntimeEvent    │
  └───────────────────────────────────┘
                 │
                 ▼
- ┌── agent/runtime.py ──────────┐
- │ ChatRuntime.run_session           │        runtime.py:83
+ ┌── server/services/chat.py ────────┐
+ │ ChatService.prepare_chat          │        chat.py:101
+ │  ├─ IDOR check                    │
+ │  ├─ resolve + decrypt API key     │
+ │  ├─ create_client_for_request     │
+ │  └─ runtime.prepare_session       │
+ └───────────────────────────────────┘
+                │
+                ▼
+ ┌── agent/runtime.py ───────────────┐
+ │ ChatRuntime.run_session           │        runtime.py:78
  │  ├─ acquire session lock          │
  │  ├─ write user turn               │
  │  └─ for _ in range(10):           │
@@ -77,26 +85,34 @@ Following a single message from the browser back to the browser:
  │       │   ├─ TextEvent  → yield   │
  │       │   └─ ToolUseEvent → queue │
  │       ├─ if no tools: done        │
- │       ├─ raise_if_doom_loop       │
+ │       ├─ raise_if_doom_loop       │       (runtime_policy.py)
  │       ├─ asyncio.gather(tools)    │      → tool layer (tools.md)
  │       └─ loop                     │
  └───────────────────────────────────┘
                 │
                 │ (each tool call)
                 ▼
- ┌── tools/ ──────────────────┐
+ ┌── agent/tool_execution.py ────────┐
+ │ ToolExecutionService.execute_one  │
+ │  ├─ persist tool_run (pending)    │
+ │  ├─ call execute_tool_structured  │      → tools/ (below)
+ │  └─ persist result / error        │
+ └───────────────────────────────────┘
+                │
+                ▼
+ ┌── tools/ ─────────────────────────┐
  │ execute_tool_structured           │        registry.py:86
  │  ├─ validate_tool_input           │
- │  ├─ dispatch → handler            │
+ │  ├─ dispatch → handler (to_thread)│
  │  │   └─ execute_sql → sandbox     │        sandbox.py
  │  ├─ inject_hint on known errors   │
  │  └─ return envelope (+duration)   │
  └───────────────────────────────────┘
                 │
                 ▼
- ┌── storage/ ──────────────────────┐
- │ RuntimeStore writes every step    │       store.py + transcripts.py
- │ (turns, parts, tool_runs)         │
+ ┌── storage/ ───────────────────────┐
+ │ RuntimeStore writes every step    │       store.py + transcript_store.py
+ │ (turns, parts, tool_runs)         │       async SQLModel over aiosqlite
  └───────────────────────────────────┘
 ```
 
@@ -108,11 +124,11 @@ Common "where does X happen" questions:
 
 | Question | Where |
 |----------|-------|
-| User message arrives → HTTP | `server/routes/chat.py:195` ([transport.md](transport.md)) |
-| Who owns this conversation? | IDOR guard in `_prepare_chat`, `chat.py:105` ([transport.md](transport.md#idor-protection)) |
-| Which API key to use? | `resolve_user_credential` → `encryption.decrypt` ([auth.md](auth.md#api-keys)) |
+| User message arrives → HTTP | `server/routes/chat.py:95` ([transport.md](transport.md)) |
+| Who owns this conversation? | IDOR guard in `ChatService.prepare_chat`, `server/services/chat.py:101` ([transport.md](transport.md#idor-protection)) |
+| Which API key to use? | `ProviderCredentialService.get_api_key` → `encryption.decrypt` ([auth.md](auth.md#api-keys)) |
 | Model selects a tool | Streamed `ToolUseEvent` from the provider adapter ([providers.md](providers.md#streaming)) |
-| Tool call actually runs | `ChatRuntime._execute_tool` → `execute_tool_structured` ([tools.md](tools.md#data-flow-for-one-tool-call)) |
+| Tool call actually runs | `ToolExecutionService.execute_one` → `execute_tool_structured` ([tools.md](tools.md#data-flow-for-one-tool-call)) |
 | SQL query limits | `sandbox.py` — 500 rows, ~30s, PBP auto-attach ([tools.md](tools.md#the-sql-sandbox)) |
 | Which tools are available? | `tools/definitions.py` — 7 tools ([tools.md](tools.md#the-seven-tools)) |
 | What the model sees as system prompt | `get_base_prompt()` in `agent/system_prompt.py` ([prompts.md](prompts.md#the-base-prompt)) |
@@ -142,19 +158,20 @@ New topic? Drop a markdown file into `tools/guides/`, add the topic name to `GUI
 
 ### Transport
 
-New entry point (MCP server, background worker, etc.)? Build a `RuntimeStore`, create a runtime via `ChatRuntime.from_store(store)`, construct a `BaseLLMClient`, call `run_session`, and consume its events. The runtime is transport-agnostic — no HTTP assumptions leak into it.
+New entry point (MCP server, background worker, etc.)? Build a `RuntimeStore`, create a runtime via `ChatRuntime(store)`, construct a `BaseLLMClient`, call `run_session`, and consume its events. The runtime is transport-agnostic — no HTTP assumptions leak into it.
 
 ## Concurrency model
 
 - **Async throughout** for I/O. FastAPI + uvicorn, asyncio tools, asyncio SDK clients.
 - **Per-session lock** (asyncio mutex in `RuntimeStore`) — concurrent requests to the same conversation serialize. Cross-session parallelism is untouched.
-- **Parallel tool execution within a pass** via `asyncio.gather`. Handlers run in `asyncio.to_thread` so SQLite's synchronous driver doesn't stall the loop.
-- **Synchronous SQLite** for both the runtime DB (one-row writes, sub-ms) and the nflverse DB (tool queries in `to_thread`). No aiosqlite — the complexity isn't worth the mostly-negligible win for this workload.
+- **Parallel tool execution within a pass** via `asyncio.gather`.
+- **Runtime DB is async** via `aiosqlite` under SQLModel. `RuntimeStore` exposes natively async methods (sessions, turns, parts, tool runs, users, keys, exports) that run on the event loop without `to_thread`. A sync engine also exists but is only used at process boot for Alembic upgrades and startup reconciliation (`storage/engine.py`).
+- **Tool queries stay sync.** The read-only sandbox (`tools/sandbox.py`) uses plain `sqlite3` against `nflverse.db` / `pbp.db` and runs inside `asyncio.to_thread`, so a long query can't stall the loop and the driver's row-limit + timeout knobs stay available.
 - **Single process.** Rate limiting is in-memory; no multi-worker plan without swapping that for Redis/slowapi.
 
 ## Persistence model
 
-One SQLite file — `data/runtime.sqlite3` — holds everything mutable. Sessions, turns, assistant parts, tool runs, compaction summaries, exports, users, API keys, auth sessions. WAL mode, foreign keys on, additive migrations via `_ensure_column`. See [persistence.md](persistence.md) for the schema and the lifecycle of each record.
+One SQLite file — `data/runtime.sqlite3` — holds everything mutable. Sessions, turns, assistant parts, tool runs, compaction summaries, exports, users, API keys, auth sessions. Tables are defined as SQLModel classes in `storage/models.py`; the schema evolves through Alembic revisions in `storage/migrations/versions/`, applied automatically on process boot. WAL mode and foreign keys are enabled on both the sync and async engines. See [persistence.md](persistence.md) for the schema and the lifecycle of each record.
 
 The nflverse databases (`nflverse.db`, `pbp.db`) are read-only reference data, attached by the SQL sandbox on demand. They never mutate at runtime and aren't backed up with user data.
 
@@ -175,7 +192,6 @@ Full runbooks in [deployment.md](deployment.md).
 
 A few things you might expect that aren't here:
 
-- **Thin ORM usage.** `RuntimeStore` is still the only storage entrypoint; SQLModel table classes stay internal to `storage/`, and query flow remains explicit rather than relationship-driven.
 - **No background jobs / task queue.** Compaction is synchronous. If it ever needs to go async, the session lock needs to coordinate with it.
 - **No JWT.** Opaque bearer tokens with a DB lookup. Revocable; simpler. See [auth.md](auth.md#why-not-jwt).
 - **No CSRF protection.** Token-in-header auth isn't cookie-based, so CSRF isn't a vector.

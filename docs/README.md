@@ -11,7 +11,7 @@ For a new engineer, read in this order:
 3. **[tools.md](tools.md)** — Tool definitions, dispatch, validation, SQL sandbox.
 4. **[prompts.md](prompts.md)** — Base system prompt + the on-demand guide system.
 5. **[compaction.md](compaction.md)** — How long conversations stay under the context window.
-6. **[providers.md](providers.md)** — `BaseLLMClient`, canonical types, Anthropic vs OpenAI adapters.
+6. **[providers.md](providers.md)** — `BaseLLMClient`, canonical types, Anthropic / OpenAI / OpenAI-Codex adapters.
 7. **[persistence.md](persistence.md)** — SQLite schema, session/turn/tool_run lifecycle.
 8. **[transport.md](transport.md)** — FastAPI, SSE streaming, IDOR guards.
 9. **[auth.md](auth.md)** — Bearer tokens, rate limiting, Fernet-encrypted API keys.

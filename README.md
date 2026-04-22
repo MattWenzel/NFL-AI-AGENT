@@ -1,8 +1,10 @@
 # NFL AI Agent
 
-A natural-language interface to 27 years of NFL statistics. Ask questions in plain English; the agent translates them into SQL, queries a local SQLite database, and answers with tables and context.
+A natural-language interface to 27 years of NFL statistics. Ask questions in plain English; the agent writes SQL against a database of 1999–2025 stats and answers with tables, charts, and full tool-call transparency.
 
-Powered by Claude (Anthropic) or GPT (OpenAI) with tool use. Runs entirely on your machine — no hosted backend.
+**Live at [nfl-stats-agent.fly.dev](https://nfl-stats-agent.fly.dev).**
+
+Bring your own Anthropic or OpenAI key, or sign in with ChatGPT — no key required.
 
 ## What you can ask
 
@@ -12,87 +14,94 @@ Powered by Claude (Anthropic) or GPT (OpenAI) with tool use. Runs entirely on yo
 - "Red-zone passing TD rate for Mahomes vs. Allen, 2023 and 2024"
 - "Export the 2024 RB rushing leaderboard as a CSV"
 
-## Architecture
+Anything that resolves to a SQL query against player, game, snap-count, NGS, QBR, PFR advanced, play-by-play, draft, or combine data is fair game.
 
-Top-level folders are organized by subsystem:
+## Features
 
-- **`agent/`** — LLM conversation domain: runtime loop, compaction, prompts
-- **`tools/`** — Tool registry + handlers (SQL sandbox, schema discovery, CSV export, etc.)
-- **`auth/`** — Auth subsystem: password primitives, encryption, Codex OAuth, credential refresh
-- **`provider/`** — LLM adapters (Anthropic, OpenAI, OpenAI Codex)
-- **`storage/`** — SQLite persistence (`RuntimeStore` facade composed of per-domain mixins)
-- **`server/`** — FastAPI HTTP layer (app factory, routes, dependencies, schemas)
-- **`web/`** — browser UI (`index.html` + static assets, SSE streaming, provider picker)
+### Full NFL dataset, 1999–2025
 
-For a deeper walkthrough see [`docs/architecture.md`](docs/architecture.md). Deployment runbooks (Fly.io, self-hosted VPS) live in [`docs/deployment.md`](docs/deployment.md).
+Every week, every snap. The agent has access to:
 
-## Setup
+- **Core stats** — players, games, weekly + season game logs, kicking, rushing, receiving, passing, defense.
+- **Play-by-play** — 1.28 million plays with EPA, WPA, success rate, air yards, pressure, pass location, drive context — everything nflverse ships.
+- **Supplementary** — snap counts, Next Gen Stats (passing/rushing/receiving), PFR Advanced, ESPN QBR, depth charts, draft picks, NFL Combine.
 
-### 1. Build the databases
+Full schema in [NFLVERSE/docs/DATABASE.md](NFLVERSE/docs/DATABASE.md).
 
-The agent reads from two SQLite files that live under `NFLVERSE/data/`. You build them with the separate [NFLVERSE-DB](https://github.com/MattWenzel/NFLVERSE-DB) repo, cloned as a sibling into `NFLVERSE/`:
+### Bring your own model
 
-```bash
-git clone https://github.com/MattWenzel/NFLVERSE-DB.git NFLVERSE
-cd NFLVERSE
-pip install -r requirements.txt
-python3 scripts/download.py --all
-python3 scripts/build_db.py --all                          # ~327 MB, core tables
-python3 scripts/download.py --tables play_by_play --all    # Optional, ~466 MB download
-python3 scripts/build_db.py --pbp --all                    # Optional, ~2 GB, play-by-play
-cd ..
+Three provider paths; pick per turn from the dropdown:
+
+| Provider | Credential | Models |
+|----------|-----------|--------|
+| **Anthropic** | API key | Claude Sonnet 4.6, Opus 4.7, Haiku 4.5 |
+| **OpenAI** | API key | GPT-5, GPT-5-mini, o3, o3-mini, GPT-4.1, GPT-4o |
+| **ChatGPT (OAuth)** | Sign in with ChatGPT | GPT-5.3-codex |
+
+The **ChatGPT OAuth** path is the one that doesn't need an API key. Settings → Connect ChatGPT kicks off a device-code flow; sign in with your existing ChatGPT account and use Codex-backed models through your subscription. Same auth dance as OpenAI's official Codex CLI.
+
+API keys are Fernet-encrypted at rest; OAuth refresh tokens are managed server-side with per-user locks so concurrent requests don't thrash the refresh endpoint.
+
+### Response control
+
+Two knobs per turn beyond provider + model:
+
+- **Tool choice** — `auto` (the model decides), `required` (force a tool call), or `none` (text-only). Useful when you want a one-shot query regardless of what the model thinks, or when you want conversational analysis of results already on screen.
+- **Model switcher** — swap Sonnet → Opus mid-conversation if the question gets harder; history carries over.
+
+### Transparent runtime
+
+Click any assistant reply and the inspector panel opens with the full runtime transcript:
+
+- Every tool call — full input JSON, full result, duration, status, error + remediation hint if it failed.
+- Compaction events showing exactly what got summarized.
+- Token usage per turn.
+- The "Thinking…" collapsible per assistant turn surfaces tool calls inline as they run, with status chips flipping as each resolves.
+
+No black box. If the agent got the wrong answer, you can see which query it ran and fix it.
+
+### Output formats
+
+- **Tables** — markdown, rendered with proper alignment and thousands separators.
+- **Charts** — the agent can call `create_chart` to render interactive bar, line, scatter, or pie charts inline via Chart.js.
+- **CSV exports** — up to 10,000 rows per export, wider time/row budget than the in-chat query (500 rows / ~30 s). Every export lands in your CSV Library tab with preview, rename, delete, and "seed a new conversation from this data" actions.
+
+### Saved history
+
+- Conversations persist across sessions. Pin the important ones to the top of the sidebar.
+- Long conversations auto-compact: older turns are summarized into a memo and dropped from the active prompt while the full transcript stays in storage. You can keep asking follow-ups indefinitely.
+- Resume mid-session — the inspector shows what the agent was doing last time.
+
+### Streaming end-to-end
+
+Responses stream token-by-token over SSE. Tool calls start and finish mid-response; you see what the agent is doing as it's doing it, not at the end. A 15-second SSE keepalive plus the right reverse-proxy buffering config means long-running tool calls don't drop the connection.
+
+## Security & privacy
+
+TLS-only deployment; all traffic over HTTPS. Authentication is password + opaque bearer token (no JWT — tokens are revocable server-side), 30-day sessions, rate-limited sign-in, optional invite-code gate on registration. Per-user data is scoped by `user_id` on every query — users can't see each other's conversations, API keys, or CSV exports.
+
+API keys are encrypted with Fernet (AES-128-CBC + HMAC) using a master key held only by the server. The browser never sees ciphertext; from the UI's perspective, Settings is a write-only blob.
+
+The SQL sandbox the model talks to is driver-level read-only (`file:…?mode=ro`), regex-filtered to `SELECT` / `WITH` only, capped at 500 rows and ~30 seconds per query, and runs against two reference databases that never mutate at runtime — nothing the model does can change state for you or any other user.
+
+## For developers
+
+Zero-framework browser UI, FastAPI backend, async SQLModel + aiosqlite persistence, three pluggable LLM adapters, seven tool handlers. Top-level folders:
+
+```
+agent/     LLM conversation loop, compaction, system prompt, token accounting
+tools/     Tool registry + handlers (SQL sandbox, schema, CSV, charts, guides)
+provider/  Anthropic / OpenAI / OpenAI Codex adapters
+storage/   Async SQLModel store (sessions, turns, users, keys, exports)
+server/    FastAPI app — routes/, services/, schemas/, process state
+auth/      Password hashing, Fernet encryption, Codex device-code protocol
+web/       Browser app (vanilla JS, one render() + one patchLiveText fast path)
 ```
 
-After this you should have `NFLVERSE/data/nflverse.db` and (optionally) `NFLVERSE/data/pbp.db`. See the [NFLVERSE-DB README](https://github.com/MattWenzel/NFLVERSE-DB) for incremental updates and fallback build paths.
-
-### 2. Install Python deps
-
-```bash
-pip install -r requirements.txt
-```
-
-### 3. Configure an LLM provider
-
-Create a `.env` file in the project root. `SETTINGS_ENCRYPTION_KEY` is
-required for startup; generate it once and keep it stable so stored API
-keys remain decryptable.
-
-```
-SETTINGS_ENCRYPTION_KEY=...
-ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-...
-CHAT_PROVIDER=anthropic     # optional — picks the default provider
-```
-
-Generate an encryption key with:
-
-```bash
-python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-```
-
-### 4. Run
-
-```bash
-python3 run.py               # API server + UI on http://localhost:8001
-```
-
-## Providers
-
-| Provider  | Env var              | Default model               | Context |
-|-----------|----------------------|-----------------------------|---------|
-| Anthropic | `ANTHROPIC_API_KEY`  | `claude-sonnet-4-6`         | 200K    |
-| OpenAI    | `OPENAI_API_KEY`     | `gpt-5`                     | 128K    |
-
-Adding a provider is a new file under `provider/` plus one `register_provider()` call — see `provider/base.py` for the ABC.
-
-## Notes
-
-- **Local-only by design.** `run.py` binds to `127.0.0.1`; CORS is restricted to `localhost` origins. Don't expose the API to the internet without reworking auth — the SQL sandbox is read-only and sandboxed, but the chat interface is open.
-- **The agent can write SQL** via its `execute_sql` tool, but queries are parsed, rejected if they contain DDL/DML, row-limited, and run against a read-only SQLite connection.
-- **Conversation transcripts** persist in `data/runtime.sqlite3` so you can reopen a chat, review tool runs, or download transcripts via `GET /chat/conversations/{id}/transcript`.
+Full internal-design docs live under [docs/](docs/) — start with [docs/architecture.md](docs/architecture.md). Deployment runbooks (Fly.io + self-hosted VPS) are in [docs/deployment.md](docs/deployment.md); running locally for development is covered there too.
 
 ## License
 
-[MIT](LICENSE) — see `LICENSE` for the full text.
+[MIT](LICENSE) — the code.
 
 NFL data itself is licensed CC-BY-4.0 by [nflverse](https://github.com/nflverse/nflverse-data); see the NFLVERSE-DB README for attribution details.

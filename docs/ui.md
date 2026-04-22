@@ -9,17 +9,21 @@ This doc covers the boot flow, state shape, SSE consumption, the `patchLiveText`
 - `web/index.html` — entry point. One file, loaded at `/`.
 - `web/static/js/main.js` — boot + event wiring.
 - `web/static/js/state.js` — the single global `state` object.
+- `web/static/js/render-dispatch.js` — `registerRenderHook(fn)` + `requestRender()`: the single render trigger used throughout the app, coalescing multiple state mutations in a tick into one DOM update.
+- `web/static/js/render.js` — the `render()` function itself; thin, delegates to sub-renderers.
 - `web/static/js/auth.js` — token storage, `/auth/status` boot, login/register screens.
 - `web/static/js/streaming.js` — SSE consumption and the live-turn state machine.
 - `web/static/js/api.js` — fetch wrappers.
 - `web/static/js/thread.js` — render the transcript into the main column (largest file).
 - `web/static/js/sidebar.js` — conversation + CSV list rendering.
+- `web/static/js/navigation.js` — sidebar tab switching (chats / csvs).
 - `web/static/js/inspector.js` — right-side inspector panel (tool runs, compaction info).
-- `web/static/js/settings.js` — settings modal.
+- `web/static/js/settings.js` — settings modal + Codex OAuth device-code flow UI.
 - `web/static/js/charts.js` — Chart.js bindings for `create_chart` output.
 - `web/static/js/csv.js` — CSV library tab.
 - `web/static/js/confirm.js` — small confirm dialog.
 - `web/static/js/utils.js` — helpers: `escapeHtml`, `renderMarkdown`, etc.
+- `web/static/css/*.css` — split by pane (`theme`, `layout`, `sidebar`, `thread`, `composer`, `inspector`, `settings`, `csv`, etc.).
 
 Scripts are loaded in order via plain `<script>` tags (no modules, no imports). Load order matters: `auth.js` before `api.js` (authHeaders), `state.js` before anything that reads `state`, `main.js` last.
 
@@ -64,8 +68,10 @@ The login form on success stores the token, sets `_currentUser`, hides the auth 
 | `csvs`, `activeCsvId`, `csvDetails` | — | CSV library tab state. |
 | `chartInstances` | `Map<chartId, Chart>` | Chart.js instance lifecycle — necessary because Chart.js binds to canvas refs that re-renders would invalidate. |
 | `pendingCharts` | `Map<chartId, spec>` | Chart specs queued during streaming; applied after final render. |
+| `toolChoice` | `"auto" \| "required" \| "none"` | Composer dropdown; persisted to localStorage; sent as `tool_choice` on the next `/chat/stream` call. |
+| `sidebarView`, `sidebarSearch` | `string` | Sidebar tab (chats / csvs) + filter text. |
 
-No reactive framework. Mutations to `state` are followed by an explicit `render()` call that re-paints the DOM from state. This works because the app is small — most operations touch one section at a time, and the perf-critical path (text deltas) bypasses the full re-render entirely via `patchLiveText`.
+No reactive framework. Mutations to `state` are followed by a call to `requestRender()` (`render-dispatch.js`) which coalesces repeated calls in a single tick into one `render()` invocation. This works because the app is small — most operations touch one section at a time, and the perf-critical path (text deltas) bypasses the full re-render entirely via `patchLiveText`.
 
 ## SSE consumption
 
@@ -94,6 +100,7 @@ Flow:
 | `tool_result` | Flip the matching `toolRun` to `"completed"`; status → `"thinking"`. |
 | `tool_failed` | Flip `toolRun` to `"error"` with message. Do **not** push to `liveTurn.errors` — the inline failed chip already surfaces it. |
 | `compaction` | Store `event.meta` on `liveTurn.compaction` for the inspector. |
+| `retrying` | Write a transient `liveTurn.notice` ("Retrying in 3s — rate limited") so the composer shows backoff progress instead of a silent stall. |
 | `error` | Status → `"error"`; push message to `liveTurn.errors`. |
 | `done` | `finishLiveTurn()` — clear liveTurn, refresh conversations/csvs, reload transcript. |
 
@@ -175,14 +182,28 @@ Toggled via `inspectorOpen` state. On mobile, rendered as a drawer over the thre
 
 ## Settings modal
 
-`settings.js`. Fetched on open:
+`settings.js`. Two tabs, Providers and Account.
 
-- `GET /settings/api-keys` → list of providers and whether the user has a key stored (returns metadata, never the plaintext key).
-- Per-provider: PUT to save, DELETE to remove.
+### Providers tab
 
-Also hosts password change (`PUT /auth/password`) and account delete (`DELETE /auth/me`) forms. Account delete requires password confirmation in the form — server also re-validates.
+Fetched on open:
 
-Keys are stored encrypted server-side via Fernet (see [auth.md](auth.md#api-keys)); the UI never has access to the ciphertext or the encryption key. From the UI's perspective it's a write-only blob: "PUT this plaintext, I'll see it no more."
+- `GET /settings/api-keys` → per-provider `ApiKeyStatus` (has_key; for Codex OAuth, also `email` and `expires_at`).
+- `PUT /settings/api-keys/{provider}` with a plaintext key to save; `PUT` with null/empty (or `DELETE`) to clear.
+
+For providers with `credential_shape === "codex_oauth"` (ChatGPT), the UI renders a **Connect** button instead of a key input, and the click kicks off the device-code flow:
+
+1. `POST /settings/oauth/codex/start` — receives `pending_id`, `user_code`, `verification_url`, `expires_in`.
+2. Renders the code + a link to `https://auth.openai.com/codex/device`. User enters the code there.
+3. Polls `GET /settings/oauth/codex/status` every 2 s until the flow reaches a terminal state (`complete` / `expired` / `error`).
+4. On `complete`, re-loads provider status (now shows "Connected as <email>, expires <date>").
+5. On close-before-complete, `DELETE /settings/oauth/codex/cancel` tears down the background task.
+
+Keys are stored encrypted server-side via Fernet (see [auth.md](auth.md#api-keys)); the UI never has access to the ciphertext or the encryption key. OAuth bundles are stored the same way. From the UI's perspective it's a write-only blob.
+
+### Account tab
+
+Password change (`PUT /auth/password`) and account delete (`DELETE /auth/me`). Account delete requires password confirmation in the form — server also re-validates.
 
 ## Fetch helpers
 

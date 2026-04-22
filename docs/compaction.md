@@ -6,24 +6,36 @@ This doc covers the trigger, the retention policy, how the summary is generated 
 
 ## File map
 
-- `agent/compaction.py` — trigger, policy, token estimation, heuristic summary.
-- `agent/summarizer.py` — LLM-backed summarizer.
-- `storage/` — persists summaries and rebuilds wire messages with them.
+- `agent/compaction.py` — trigger, retention policy, token estimation, two-phase algorithm, heuristic fallback.
+- `agent/summarizer.py` — LLM-backed summarizer with its own input-budget trimming and timeout.
+- `agent/token_counting.py` — `count_text_tokens` via `cl100k_base` tiktoken (lazy singleton, falls back to `len//4`).
+- `storage/transcript_store.py` + `storage/models.py` — persists summary turns + `compaction_summaries` rows; rebuilds wire messages with them via `message_builder.py`.
 
 ## The trigger
 
-`compaction.py:160`. Called once per loop iteration from `ChatRuntime.run_session` (see [runtime.md](runtime.md#the-iteration-loop)). Sequence:
+`compact_if_needed` (`compaction.py:241`) is called once per loop iteration from `ChatRuntime.run_session` (via `RuntimeLoopState.compact_if_needed`, see [runtime.md](runtime.md#the-iteration-loop)). Sequence:
 
 1. Session must have a `context_window` set — otherwise compaction is off.
 2. `estimate_active_tokens(store, session_id)` counts what the next call will cost.
-3. If the total is at or under the window, return `None` and proceed.
-4. Otherwise build a retention policy, summarize the oldest turns, and write the summary turn.
+3. If the total is at or under the window (and `force=False`), return `None` and proceed.
+4. Otherwise hand off to `_compact_if_needed_inner` (`compaction.py:276`) — build a retention policy, prune old tool runs, summarize the oldest turns, write the summary turn.
 
-The returned dict is surfaced as a `compaction_started` `RuntimeEvent` with fields like `summary_turn_id`, `active_tokens_before`, `context_window`, `source_turn_count`, `summary_token_count`, and `summary_source` (`"llm"` or `"heuristic"`). The UI shows a small notice; the transcript records it permanently.
+The whole thing is wrapped in `asyncio.wait_for(..., timeout=COMPACTION_HARD_TIMEOUT_SECONDS)` (`compaction.py:66`, **45s**). If the summarizer wedges, the timeout fires, a warning is logged, and `compact_if_needed` returns `None` — the iteration proceeds without compaction. A subsequent `ContextOverflowError` will trigger a forced retry (below).
+
+The returned dict is surfaced as a `compaction_started` `RuntimeEvent` with fields like `summary_turn_id`, `active_tokens_before`, `context_window`, `source_turn_count`, `summary_token_count`, and `summary_source` (`"llm"` / `"heuristic"` / `"prune_only"`). The UI shows a small notice; the transcript records it permanently.
+
+## Forced compaction (context-overflow retry)
+
+When the provider rejects a prompt our estimator was happy with (`ContextOverflowError`), the runtime catches it at `runtime.py:204`, marks the current turn `error`, and calls `RuntimeLoopState.handle_overflow()` which sets `force_overflow_compaction=True`. The next iteration calls `compact_if_needed` with:
+
+- `force=True` — run the full two-phase compaction unconditionally, even if `estimate_active_tokens` says we're under the window.
+- `retention_budget_override = context_window // 4` — about a quarter of what we'd normally keep, so the active prompt shrinks dramatically.
+
+One-shot per user turn. A second overflow falls through to `runtime_error`. See [runtime.md](runtime.md#context-overflow-recovery).
 
 ## Token estimation
 
-`estimate_active_tokens` (`compaction.py:107`) walks the transcript and sums contributions from every non-compacted turn:
+`estimate_active_tokens` (`compaction.py:155`) walks the transcript and sums contributions from every non-compacted turn:
 
 | What | Token source |
 |------|--------------|
@@ -33,13 +45,13 @@ The returned dict is surfaced as a `compaction_started` `RuntimeEvent` with fiel
 | Tool result (uncompacted, `tool_run.result` populated) | `count_text_tokens(tool_run.result)`. |
 | Tool call | `count_text_tokens(tool_call_part.content) + TOOL_CALL_OVERHEAD_TOKENS` (20 tokens for the JSON envelope). |
 
-The subtle bit is **assistant turns use `output_tokens`, not `input_tokens`** (`compaction.py:86`). `input_tokens` is what the provider billed — which includes every earlier message — so summing input_tokens across turns double-counts massively. An 11-turn session would read as ~150K "transcript tokens" when the real transcript is ~15K. Using output_tokens counts only what each turn *added*; tool calls and tool results are summed separately in the same function.
+The subtle bit is **assistant turns use `output_tokens`, not `input_tokens`** (`compaction.py:134-135`). `input_tokens` is what the provider billed — which includes every earlier message — so summing input_tokens across turns double-counts massively. An 11-turn session would read as ~150K "transcript tokens" when the real transcript is ~15K. Using output_tokens counts only what each turn *added*; tool calls and tool results are summed separately in the same function.
 
 tiktoken is used as the fallback when the provider didn't report usage (mid-stream errors, test stub clients). Not byte-perfect across providers but accurate enough for a threshold decision. Not meant for billing — only for deciding *when* to compact.
 
 ## Retention policy
 
-`RetentionPolicy.for_context_window`. Scales with the session's context window:
+`RetentionPolicy.for_context_window` (`compaction.py:91`). Scales with the session's context window:
 
 ```
 recent_raw_turns         = clamp(6, 24,  MIN + (window - 32K) // 16K)
@@ -51,23 +63,23 @@ retention_budget_tokens  = max(200, window // 2)
 
 ### Token-weighted selection
 
-`_select_source_turns` walks newest→oldest and keeps each turn's full token weight (text + its uncompacted tool results + its tool-call parts — same formula as `estimate_active_tokens`). Stops when either the retention budget is exhausted or `MAX_RECENT_RAW_TURNS` is reached. `HARD_KEEP_FLOOR_TURNS=3` is a coherence minimum: we always keep the last 3 turns raw, even if they individually exceed the budget, so a single huge recent tool result can't orphan the user's last exchange.
+`_select_source_turns` (`compaction.py:164`) walks newest→oldest and keeps each turn's full token weight (text + its uncompacted tool results + its tool-call parts — same formula as `estimate_active_tokens`). Stops when either the retention budget is exhausted or `MAX_RECENT_RAW_TURNS` is reached. `HARD_KEEP_FLOOR_TURNS=3` is a coherence minimum: we always keep the last 3 turns raw, even if they individually exceed the budget, so a single huge recent tool result can't orphan the user's last exchange.
 
 This is the fix for the "one 5KB tool result counts the same as a one-line turn" problem. A uniform-dialog session with 150K window keeps up to 24 turns (budget easily absorbs them). A session with a 30K tool result in the last few turns retains only those few turns and compacts everything older — budget-aware, not count-aware.
 
 If the walk selects nothing to compact (session is under the budget even before compacting anything), `compact_if_needed` returns `None` — the session is over the window but we can't drop anything without cutting into the hard floor.
 
-Old tool runs (pre-tail, completed) are compacted **separately** in `_compact_old_tool_runs` — not tied to turn compaction. This lets the summarizer still see intermediate tool results that landed on retained turns; only the very old ones are dropped from the active prompt.
+Old tool runs (pre-tail, completed) are compacted **separately** in `_compact_old_tool_runs` (`compaction.py:199`) — not tied to turn compaction. This lets the summarizer still see intermediate tool results that landed on retained turns; only the very old ones are dropped from the active prompt. If pruning tool runs alone frees enough tokens to fit the window, Phase 2 (turn summarization) is skipped and the event reports `summary_source="prune_only"`.
 
 ## The summarizer
 
-Two paths, `_build_summary` (`compaction.py:216`):
+Two paths, `_build_summary` (`compaction.py:371`):
 
 ### LLM path
 
-`summarizer.py:65`. Uses the provider's **summarizer_model** — a cheap sibling of the main model (e.g., Haiku for Anthropic, gpt-5-mini for OpenAI). Declared per provider in `provider/__init__.py`. See [providers.md](providers.md#summarizer-model).
+`summarize_for_compaction` (`summarizer.py:64`). Uses the provider's **summarizer_model** — a cheap sibling of the main model (e.g., Haiku for Anthropic, gpt-5-mini for OpenAI). Declared per provider in `provider/__init__.py`. See [providers.md](providers.md#summarizer-model).
 
-System prompt (`summarizer.py:31`) instructs the model to produce a dense bulleted memo preserving:
+System prompt `SUMMARIZER_SYSTEM_PROMPT` (`summarizer.py:30`) instructs the model to produce a dense bulleted memo preserving:
 
 - The user's overall goal.
 - Concrete facts uncovered (names, seasons, stats, totals).
@@ -78,9 +90,9 @@ Explicitly omitting small talk, retries, and tool input minutiae. Target 200–5
 
 ### Input budget
 
-Hard cap: `SUMMARIZER_INPUT_BUDGET_TOKENS = 60_000` (`summarizer.py:52`). Well below any real model's window — compaction should be fast and cheap, not another full-context call.
+Hard cap: `SUMMARIZER_INPUT_BUDGET_TOKENS = 60_000` (`summarizer.py:51`). Well below any real model's window — compaction should be fast and cheap, not another full-context call.
 
-Input construction is two-pass (`summarizer.py:95`):
+Input construction is two-pass (`summarizer.py:99-118`, via `_flatten_turns` at `summarizer.py:120`):
 
 1. Flatten source turns with `tool_result_char_cap = 4000`.
 2. If over budget, re-flatten with `tool_result_char_cap = 400`.
@@ -94,24 +106,27 @@ TOOL execute_sql (completed)
   error: (if any)
 ```
 
-### Timeout
+### Timeouts
 
-`SUMMARIZER_TIMEOUT_SECONDS = 30.0` (`summarizer.py:56`). Haiku / mini-class models typically respond in 2–5s; 30s absorbs cold starts. Wrapped in `asyncio.wait_for` — if the summarizer call times out, the caller catches the exception and falls back.
+There are **two** timeouts, layered:
+
+- **Inner** (`SUMMARIZER_TIMEOUT_SECONDS = 30.0`, `summarizer.py:55`) — wraps just the provider `stream_message` call. Haiku / mini-class models typically respond in 2–5s; 30s absorbs cold starts. On timeout, the exception propagates to `_build_summary`, which catches it and falls back to the heuristic.
+- **Outer** (`COMPACTION_HARD_TIMEOUT_SECONDS = 45.0`, `compaction.py:66`) — wraps the entire compaction including prune + summary. If this fires (summarizer wedged, slow DB, etc.), `compact_if_needed` returns `None` entirely and the iteration proceeds without compaction. A subsequent `ContextOverflowError` then triggers the forced-retry path.
 
 ### Heuristic fallback
 
-`_heuristic_summary` (`compaction.py:140`). Plain string concatenation: `"- user: <preview>"`, `"- tool execute_sql (completed): input=<preview>"`. Preserves structure but not *findings* — the model can't tell that a previous query returned 500 rows about QBs; it only sees that `execute_sql` ran with a specific input.
+`_heuristic_summary` (`compaction.py:222`). Plain string concatenation: `"- user: <preview>"`, `"- tool execute_sql (completed): input=<preview>"`. Preserves structure but not *findings* — the model can't tell that a previous query returned 500 rows about QBs; it only sees that `execute_sql` ran with a specific input.
 
 The heuristic is strictly worse than the LLM summary for continued-investigation coherence. It exists only to make compaction **never block on network** — if the summarizer is unreachable, the conversation still makes progress.
 
-Fallback triggers:
+Fallback triggers (all handled in `_build_summary`, `compaction.py:371`):
 
-- No client supplied (offline tests, non-network contexts): `_build_summary` returns heuristic directly.
-- Any exception in `summarize_for_compaction` (API error, timeout, unknown provider, etc.): the caller at `compaction.py:240` logs a warning and falls back.
+- No client supplied (offline tests, non-network contexts) — return heuristic directly.
+- Any exception in `summarize_for_compaction` (API error, inner timeout, unknown provider, etc.) — log a warning and fall back.
 
 ## Persisting a summary
 
-`RuntimeStore.record_compaction` (`storage/transcripts.py:464`) performs three writes in a single transaction:
+`RuntimeStore.record_compaction` (`storage/transcript_store.py:191`) performs three writes in a single transaction:
 
 1. Create a new turn with `role = "summary"` and the summary text.
 2. Insert a `compaction_summaries` row recording `(summary_turn_id, source_turn_ids)`.
@@ -134,7 +149,7 @@ Why summaries go first rather than chronologically: a summary represents compact
 
 ## The summary wrapping
 
-`wrap_summaries_for_prompt` (`storage/models.py:37`). Multiple summaries (layered compactions over a very long session) are concatenated with `---` separators, then wrapped:
+`wrap_summaries_for_prompt` (`storage/models.py:33`). Multiple summaries (layered compactions over a very long session) are concatenated with `---` separators, then wrapped:
 
 ```
 <prior_conversation_summary>
@@ -160,7 +175,7 @@ The `Conversation Memory` section of the system prompt (`agent/system_prompt.py`
 
 ## Interaction with the iteration loop
 
-Compaction is checked at the **top of every loop iteration** (`runtime.py:134`), not just at session start. This matters because a single turn can drive the loop through 10 iterations of tool_use → tool_result → model response, each one growing the active transcript. A session that was 80% of window at turn start can blow past the window by iteration 5.
+Compaction is checked at the **top of every loop iteration** (`runtime.py:112-119`), not just at session start. This matters because a single turn can drive the loop through 10 iterations of tool_use → tool_result → model response, each one growing the active transcript. A session that was 80% of window at turn start can blow past the window by iteration 5.
 
 Checking every iteration means the runtime can compact mid-turn. The session lock ensures no other turn is writing while this happens.
 

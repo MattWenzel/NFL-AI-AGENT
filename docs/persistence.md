@@ -6,13 +6,13 @@ The 2.3GB nflverse and pbp SQLite files are a separate concern — they're read-
 
 ## File map
 
-- `storage/` — `RuntimeStore` facade composed from `UsersMixin`, `TranscriptsMixin`, `ExportsMixin`. SQLModel-backed, async-native via aiosqlite.
-  - `store.py` — facade: holds sync + async engines, per-session asyncio.Lock registry, startup hooks.
-  - `models.py` — SQLModel table classes (`SessionRecord`, `TurnRecord`, `ToolRunRecord`, etc.) plus shared helpers (`utcnow`, `new_id`, `wrap_summaries_for_prompt`).
-  - `engine.py` — sync engine (for one-shot Alembic + reconcile) + async engine (`sqlite+aiosqlite://`) + `async_sessionmaker`.
-  - `types.py` — `TolerantJSONList` / `ToolInputJSON` TypeDecorators: malformed rows log and fall back to `[]` / `{}` instead of raising.
-  - `users.py`, `transcripts.py`, `exports.py` — async mixins; every method opens its own `AsyncSession` from the store's sessionmaker.
-  - `migrations/` — Alembic scaffolding. `env.py` reads the DB URL from `ALEMBIC_DATABASE_URL` or `config.RUNTIME_DB_PATH`; `versions/0001_initial_schema.py` creates all tables via `metadata.create_all` (a no-op on pre-existing DBs).
+- `storage/` — `RuntimeStore` facade composed from `UsersMixin`, `SessionStoreMixin`, `TranscriptStoreMixin`, `ExportsMixin`. SQLModel-backed, async-native via aiosqlite.
+  - `store.py` — facade: holds sync + async engines, per-session `asyncio.Lock` registry, startup hooks (Alembic upgrade, reconcile).
+  - `models.py` — SQLModel table classes (`SessionRecord`, `TurnRecord`, `AssistantPartRecord`, `ToolRunRecord`, `CompactionSummaryRecord`, `ExportRecord`, `UserRecord`, `UserApiKeyRecord`, `AuthSessionRecord`) plus two DTOs (`SessionListEntry`, `SessionTranscript`) and helpers (`utcnow`, `new_id`, `wrap_summaries_for_prompt`).
+  - `engine.py` — builder functions for the sync engine (for one-shot Alembic + reconcile), the async engine (`sqlite+aiosqlite://`), and the `async_sessionmaker`. Both engines share one `connect` listener that applies `PRAGMA foreign_keys=ON` + `PRAGMA journal_mode=WAL` on every DBAPI connection.
+  - `types.py` — `TolerantJSONList` / `ToolInputJSON` TypeDecorators: malformed rows log and fall back to `[]` / `{}` instead of raising. `ToolInputJSON` writes with `sort_keys=True` so the doom-loop detector's string-fingerprint of recent tool calls stays stable.
+  - `users.py`, `session_store.py`, `transcript_store.py`, `exports.py` — async mixins; every method opens its own `AsyncSession` from the store's sessionmaker.
+  - `migrations/` — Alembic scaffolding. `env.py` reads the DB URL from `ALEMBIC_DATABASE_URL` or `config.RUNTIME_DB_PATH`, enables `render_as_batch=True` for SQLite-safe DDL, and binds to `SQLModel.metadata` so autogenerate sees every table. Two revisions today: `0001_initial_schema` (baseline via `metadata.create_all`) and `0002_rename_toolrun_columns` (conditional batch-rename of the legacy `input_json` / `result_text` / `error_text` columns; a no-op on fresh DBs).
 - `alembic.ini` — at repo root; points `script_location = storage/migrations`.
 - `config.py` — `RUNTIME_DB_PATH` (env-overridable).
 
@@ -151,7 +151,7 @@ UPDATE turns      SET status = 'interrupted',
                   WHERE role = 'assistant' AND status = 'running';
 ```
 
-If the server dies mid-turn — SIGKILL, OOM, power loss — the loop's `finally` cleanup (`runtime.py:314`) doesn't run. These rows would otherwise appear "running" forever in the UI. On startup, the store sweeps them to `interrupted`, logs a warning with the count, and moves on.
+If the server dies mid-turn — SIGKILL, OOM, power loss — the loop's `finally` cleanup (`agent/runtime.py:251`) doesn't run. These rows would otherwise appear "running" forever in the UI. On startup, the store sweeps them to `interrupted`, logs a warning with the count, and moves on.
 
 The warning matters: a restart that orphans nothing is healthy; one that orphans dozens of rows points at a crash.
 
@@ -193,15 +193,15 @@ ChatRuntime.run_session:
 
 Every event the runtime yields has a corresponding write. The transcript is append-only within a turn; the only in-place updates are on `turns` and `tool_runs` (status + result fields).
 
-## Two sides of `create_turn`
+## Three roles of `create_turn`
 
-`storage/transcripts.py:241`. Creates a turn row with the given role/status/text. Used for:
+`storage/transcript_store.py:25`. Creates a turn row with the given role/status/text. Used for:
 
 - `role='user'` with `status='completed'` — immediate write when a user message arrives.
 - `role='assistant'` with `status='running'` — opened at the top of each iteration; updated to `'completed'` when the stream ends.
 - `role='summary'` with `status='completed'` — by `record_compaction` and `seed_summary`. Summary turns have `compacted=0` by default; the source turns they replace are flipped to `compacted=1` in the same transaction.
 
-There is no "streaming turn" abstraction — the turn is just a row, and `append_assistant_text` (`storage/transcripts.py:283`) concatenates chunks into the `text` column in place. If the process dies mid-stream, the partial text is preserved.
+There is no "streaming turn" abstraction — the turn is just a row, and `append_assistant_text` (`storage/transcript_store.py:70`) concatenates chunks into the `text` column in place. If the process dies mid-stream, the partial text is preserved.
 
 ## Recovering the active prompt
 
@@ -246,15 +246,15 @@ class SessionTranscript:
 
 Four queries combined into one object. The transport layer returns this (re-shaped) to the browser for history rendering; the compaction layer iterates over it for token estimation; `build_model_messages` walks it to assemble the wire format.
 
-The four reads share one connection but issue as separate autocommit statements (no explicit `BEGIN`), so inter-query consistency depends on the caller holding `conversations.lock(session_id)` for the duration of the read. Runtime callers do (lock is taken at the top of `run_session`); the HTTP transcript endpoint does not, which is tolerated — a session being actively streamed can show a half-written assistant turn until the next poll. Any future writer that bypasses the per-session lock would break this contract — either take the lock or wrap `get_transcript`'s body in a deferred transaction first.
+The four reads share one `AsyncSession` but issue as separate autocommit statements (no explicit `BEGIN`), so inter-query consistency depends on the caller holding `store.lock(session_id)` for the duration of the read. Runtime callers do (the lock is taken at the top of `run_session`); the HTTP transcript endpoint does not, which is tolerated — a session being actively streamed can show a half-written assistant turn until the next poll. Any future writer that bypasses the per-session lock would break this contract — either take the lock or wrap `get_transcript`'s body in a deferred transaction first.
 
 ## Exports and the `ctx` callback
 
-`register_export` (`storage/exports.py:18`) takes the values `create_csv_export` produces and inserts an `exports` row. The owning `user_id` is resolved by looking up the session that produced the export:
+`register_export` (`storage/exports.py:13`) takes the values `create_csv_export` produces and inserts an `exports` row. The owning `user_id` is resolved by looking up the session that produced the export:
 
 ```python
 if source_session_id:
-    sess = self.get_session(source_session_id)
+    sess = await self.get_session(source_session_id)
     if sess is not None:
         owning_user_id = sess.user_id
 ```
@@ -267,15 +267,16 @@ The session lookup uses the unscoped `get_session` — no `user_id` filter. This
 
 A quick pointer list; full auth flow in [auth.md](auth.md):
 
-- `create_user`, `get_user_by_email`, `get_user_by_id` — user CRUD.
-- `set_user_api_key`, `get_user_api_key` — Fernet-encrypted key storage.
-- `create_auth_session`, `get_auth_session`, `revoke_auth_session`, `purge_expired_sessions` — bearer-token sessions.
+- `count_users`, `create_user`, `get_user_by_email`, `get_user_by_id`, `update_user_password`, `delete_user` — user CRUD (delete cascades through every user-scoped table).
+- `ensure_admin_exists`, `count_orphan_rows`, `backfill_orphan_ownership` — single-tenant → multi-user migration helpers, called at startup.
+- `upsert_api_key`, `get_api_key`, `list_api_keys`, `delete_api_key`, `user_has_api_key` — Fernet-encrypted per-user provider keys.
+- `create_auth_session`, `get_auth_session`, `touch_auth_session`, `delete_auth_session`, `invalidate_other_auth_sessions`, `purge_expired_auth_sessions` — bearer-token sessions.
 
-All of these are thin SQL wrappers. The interesting logic (password hashing, token generation, rate limiting) lives in the auth router.
+All of these are thin SQL wrappers. The interesting logic (password hashing, token generation, rate limiting) lives in the auth service and router.
 
 ## What the store deliberately doesn't do
 
-- **Thin ORM usage.** SQLModel handles table mapping and tolerant JSON columns, but store queries stay explicit and `RuntimeStore` remains the only persistence boundary exposed to the rest of the app.
+- **No relationship-driven querying.** Tables have SQL-level foreign keys, but the SQLModel classes don't declare SQLAlchemy relationships. Callers don't navigate `session.turns` — they go through a mixin method (`get_transcript`, `list_sessions`, etc.) that issues an explicit query. This keeps the read paths predictable, makes N+1s impossible-by-construction, and keeps `RuntimeStore` as the one persistence boundary the rest of the app talks to.
 - **No caching.** Every read is a fresh query. WAL mode plus the indexes above keep this well under the network/LLM latency the user is actually waiting on.
-- **No connection pool.** `_connect` opens one per call. Python's sqlite3 module is fast enough; connection pooling would add coordination with no measurable win.
-- **No native async.** Python's sqlite3 is synchronous. The store exposes `_async` siblings for every public method that bridge via `asyncio.to_thread` (see `storage/store.py:48-166`), so the runtime loop, the compaction path, and FastAPI handlers never block the event loop on a SQLite call. Sync methods remain callable directly from sync contexts (startup reconciliation, tests).
+- **No connection-pool tuning.** The async engine uses SQLAlchemy's default `aiosqlite` pool with no size/timeout overrides. SQLite's file-level concurrency (one writer at a time under WAL) is what actually bounds throughput; nothing above that layer helps.
+- **No sync fallback paths.** Every public method on the store is natively async — the old `*_async` wrappers are gone. The sync engine is used exclusively for two boot-time tasks (`alembic upgrade head` and the interrupted-run sweep); nothing else calls into it.

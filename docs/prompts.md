@@ -36,7 +36,7 @@ Structure (in order):
 | **Critical Gotchas** | 8 non-negotiable rules that bite models that skim the guides (e.g., `game_stats.player_id` holds GSIS IDs; `game_type` vs `season_type`; no such thing as a plain `sacks` column). |
 | Pre-SQL checklist | Always alias tables, filter season on snap_counts, don't build mega-CTEs, etc. |
 | Presentation rules | Comma-separated thousands, percentages, markdown tables. |
-| **CSV Export Workflow** | Preview → confirm → export pattern for `create_csv_export`. |
+| **CSV Export Workflow** | Call `create_csv_export` directly on clear requests — no preview/confirm roundtrip. One clarifying question only if genuinely ambiguous. |
 
 The prompt is intentionally prescriptive. This is not a general-purpose system prompt; it's a domain-tuned playbook with known-failure-mode avoidance baked in. Each gotcha traces to a specific mistake that cost a tool iteration during development.
 
@@ -65,7 +65,7 @@ Guides are plain markdown: column reference tables, gotchas, and copy-pasteable 
 
 ### Loading
 
-`get_guide.py:20`. All seven files are read into a module-level dict **at import time**:
+`tools/get_guide.py:16`. All seven files are read into a module-level dict **at import time**:
 
 ```python
 _GUIDES = _load_all()   # dict[topic] -> file contents
