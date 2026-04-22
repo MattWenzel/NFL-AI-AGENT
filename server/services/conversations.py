@@ -4,15 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from server.repositories import ConversationListEntry, ConversationRepository
 from server.schemas.conversations import (
     ConversationInfo,
     ConversationTranscriptResponse,
 )
-from storage import RuntimeStore, SessionTranscript
+from storage import RuntimeStore, SessionListEntry, SessionTranscript
 
 
-def _conversation_info_from_row(item: ConversationListEntry) -> ConversationInfo:
+def _conversation_info_from_row(item: SessionListEntry) -> ConversationInfo:
     return ConversationInfo(
         id=item.id,
         message_count=item.turn_count,
@@ -54,10 +53,9 @@ class ConversationNotFoundError(ConversationServiceError):
 @dataclass
 class ConversationApplicationService:
     store: RuntimeStore
-    conversations: ConversationRepository  # slim, for list mapping only
 
     async def list_conversations(self, user_id: int) -> list[ConversationInfo]:
-        rows = await self.conversations.list_sessions(user_id=user_id)
+        rows = await self.store.list_sessions(user_id=user_id)
         return [_conversation_info_from_row(item) for item in rows]
 
     async def get_transcript(
@@ -90,7 +88,7 @@ class ConversationApplicationService:
                 pinned,
                 user_id=user_id,
             ) or session
-        entry = await self.conversations.get_session_list_entry(
+        entry = await self.store.get_session_list_entry(
             conversation_id,
             user_id=user_id,
         )

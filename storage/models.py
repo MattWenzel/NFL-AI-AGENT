@@ -15,6 +15,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Any, Mapping
 
 from sqlalchemy import Column, ForeignKey, Index, Integer, desc
 from sqlmodel import Field, SQLModel
@@ -222,6 +223,33 @@ class AuthSessionRecord(SQLModel, table=True):
     created_at: str
     expires_at: str
     last_used_at: str
+
+
+@dataclass(frozen=True)
+class SessionListEntry:
+    """Typed session-list projection returned by storage read helpers."""
+
+    id: str
+    turn_count: int
+    title: str
+    provider: str | None
+    model: str | None
+    updated_at: str | None
+    pinned_at: str | None
+    source_csv_id: str | None
+
+    @classmethod
+    def from_row(cls, row: Mapping[str, Any]) -> "SessionListEntry":
+        return cls(
+            id=str(row["id"]),
+            turn_count=int(row["turn_count"]),
+            title=str(row["title"]),
+            provider=row.get("provider"),
+            model=row.get("model"),
+            updated_at=row.get("updated_at"),
+            pinned_at=row.get("pinned_at"),
+            source_csv_id=row.get("source_csv_id"),
+        )
 
 
 @dataclass

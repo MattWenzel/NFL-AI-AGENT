@@ -90,7 +90,7 @@ class UsersMixin:
         automatically via the FK ON DELETE CASCADE declared on the models.
         """
         session_list = await self.list_sessions(user_id=user_id)
-        session_ids = [s["id"] for s in session_list]
+        session_ids = [s.id for s in session_list]
         for sid in session_ids:
             await self.delete_session(sid, user_id=user_id)
         exports = await self.list_exports(user_id=user_id)

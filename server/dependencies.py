@@ -16,7 +16,6 @@ from server.process_state import (
     PerUserLockRegistry,
     RequestRateLimiter,
 )
-from server.repositories import ConversationRepository
 from server.services.chat import ChatApplicationService
 from server.services.codex_oauth import CodexOAuthApplicationService
 from server.services.conversations import ConversationApplicationService
@@ -31,10 +30,6 @@ def get_store(request: Request) -> RuntimeStore:
             "store not attached to app.state — the FastAPI lifespan must set it before requests run."
         )
     return store
-
-
-def get_conversation_repository(request: Request) -> ConversationRepository:
-    return ConversationRepository(get_store(request))
 
 
 async def _resolve_user(request: Request, store: RuntimeStore) -> AuthenticatedUser | None:
@@ -128,9 +123,8 @@ def get_chat_service(
 
 def get_conversation_service(
     store: RuntimeStore = Depends(get_store),
-    conversations: ConversationRepository = Depends(get_conversation_repository),
 ) -> ConversationApplicationService:
-    return ConversationApplicationService(store, conversations)
+    return ConversationApplicationService(store)
 
 
 def get_codex_oauth_service(
