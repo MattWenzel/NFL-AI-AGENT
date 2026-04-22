@@ -6,14 +6,14 @@
 <title>NFL AI Stats Agent</title>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-<link rel="stylesheet" href="chat-ui/css/theme.css">
-<link rel="stylesheet" href="chat-ui/css/layout.css">
-<link rel="stylesheet" href="chat-ui/css/sidebar.css">
-<link rel="stylesheet" href="chat-ui/css/csv.css">
-<link rel="stylesheet" href="chat-ui/css/composer.css">
-<link rel="stylesheet" href="chat-ui/css/thread.css">
-<link rel="stylesheet" href="chat-ui/css/inspector.css">
-<link rel="stylesheet" href="chat-ui/css/settings.css">
+<link rel="stylesheet" href="static/css/theme.css">
+<link rel="stylesheet" href="static/css/layout.css">
+<link rel="stylesheet" href="static/css/sidebar.css">
+<link rel="stylesheet" href="static/css/csv.css">
+<link rel="stylesheet" href="static/css/composer.css">
+<link rel="stylesheet" href="static/css/thread.css">
+<link rel="stylesheet" href="static/css/inspector.css">
+<link rel="stylesheet" href="static/css/settings.css">
 </head>
 <body>
 <div id="authScreen" hidden></div>
@@ -150,10 +150,10 @@
 <script>
   // API backend URL. Override via ?api=... URL param, or edit the fallback below when deploying.
   // Default to same-origin ("") so every fetch goes to whatever host serves
-  // chat.html — this works when FastAPI serves the UI directly. ?api=<url>
+  // web/index.html — this works when FastAPI serves the UI directly. ?api=<url>
   // overrides for split-hosting or legacy file:// dev.
   window.API_BASE = new URLSearchParams(location.search).get("api") || "";
 </script>
-<script type="module" src="chat-ui/js/main.js"></script>
+<script type="module" src="static/js/main.js"></script>
 </body>
 </html>

@@ -39,7 +39,7 @@ Dependencies flow from `server/` (entry point) → `agent/` (domain) → `tools/
 | `provider/` | `BaseLLMClient`, Anthropic + OpenAI + OpenAI Codex adapters, retry/overflow helpers | [providers.md](providers.md) |
 | `storage/` | SQLite store (sessions, turns, tool runs, users, keys, exports) | [persistence.md](persistence.md) |
 | `server/` | FastAPI app factory, routes, schemas, SSE serialization, rate limit | [transport.md](transport.md), [auth.md](auth.md) |
-| `chat-ui/` | Browser app | [ui.md](ui.md) |
+| `web/` | Browser app | [ui.md](ui.md) |
 
 ## Data flow of one user turn
 
@@ -47,7 +47,7 @@ Following a single message from the browser back to the browser:
 
 ```
  ┌── UI ─────────────────────────────┐
- │ sendMessage()                     │        chat-ui/js/streaming.js:1
+ │ sendMessage()                     │        web/static/js/streaming.js:1
  │  ├─ fetch /chat/stream            │
  │  └─ read SSE events, render       │
  └───────────────────────────────────┘
@@ -175,9 +175,9 @@ Full runbooks in `CLAUDE.md`.
 
 A few things you might expect that aren't here:
 
-- **No ORM.** Raw SQL + dataclasses in `storage/store.py` (facade) + `storage/{users,transcripts,exports}.py` (domain mixins).
+- **Thin ORM usage.** `RuntimeStore` is still the only storage entrypoint; SQLModel table classes stay internal to `storage/`, and query flow remains explicit rather than relationship-driven.
 - **No background jobs / task queue.** Compaction is synchronous. If it ever needs to go async, the session lock needs to coordinate with it.
 - **No JWT.** Opaque bearer tokens with a DB lookup. Revocable; simpler. See [auth.md](auth.md#why-not-jwt).
 - **No CSRF protection.** Token-in-header auth isn't cookie-based, so CSRF isn't a vector.
-- **No UI framework.** `chat-ui/` is vanilla JS with a `state` object and a `render()` function. See [ui.md](ui.md#no-framework--why).
+- **No UI framework.** `web/` is vanilla JS with a `state` object and a `render()` function. See [ui.md](ui.md#no-framework--why).
 - **No caching layer.** Every request hits SQLite. For the current workload (personal/small-team), that's fine.

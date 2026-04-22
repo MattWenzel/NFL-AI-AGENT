@@ -4,8 +4,6 @@ A natural-language interface to 27 years of NFL statistics. Ask questions in pla
 
 Powered by Claude (Anthropic) or GPT (OpenAI) with tool use. Runs entirely on your machine — no hosted backend.
 
-![screenshot placeholder — chat UI](chat.html)
-
 ## What you can ask
 
 - "Top 10 QBs by EPA per play in 2024, minimum 200 attempts"
@@ -24,7 +22,7 @@ Top-level folders are organized by subsystem:
 - **`provider/`** — LLM adapters (Anthropic, OpenAI, OpenAI Codex)
 - **`storage/`** — SQLite persistence (`RuntimeStore` facade composed of per-domain mixins)
 - **`server/`** — FastAPI HTTP layer (app factory, routes, dependencies, schemas)
-- **`chat.html`** — browser UI (SSE streaming, provider picker)
+- **`web/`** — browser UI (`index.html` + static assets, SSE streaming, provider picker)
 
 For a deeper walkthrough see [CLAUDE.md](CLAUDE.md).
 

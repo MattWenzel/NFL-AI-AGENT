@@ -1,25 +1,25 @@
 # UI
 
-A zero-framework browser app. Vanilla JavaScript, a handful of globals, one module-less `<script>` tag per file. Everything lives in `chat-ui/js/` and mounts into the single `chat.html` shell. No build step, no bundler, no npm.
+A zero-framework browser app. Vanilla JavaScript, a handful of globals, one module-less `<script>` tag per file. Everything lives under `web/` and mounts into the single `web/index.html` shell. No build step, no bundler, no npm.
 
 This doc covers the boot flow, state shape, SSE consumption, the `patchLiveText` performance trick, settings/auth plumbing, and cross-tab sync.
 
 ## File map
 
-- `chat.html` — entry point. One file, loaded at `/`.
-- `chat-ui/js/main.js` — boot + event wiring.
-- `chat-ui/js/state.js` — the single global `state` object.
-- `chat-ui/js/auth.js` — token storage, `/auth/status` boot, login/register screens.
-- `chat-ui/js/streaming.js` — SSE consumption and the live-turn state machine.
-- `chat-ui/js/api.js` — fetch wrappers.
-- `chat-ui/js/thread.js` — render the transcript into the main column (largest file).
-- `chat-ui/js/sidebar.js` — conversation + CSV list rendering.
-- `chat-ui/js/inspector.js` — right-side inspector panel (tool runs, compaction info).
-- `chat-ui/js/settings.js` — settings modal.
-- `chat-ui/js/charts.js` — Chart.js bindings for `create_chart` output.
-- `chat-ui/js/csv.js` — CSV library tab.
-- `chat-ui/js/confirm.js` — small confirm dialog.
-- `chat-ui/js/utils.js` — helpers: `escapeHtml`, `renderMarkdown`, etc.
+- `web/index.html` — entry point. One file, loaded at `/`.
+- `web/static/js/main.js` — boot + event wiring.
+- `web/static/js/state.js` — the single global `state` object.
+- `web/static/js/auth.js` — token storage, `/auth/status` boot, login/register screens.
+- `web/static/js/streaming.js` — SSE consumption and the live-turn state machine.
+- `web/static/js/api.js` — fetch wrappers.
+- `web/static/js/thread.js` — render the transcript into the main column (largest file).
+- `web/static/js/sidebar.js` — conversation + CSV list rendering.
+- `web/static/js/inspector.js` — right-side inspector panel (tool runs, compaction info).
+- `web/static/js/settings.js` — settings modal.
+- `web/static/js/charts.js` — Chart.js bindings for `create_chart` output.
+- `web/static/js/csv.js` — CSV library tab.
+- `web/static/js/confirm.js` — small confirm dialog.
+- `web/static/js/utils.js` — helpers: `escapeHtml`, `renderMarkdown`, etc.
 
 Scripts are loaded in order via plain `<script>` tags (no modules, no imports). Load order matters: `auth.js` before `api.js` (authHeaders), `state.js` before anything that reads `state`, `main.js` last.
 
@@ -215,5 +215,5 @@ The cost: there's no component boundary. Adding a new pane means reading every f
 
 - **New endpoint integration**: write a fetch wrapper in `api.js` and a call site wherever it fires. Use `authHeaders()` and `fetchJSON` to get the 401 handling free.
 - **New state field**: add to `state.js`, update everywhere that reads or mutates it, call `render()`.
-- **New DOM element**: add to `chat.html`, wire event listeners in `main.js`. Style in `chat-ui/css/*.css`.
+- **New DOM element**: add to `web/index.html`, wire event listeners in `main.js`. Style in `web/static/css/*.css`.
 - **New streaming event**: add a case to `handleStreamEvent`, add a server-side emitter to [transport.md's](transport.md#sse-event-catalog) catalog.

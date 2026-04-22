@@ -14,10 +14,11 @@ from server.routes import auth, chat, codex_oauth, conversations, csv_downloads,
 from config import ALLOWED_ORIGINS
 from server.startup import configure_runtime_state, log_environment_state, run_housekeeping, validate_encryption
 
-# Project root — one level up from this file (server/app.py → project/).
-# Used to resolve the UI's static assets and the chat.html entry point so the
-# same process serves both the API and the front-end (single-origin deploy).
+# Project root plus the browser UI directory. The UI lives under `web/`
+# so product code and static assets stay grouped instead of living at the
+# repo root.
 APP_ROOT = Path(__file__).resolve().parent.parent
+WEB_ROOT = APP_ROOT / "web"
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ def create_app() -> FastAPI:
 
     # CORS — local defaults cover the dev setup; ALLOWED_ORIGINS env var
     # replaces them wholesale for hosted deploys. `"null"` is how Chrome
-    # reports file:// origins when chat.html is opened directly.
+    # reports file:// origins when the standalone HTML file is opened directly.
     origins = ALLOWED_ORIGINS or [
         "http://localhost:8001",
         "http://127.0.0.1:8001",
@@ -85,18 +86,17 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     # Serve the UI from the same origin as the API. Specific API routes above
-    # take precedence; this mount only catches /chat-ui/* asset requests and
-    # the bare root. chat.html's <link>/<script> tags use relative paths
-    # (chat-ui/...), so mounting at /chat-ui/ keeps those resolving.
+    # take precedence; this mount only catches /static/* asset requests and
+    # the bare root.
     app.mount(
-        "/chat-ui",
-        StaticFiles(directory=APP_ROOT / "chat-ui"),
-        name="chat-ui",
+        "/static",
+        StaticFiles(directory=WEB_ROOT / "static"),
+        name="static",
     )
 
     @app.get("/", include_in_schema=False)
     def serve_ui():
-        return FileResponse(APP_ROOT / "chat.html")
+        return FileResponse(WEB_ROOT / "index.html")
 
     return app
 

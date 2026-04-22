@@ -1,6 +1,6 @@
 """Chart generation tool: run SQL and return a chart envelope the UI renders inline.
 
-The returned JSON is not a prose preview — the `chat.html` thread detects
+The returned JSON is not a prose preview — the browser thread detects
 any completed `create_chart` tool run and replaces the usual JSON code
 block with a Chart.js canvas driven by the embedded spec and rows.
 

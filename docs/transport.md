@@ -197,12 +197,12 @@ Transcript endpoint flattens the nested `SessionTranscript` (see [persistence.md
 
 `app.py:154`. The same FastAPI app that serves the API also serves the browser UI:
 
-- `/chat-ui/*` → static mount of `chat-ui/` directory.
-- `/` → `FileResponse(chat.html)`.
+- `/static/*` → static mount of `web/static/`.
+- `/` → `FileResponse(web/index.html)`.
 
-Single-origin deployment. The UI's `<script>` and `<link>` tags use relative paths like `chat-ui/js/main.js`, and the static mount at `/chat-ui` keeps them resolving. No separate static server, no CORS between UI and API.
+Single-origin deployment. The UI's `<script>` and `<link>` tags use relative paths like `static/js/main.js`, and the static mount at `/static` keeps them resolving. No separate static server, no CORS between UI and API.
 
-API routes registered above the static mount take precedence — `/health`, `/chat/*`, `/auth/*`, etc. all get matched before the root falls through to `chat.html`.
+API routes registered above the static mount take precedence — `/health`, `/chat/*`, `/auth/*`, etc. all get matched before the root falls through to `web/index.html`.
 
 ## Running the server
 

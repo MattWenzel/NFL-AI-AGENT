@@ -136,7 +136,7 @@ server/                     # HTTP transport (FastAPI)
 
 run.py                      # HTTP server entry point (python3 run.py)
 config.py                   # DB paths, runtime db path, load_dotenv()
-chat.html                   # Browser UI (SSE streaming, provider selection)
+web/                        # Browser UI (index.html + static assets)
 tests/                      # pytest test suite
 data/                       # Runtime data (runtime.sqlite3 — ignored)
 ```
@@ -145,7 +145,7 @@ data/                       # Runtime data (runtime.sqlite3 — ignored)
 
 ```bash
 python3 run.py                    # API server (port 8001)
-open chat.html                    # Chat UI
+open web/index.html               # Chat UI
 python3 -m pytest tests/          # Run tests
 
 # Build scripts (in NFLVERSE/)
@@ -178,7 +178,7 @@ When Google OAuth ships, the following six-step plan picks up from the current s
 3. New endpoints in `server/routes/auth.py`:
    - `GET /auth/oauth/google/start` — PKCE + state, 302 to Google.
    - `GET /auth/oauth/google/callback` — exchange code, verify `id_token`, look up by `(provider='google', provider_subject=sub)`. If not found, look up by email: link if an existing password user matches, else call `_create_user_from_verified_identity(email=…, password_hash=None, verified=True)`. Issue session via `_issue_session`.
-4. Frontend: render a "Continue with Google" button in the reserved `.auth-alt` slot (`chat-ui/js/auth.js`); point it at `/auth/oauth/google/start`.
+4. Frontend: render a "Continue with Google" button in the reserved `.auth-alt` slot (`web/static/js/auth.js`); point it at `/auth/oauth/google/start`.
 5. Settings modal: add an "Account" section listing linked identities, with unlink buttons. Guard: don't let a user unlink their last identity if they have no password.
 6. Google Cloud Console: create OAuth client, set authorized redirect URI to `<prod-url>/auth/oauth/google/callback` (and `http://localhost:8001/auth/oauth/google/callback` for dev).
 
@@ -186,7 +186,7 @@ The tail `_create_user_from_verified_identity` → `_issue_session` path in `ser
 
 ## Deployment
 
-The app is single-origin: FastAPI serves the UI (`GET /` → `chat.html`, static assets at `/chat-ui/*`) and the API. One process, one domain. **TLS is mandatory** — passwords, bearer tokens, and user API keys all move over the wire; without HTTPS they leak.
+The app is single-origin: FastAPI serves the UI (`GET /` → `web/index.html`, static assets at `/static/*`) and the API. One process, one domain. **TLS is mandatory** — passwords, bearer tokens, and user API keys all move over the wire; without HTTPS they leak.
 
 Two documented paths: **Fly.io** (recommended, minimal ops overhead, TLS + volumes built-in) and **self-hosted VPS with Caddy** (more DIY, more control).
 
