@@ -1,7 +1,7 @@
 """Schema discovery tool: table column introspection + join graph.
 
-Static metadata (table aliases, join graph) lives alongside in
-`schema_metadata.py`.
+Static metadata (table aliases, FK-derived join graph) lives alongside
+in `schema_metadata.py`.
 """
 
 import json

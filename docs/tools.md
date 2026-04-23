@@ -14,7 +14,7 @@ The `tools/` package is flat — infrastructure modules and handlers sit side by
 - `tools/validation.py` — JSON-Schema input validation, error-hint injection.
 - `tools/sandbox.py` — read-only SQL runner with row/op caps and PBP auto-attach.
 - `tools/truncate.py` — shared `truncate_text` / `truncate_rows` helpers for result formatting.
-- `tools/schema_metadata.py` — `TABLE_ALIASES`, `TABLE_DATABASE`, `JOIN_EDGES` (used by `get_schema` and for join-graph hints).
+- `tools/schema_metadata.py` — `TABLE_ALIASES` (hand-coded) and `JOIN_EDGES` (auto-derived from DuckDB's `duckdb_constraints()` at import time; one hand-coded supplement for the `v_depth_charts` view which can't carry an FK). Used by `get_schema` for join-graph hints.
 - `tools/guide_registry.py` — `GUIDE_TOPICS` tuple + `GUIDE_INDEX_ROWS` shown in the system prompt's guide index.
 - Handlers, one per tool: `tools/execute_sql.py`, `tools/player_lookup.py` (both `_search_players` and `_get_player_info`), `tools/get_schema.py`, `tools/get_guide.py`, `tools/create_chart.py`, `tools/create_csv_export.py`.
 - `tools/guides/*.md` — seven markdown guides loaded by `get_guide`: `fantasy.md`, `player_stats.md`, `play_by_play.md`, `drives.md`, `postseason.md`, `player_profile.md`, `games.md`.
