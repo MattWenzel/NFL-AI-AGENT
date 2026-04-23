@@ -112,7 +112,7 @@ storage/                    # Runtime persistence — async SQLModel over aiosql
 ├── session_store.py        #   SessionStoreMixin (session lifecycle + list-row projection)
 ├── transcript_store.py     #   TranscriptStoreMixin (turns, parts, tool runs, compaction, transcript assembly)
 ├── exports.py              #   ExportsMixin (CSV export registry CRUD)
-└── migrations/             #   Alembic scaffolding (env.py + versions/); schema evolves via revisions
+└── schema_version.py       #   In-house migration runner (PRAGMA user_version) with a one-shot Alembic-version seam
 
 server/                     # HTTP transport (FastAPI)
 ├── app.py                  #   app factory + lifespan (validates DBs, wires store+runtime)

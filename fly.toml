@@ -39,8 +39,8 @@ primary_region = "iad"
   processes = ["app"]
 
   [[http_service.checks]]
-    # Temporarily bumped from 10s to absorb the first Alembic migration on
-    # the pre-Alembic prod DB. Restore to 10s after the first healthy boot.
+    # 30s accommodates one-shot schema migrations + startup reconciliation.
+    # Can drop to 10s under steady state — left here as a buffer.
     grace_period = "30s"
     interval = "30s"
     method = "GET"

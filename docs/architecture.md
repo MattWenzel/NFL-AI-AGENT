@@ -38,7 +38,7 @@ Dependencies flow from `server/routes/` (entry point) → `server/services/` (or
 | `tools/` | Tool definitions, registry/dispatch, validation, SQL sandbox, handlers | [tools.md](tools.md) |
 | `auth/` | Password hashing, bearer-token issuance, Fernet encryption, Codex OAuth protocol | [auth.md](auth.md) |
 | `provider/` | `BaseLLMClient`, Anthropic + OpenAI + OpenAI Codex adapters, retry/overflow helpers | [providers.md](providers.md) |
-| `storage/` | Async SQLModel store (sessions, turns, tool runs, users, keys, exports) + Alembic migrations | [persistence.md](persistence.md) |
+| `storage/` | Async SQLModel store (sessions, turns, tool runs, users, keys, exports) + in-house `schema_version` migration runner | [persistence.md](persistence.md) |
 | `server/routes/` | FastAPI routers + SSE transport | [transport.md](transport.md) |
 | `server/services/` | Application services: chat, conversations, auth, credentials, exports, settings, Codex OAuth + refresh | [transport.md](transport.md) |
 | `web/` | Browser app | [ui.md](ui.md) |
@@ -165,15 +165,15 @@ New entry point (MCP server, background worker, etc.)? Build a `RuntimeStore`, c
 - **Async throughout** for I/O. FastAPI + uvicorn, asyncio tools, asyncio SDK clients.
 - **Per-session lock** (asyncio mutex in `RuntimeStore`) — concurrent requests to the same conversation serialize. Cross-session parallelism is untouched.
 - **Parallel tool execution within a pass** via `asyncio.gather`.
-- **Runtime DB is async** via `aiosqlite` under SQLModel. `RuntimeStore` exposes natively async methods (sessions, turns, parts, tool runs, users, keys, exports) that run on the event loop without `to_thread`. A sync engine also exists but is only used at process boot for Alembic upgrades and startup reconciliation (`storage/engine.py`).
-- **Tool queries stay sync.** The read-only sandbox (`tools/sandbox.py`) uses plain `sqlite3` against `nflverse.db` / `pbp.db` and runs inside `asyncio.to_thread`, so a long query can't stall the loop and the driver's row-limit + timeout knobs stay available.
+- **Runtime DB is async** via `aiosqlite` under SQLModel. `RuntimeStore` exposes natively async methods (sessions, turns, parts, tool runs, users, keys, exports) that run on the event loop without `to_thread`. A sync engine also exists but is only used at process boot for schema migration apply and startup reconciliation (`storage/engine.py`).
+- **Tool queries stay sync.** The read-only sandbox (`tools/sandbox.py`) uses DuckDB against `nflverse.duckdb` and runs inside `asyncio.to_thread`, so a long query can't stall the loop and the driver's row-limit + timeout knobs stay available.
 - **Single process.** Rate limiting is in-memory; no multi-worker plan without swapping that for Redis/slowapi.
 
 ## Persistence model
 
-One SQLite file — `data/runtime.sqlite3` — holds everything mutable. Sessions, turns, assistant parts, tool runs, compaction summaries, exports, users, API keys, auth sessions. Tables are defined as SQLModel classes in `storage/models.py`; the schema evolves through Alembic revisions in `storage/migrations/versions/`, applied automatically on process boot. WAL mode and foreign keys are enabled on both the sync and async engines. See [persistence.md](persistence.md) for the schema and the lifecycle of each record.
+One SQLite file — `data/runtime.sqlite3` — holds everything mutable. Sessions, turns, assistant parts, tool runs, compaction summaries, exports, users, API keys, auth sessions. Tables are defined as SQLModel classes in `storage/models.py`; the schema evolves through in-house migration callables in `storage/schema_version.py`, applied automatically on process boot via `apply_migrations()`. WAL mode, foreign keys, and a 5s busy_timeout are enabled on both the sync and async engines. See [persistence.md](persistence.md) for the schema and the lifecycle of each record.
 
-The nflverse databases (`nflverse.db`, `pbp.db`) are read-only reference data, attached by the SQL sandbox on demand. They never mutate at runtime and aren't backed up with user data.
+The nflverse DuckDB file (`nflverse.duckdb`) is read-only reference data opened by the SQL sandbox on demand. It never mutates at runtime and isn't backed up with user data.
 
 ## Auth model
 

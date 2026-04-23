@@ -7,13 +7,12 @@ The 2.3GB nflverse and pbp SQLite files are a separate concern — they're read-
 ## File map
 
 - `storage/` — `RuntimeStore` facade composed from `UsersMixin`, `SessionStoreMixin`, `TranscriptStoreMixin`, `ExportsMixin`. SQLModel-backed, async-native via aiosqlite.
-  - `store.py` — facade: holds sync + async engines, per-session `asyncio.Lock` registry, startup hooks (Alembic upgrade, reconcile).
+  - `store.py` — facade: holds sync + async engines, per-session `asyncio.Lock` registry, startup hooks (schema migration apply, reconcile).
   - `models.py` — SQLModel table classes (`SessionRecord`, `TurnRecord`, `AssistantPartRecord`, `ToolRunRecord`, `CompactionSummaryRecord`, `ExportRecord`, `UserRecord`, `UserApiKeyRecord`, `AuthSessionRecord`) plus two DTOs (`SessionListEntry`, `SessionTranscript`) and helpers (`utcnow`, `new_id`, `wrap_summaries_for_prompt`).
-  - `engine.py` — builder functions for the sync engine (for one-shot Alembic + reconcile), the async engine (`sqlite+aiosqlite://`), and the `async_sessionmaker`. Both engines share one `connect` listener that applies `PRAGMA foreign_keys=ON` + `PRAGMA journal_mode=WAL` on every DBAPI connection.
+  - `engine.py` — builder functions for the sync engine (for one-shot migration apply + reconcile), the async engine (`sqlite+aiosqlite://`), and the `async_sessionmaker`. Both engines share one `connect` listener that applies `PRAGMA foreign_keys=ON` + `PRAGMA journal_mode=WAL` + `PRAGMA busy_timeout=5000` on every DBAPI connection.
   - `types.py` — `TolerantJSONList` / `ToolInputJSON` TypeDecorators: malformed rows log and fall back to `[]` / `{}` instead of raising. `ToolInputJSON` writes with `sort_keys=True` so the doom-loop detector's string-fingerprint of recent tool calls stays stable.
   - `users.py`, `session_store.py`, `transcript_store.py`, `exports.py` — async mixins; every method opens its own `AsyncSession` from the store's sessionmaker.
-  - `migrations/` — Alembic scaffolding. `env.py` reads the DB URL from `ALEMBIC_DATABASE_URL` or `config.RUNTIME_DB_PATH`, enables `render_as_batch=True` for SQLite-safe DDL, and binds to `SQLModel.metadata` so autogenerate sees every table. Two revisions today: `0001_initial_schema` (baseline via `metadata.create_all`) and `0002_rename_toolrun_columns` (conditional batch-rename of the legacy `input_json` / `result_text` / `error_text` columns; a no-op on fresh DBs).
-- `alembic.ini` — at repo root; points `script_location = storage/migrations`.
+  - `schema_version.py` — in-house migration runner. Uses `PRAGMA user_version` as the tracker. Migrations are plain Python callables that take a sync `Connection`; `apply_migrations(engine)` runs any pending steps in a single transaction on startup. A one-shot seam reads `alembic_version` when present (DBs that predate the 2026-04-23 Alembic removal) and seeds `user_version` so no migration re-runs.
 - `config.py` — `RUNTIME_DB_PATH` (env-overridable).
 
 ## `RuntimeStore`
@@ -21,8 +20,8 @@ The 2.3GB nflverse and pbp SQLite files are a separate concern — they're read-
 `storage/store.py`. One class with one dependency (a `Path`). Responsibilities:
 
 - Own the DB file (create if missing).
-- Build the sync engine (for Alembic bootstrap + `reconcile_interrupted_runs`) and the async engine (`sqlite+aiosqlite://`) used by every CRUD method.
-- Run `alembic upgrade head` on startup — creates tables on fresh DBs via the initial revision's `metadata.create_all`, stamps pre-existing DBs at `head` so future revisions apply cleanly. Both paths are idempotent.
+- Build the sync engine (for schema migration apply + `reconcile_interrupted_runs`) and the async engine (`sqlite+aiosqlite://`) used by every CRUD method.
+- Apply schema migrations on startup via `storage.schema_version.apply_migrations()` — creates tables on fresh DBs via the baseline migration's `metadata.create_all`, seeds `user_version` from `alembic_version` for DBs that predate the Alembic removal, and applies any pending migrations in order. All paths are idempotent.
 - Serve typed records (`SessionRecord`, `TurnRecord`, etc. — SQLModel classes) — no raw rows escape.
 - Hand out per-session async locks (`lock(session_id)` → `asyncio.Lock`). Shared with `ChatRuntime` for turn serialization.
 - Reconcile interrupted runs on startup.
@@ -54,7 +53,7 @@ sessions                              ── one row per conversation
 ├─ id, created_at, updated_at
 ├─ provider, model, title
 ├─ context_window                    ── from ProviderInfo.effective_context_window
-├─ pinned_at, source_csv_id          ── added post-v1 (Alembic revisions cover future moves)
+├─ pinned_at, source_csv_id          ── added post-v1 (schema_version migrations cover future moves)
 └─ user_id                           ── owner; FK to users(id)
 
 turns                                 ── one row per user/assistant/summary message
@@ -129,14 +128,13 @@ Indexes defined on the model classes:
 
 ## Migrations
 
-Schema evolves via **Alembic revisions** under `storage/migrations/versions/`. On startup, `RuntimeStore.__init__` runs `alembic upgrade head`:
+Schema evolves via **in-house migration callables** in `storage/schema_version.py`. On startup, `RuntimeStore.__init__` calls `apply_migrations(sync_engine)`:
 
-- **Fresh DB**: the initial revision's `metadata.create_all` creates every table (plus `alembic_version` for stamping).
-- **Pre-existing DB** (from any prior schema): `metadata.create_all` short-circuits on `CREATE TABLE IF NOT EXISTS`, then Alembic writes the `alembic_version` row at `head`. No manual stamping needed.
+- **Fresh DB** (`PRAGMA user_version = 0`, no `alembic_version` table): every migration runs. The baseline migration's `SQLModel.metadata.create_all` creates all tables in their post-migration shape; later migrations are idempotent (`CREATE TABLE IF NOT EXISTS`, guarded column renames) so they run as no-ops. `user_version` ends at `len(MIGRATIONS)`.
+- **Pre-existing DB with `alembic_version`** (predates the 2026-04-23 Alembic removal): the one-shot seam reads `alembic_version.version_num`, maps it via `_ALEMBIC_VERSION_MAP`, and sets `user_version` accordingly. Pending migrations run; already-applied ones skip.
+- **Steady-state DB** (`PRAGMA user_version > 0`): the seam short-circuits on the `user_version` read — the `alembic_version` table (if still present) is ignored.
 
-Both paths are idempotent — each subsequent boot runs any pending revisions (none, on this codebase today) and otherwise no-ops.
-
-For local schema work: `alembic revision --autogenerate -m "describe change"` generates a revision diffing `SQLModel.metadata` against the live DB. Review the generated `op.add_column` / `op.create_table` calls before committing; autogenerate is a draft, not a final answer. `ALEMBIC_DATABASE_URL` overrides the target DB for testing a revision against a throwaway file.
+All paths are idempotent. To add a new schema change: define a new `_migration_NNNN_<topic>` function that takes a `Connection`, append it to `MIGRATIONS`, and update `SQLModel` in `storage/models.py` to match the post-migration shape. Keep migrations idempotent (guard with `CREATE TABLE IF NOT EXISTS` or `PRAGMA table_info` checks) so fresh DBs — where `metadata.create_all` already produces the final shape — run them as no-ops.
 
 ## Startup reconciliation
 
@@ -279,4 +277,4 @@ All of these are thin SQL wrappers. The interesting logic (password hashing, tok
 - **No relationship-driven querying.** Tables have SQL-level foreign keys, but the SQLModel classes don't declare SQLAlchemy relationships. Callers don't navigate `session.turns` — they go through a mixin method (`get_transcript`, `list_sessions`, etc.) that issues an explicit query. This keeps the read paths predictable, makes N+1s impossible-by-construction, and keeps `RuntimeStore` as the one persistence boundary the rest of the app talks to.
 - **No caching.** Every read is a fresh query. WAL mode plus the indexes above keep this well under the network/LLM latency the user is actually waiting on.
 - **No connection-pool tuning.** The async engine uses SQLAlchemy's default `aiosqlite` pool with no size/timeout overrides. SQLite's file-level concurrency (one writer at a time under WAL) is what actually bounds throughput; nothing above that layer helps.
-- **No sync fallback paths.** Every public method on the store is natively async — the old `*_async` wrappers are gone. The sync engine is used exclusively for two boot-time tasks (`alembic upgrade head` and the interrupted-run sweep); nothing else calls into it.
+- **No sync fallback paths.** Every public method on the store is natively async — the old `*_async` wrappers are gone. The sync engine is used exclusively for two boot-time tasks (schema migration apply and the interrupted-run sweep); nothing else calls into it.
