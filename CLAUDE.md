@@ -20,13 +20,15 @@ Single DuckDB file. Accessed read-only by the chat agent via `tools/sandbox.py` 
 
 **Play-by-play**: 1.28M plays in the same DuckDB file — reference as `play_by_play`.
 
-## ID System
+## ID System (post-2026-04-23 normalization)
 
-- **GSIS ID** (`00-0033873`) - Primary key in `players` table
-- **player_id** - Used by `game_stats`, `season_stats` (same format as gsis_id but different column name — join: `players.gsis_id = game_stats.player_id`)
-- **PFR ID** (`MahoPa00`) - Used by `snap_counts`, `pfr_advanced`
-- **ESPN ID** (`3139477`) - Used by `qbr`
-- Join via `player_ids` table for cross-reference
+Three canonical player-ID columns, consistently named across every table that carries one:
+
+- **`player_gsis_id`** (`00-0033873`) — primary cross-DB key. On `players`, `game_stats`, `season_stats`, `ngs_stats`, `depth_charts`, `depth_charts_2025`, `draft_picks`.
+- **`player_pfr_id`** (`MahoPa00`) — on `players`, `snap_counts`, `pfr_advanced`, `combine`, `draft_picks`.
+- **`player_espn_id`** (`'4480'`, VARCHAR) — on `players`, `depth_charts_2025`, `qbr`. No CAST required anywhere.
+
+`players` carries all three so every supplementary table joins it directly. `player_ids` is the cross-reference for *non-canonical* IDs (yahoo, sleeper, fantasy_data, pff) and uses short names (`gsis_id` / `pfr_id` / `espn_id`) because each row IS an ID mapping.
 
 ## API
 

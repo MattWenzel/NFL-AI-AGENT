@@ -118,12 +118,12 @@ def validate_tool_input(name: str, input_data: dict) -> str | None:
 
 
 _ERROR_HINTS = [
-    ("ambiguous", "Hint: Prefix columns with table name (e.g., season_stats.gsis_id)."),
+    ("ambiguous", "Hint: Prefix columns with table name (e.g., season_stats.player_gsis_id)."),
     ("not found in table", "Hint: Call get_schema(table_name) to see available columns before retrying."),
     ("no such column", "Hint: Call get_schema(table_name) to see available columns before retrying."),
     ("not found in any queried table", "Hint: Call get_schema(table_name) to see available columns."),
     ("timed out", "Hint: Add WHERE filters (season, team, or player). For snap_counts, always filter by season."),
-    ("no join path", "Hint: Use player_ids as bridge for snap_counts/pfr_advanced (pfr_id) or qbr (espn_id)."),
+    ("no join path", "Hint: players has player_gsis_id / player_pfr_id / player_espn_id — join directly instead of going through player_ids."),
     ("no such table", "Hint: Valid tables: players, player_ids, game_stats, season_stats, games, draft_picks, combine, snap_counts, ngs_stats, depth_charts, depth_charts_2025, pfr_advanced, qbr, play_by_play."),
     ("invalid table", "Hint: Valid tables: players, player_ids, game_stats, season_stats, games, draft_picks, combine, snap_counts, ngs_stats, depth_charts, depth_charts_2025, pfr_advanced, qbr, play_by_play."),
 ]

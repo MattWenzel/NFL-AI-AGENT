@@ -6,7 +6,7 @@ from tools.guide_registry import GUIDE_TOPICS
 TOOL_DEFINITIONS = [
     {
         "name": "search_players",
-        "description": "Search for NFL players by name. Use this FIRST whenever a user mentions a player name to resolve their gsis_id for subsequent queries. For position/team filtering, use execute_sql against the players table.",
+        "description": "Search for NFL players by name. Use this FIRST whenever a user mentions a player name to resolve their player_gsis_id for subsequent queries. For position/team filtering, use execute_sql against the players table.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -89,16 +89,16 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "get_player_info",
-        "description": "Get detailed player biography and cross-platform IDs for a specific player. Requires gsis_id (use search_players first to find it).",
+        "description": "Get detailed player biography and cross-platform IDs for a specific player. Requires player_gsis_id (use search_players first to find it).",
         "input_schema": {
             "type": "object",
             "properties": {
-                "gsis_id": {
+                "player_gsis_id": {
                     "type": "string",
                     "description": "Player's GSIS ID (e.g. '00-0033873' for Patrick Mahomes)",
                 },
             },
-            "required": ["gsis_id"],
+            "required": ["player_gsis_id"],
         },
     },
     {

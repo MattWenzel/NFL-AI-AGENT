@@ -96,7 +96,7 @@ SELECT p.display_name, ss.season, ss.recent_team AS team,
         + ss.fg_made_40_49 * 4 + ss.fg_made_50_59 * 5 + ss.fg_made_60_ * 5
         + ss.pat_made * 1
         - ss.fg_missed * 1 - ss.pat_missed * 1) AS fantasy_points
-FROM season_stats ss JOIN players p ON p.gsis_id = ss.player_id
+FROM season_stats ss JOIN players p ON p.player_gsis_id = ss.player_gsis_id
 WHERE p.position = 'K'
   AND ss.season_type = 'REG'
   AND ss.season BETWEEN <START_SEASON> AND <END_SEASON>   -- fill in user's range; leave both out for all-time
@@ -120,7 +120,7 @@ SELECT p.display_name, p.position, ss.season, ss.recent_team AS team, ss.games,
        COALESCE(ss.sack_fumbles_lost, 0) + COALESCE(ss.rushing_fumbles_lost, 0)
          + COALESCE(ss.receiving_fumbles_lost, 0) AS fumbles_lost,
        ss.fantasy_points_ppr
-FROM season_stats ss JOIN players p ON p.gsis_id = ss.player_id
+FROM season_stats ss JOIN players p ON p.player_gsis_id = ss.player_gsis_id
 WHERE p.position IN ('QB', 'RB', 'WR', 'TE')
   AND ss.season_type = 'REG'
   AND ss.fantasy_points_ppr IS NOT NULL
@@ -136,7 +136,7 @@ SELECT p.display_name, p.position, ss.recent_team AS team,
        COALESCE(ss.sack_fumbles_lost, 0) + COALESCE(ss.rushing_fumbles_lost, 0)
          + COALESCE(ss.receiving_fumbles_lost, 0) AS fumbles_lost,
        ss.fantasy_points_ppr
-FROM season_stats ss JOIN players p ON p.gsis_id = ss.player_id
+FROM season_stats ss JOIN players p ON p.player_gsis_id = ss.player_gsis_id
 WHERE p.position = 'RB'         -- or 'QB', 'WR', 'TE'
   AND ss.season = 2024
   AND ss.season_type = 'REG'
@@ -147,7 +147,7 @@ ORDER BY ss.fantasy_points_ppr DESC LIMIT 20
 
 ```sql
 SELECT gs.week, p.display_name, gs.team, gs.opponent_team, gs.fantasy_points_ppr
-FROM game_stats gs JOIN players p ON p.gsis_id = gs.player_id
+FROM game_stats gs JOIN players p ON p.player_gsis_id = gs.player_gsis_id
 WHERE gs.season = 2024 AND gs.season_type = 'REG'
   AND p.position IN ('QB', 'RB', 'WR', 'TE')
 ORDER BY gs.fantasy_points_ppr DESC LIMIT 25
@@ -161,4 +161,4 @@ ORDER BY gs.fantasy_points_ppr DESC LIMIT 25
 - `season_stats` holds ONLY regular-season rows, but keep the `season_type='REG'` filter for clarity and forward-compat.
 - For custom scoring expressions, wrap every fumble column in `COALESCE(..., 0)` — NULLs will zero out the whole row's sum.
 - 2-pt conversions live in `passing_2pt_conversions`, `rushing_2pt_conversions`, `receiving_2pt_conversions`.
-- IDs: join `players.gsis_id = season_stats.player_id` (the `player_id` column is the GSIS ID despite the name).
+- IDs: join `players.player_gsis_id = season_stats.player_gsis_id` — both columns hold the GSIS ID (`00-00…` format).

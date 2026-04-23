@@ -137,7 +137,7 @@ SELECT p.display_name,
        SUM(ss.passing_tds)           AS td,
        SUM(ss.passing_interceptions) AS ints
 FROM season_stats ss
-JOIN players p ON p.gsis_id = ss.player_id
+JOIN players p ON p.player_gsis_id = ss.player_gsis_id
 WHERE p.display_name = 'Patrick Mahomes'
   AND ss.season_type = 'POST';
 ```
@@ -152,7 +152,7 @@ SELECT g.season, g.game_type AS round, g.gameday,
        gs.rushing_yards, gs.rushing_tds,
        gs.fantasy_points_ppr
 FROM game_stats gs
-JOIN players p ON p.gsis_id = gs.player_id
+JOIN players p ON p.player_gsis_id = gs.player_gsis_id
 JOIN games g ON g.game_id = gs.game_id          -- gs.game_id populated 2022+
 WHERE p.display_name = 'Patrick Mahomes'
   AND gs.season_type = 'POST'
@@ -180,9 +180,9 @@ LIMIT 25;
 ```sql
 SELECT p.display_name, p.position, COUNT(*) AS playoff_games
 FROM game_stats gs
-JOIN players p ON p.gsis_id = gs.player_id
+JOIN players p ON p.player_gsis_id = gs.player_gsis_id
 WHERE gs.season_type = 'POST'
-GROUP BY p.gsis_id, p.display_name, p.position
+GROUP BY p.player_gsis_id, p.display_name, p.position
 ORDER BY playoff_games DESC
 LIMIT 25;
 ```
@@ -193,11 +193,10 @@ SELECT p.display_name, q.season,
        ROUND(AVG(q.qbr_total), 1) AS playoff_qbr,
        SUM(q.qb_plays)            AS plays
 FROM qbr q
-JOIN player_ids pi ON CAST(pi.espn_id AS INTEGER) = CAST(q.player_id AS INTEGER)
-JOIN players p ON p.gsis_id = pi.gsis_id
+JOIN players p ON p.player_espn_id = q.player_espn_id
 WHERE q.season_type = 'Postseason'          -- NOT 'POST' — qbr is the odd one out
   AND q.qualified = 1
-GROUP BY p.gsis_id, p.display_name, q.season
+GROUP BY p.player_gsis_id, p.display_name, q.season
 ORDER BY playoff_qbr DESC
 LIMIT 20;
 ```
@@ -218,7 +217,7 @@ WC/DIV/CON line up; the Super Bowl is the only offset. A naive `LEFT JOIN ngs_st
 ```sql
 -- (a) Query NGS alone for postseason, skip the game_stats join entirely:
 SELECT n.season, n.week, n.targets, n.receptions, n.yards, n.avg_separation
-FROM ngs_stats n JOIN players p ON p.gsis_id = n.player_gsis_id
+FROM ngs_stats n JOIN players p ON p.player_gsis_id = n.player_gsis_id
 WHERE p.display_name = 'DeVonta Smith'
   AND n.stat_type = 'receiving' AND n.season_type = 'POST'
 ORDER BY n.season, n.week;
@@ -227,7 +226,7 @@ ORDER BY n.season, n.week;
 ```sql
 -- (b) If you MUST join game_stats + NGS postseason, normalize the SB week:
 LEFT JOIN ngs_stats n
-  ON n.player_gsis_id = gs.player_id
+  ON n.player_gsis_id = gs.player_gsis_id
  AND n.season = gs.season
  AND n.season_type = 'POST'
  AND n.stat_type = 'receiving'

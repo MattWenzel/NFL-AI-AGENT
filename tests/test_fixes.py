@@ -111,7 +111,7 @@ class TestSandboxIntegration:
         """LIMIT ? placeholder must execute without SQL syntax error."""
         from tools.sandbox import execute_safe_sql
         result = execute_safe_sql(
-            "SELECT gsis_id FROM players WHERE position = ? LIMIT ?",
+            "SELECT player_gsis_id FROM players WHERE position = ? LIMIT ?",
             ("QB", 3),
         )
         assert result.row_count <= 3
@@ -542,11 +542,16 @@ class TestGetJoins:
             expected_pairs.add(tuple(sorted([a, b])))
         assert len(all_joins) == len(expected_pairs)
 
-    def test_cast_needed_preserved(self):
-        """The qbr join should have cast_needed=True."""
-        joins = _get_joins("qbr")
-        qbr_joins = [j for j in joins if "qbr" in (j["table_a"], j["table_b"])]
-        assert any(j["cast_needed"] for j in qbr_joins)
+    def test_no_cast_needed_after_id_normalization(self):
+        """After the 2026-04-23 ID normalization, every join lines up on a
+        single VARCHAR column — no edge should need a CAST anymore.
+
+        Kept as a regression guard: if a future schema change reintroduces a
+        type mismatch, surface it here before it becomes an LLM-visible pitfall.
+        """
+        from tools.schema_metadata import JOIN_EDGES
+        cast_edges = [(a, b) for (a, b), (_, _, cast) in JOIN_EDGES.items() if cast]
+        assert cast_edges == [], f"Unexpected CAST-required edges: {cast_edges}"
 
 
 # ---------------------------------------------------------------------------

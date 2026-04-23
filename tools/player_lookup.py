@@ -25,30 +25,30 @@ def _search_players(input_data: dict, ctx: dict | None = None) -> str:
     limit = max(1, min(raw_limit, 50))
 
     where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
-    sql = f"SELECT gsis_id, display_name, position, latest_team FROM players{where} LIMIT ?"
+    sql = f"SELECT player_gsis_id, display_name, position, latest_team FROM players{where} LIMIT ?"
 
     result = execute_safe_sql(sql, tuple(params) + (limit,))
     return truncate_rows(result.rows, "data")
 
 
 def _get_player_info(input_data: dict, ctx: dict | None = None) -> str:
-    gsis_id = input_data.get("gsis_id", "")
+    player_gsis_id = input_data.get("player_gsis_id", "")
     result = {}
 
     try:
         bio = execute_safe_sql(
-            "SELECT * FROM players WHERE gsis_id = ? LIMIT 1", (gsis_id,)
+            "SELECT * FROM players WHERE player_gsis_id = ? LIMIT 1", (player_gsis_id,)
         )
         if bio.rows:
             result["player"] = bio.rows[0]
         else:
-            return json.dumps({"error": f"No player found with gsis_id '{gsis_id}'"})
+            return json.dumps({"error": f"No player found with player_gsis_id '{player_gsis_id}'"})
     except Exception as e:
         return json.dumps({"error": f"Player lookup failed: {e}"})
 
     try:
         ids = execute_safe_sql(
-            "SELECT * FROM player_ids WHERE gsis_id = ? LIMIT 1", (gsis_id,)
+            "SELECT * FROM player_ids WHERE gsis_id = ? LIMIT 1", (player_gsis_id,)
         )
         if ids.rows:
             result["ids"] = ids.rows[0]

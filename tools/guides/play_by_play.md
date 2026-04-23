@@ -50,7 +50,7 @@ See `get_guide({"topic": "postseason"})` for the full playoff-encoding cheatshee
 | EPA / WPA | `epa`, `wpa`, `wp`, `vegas_wpa`, `cp`, `cpoe`, `xpass`, `pass_oe`, `qb_epa` |
 | Game context | `home_team`, `away_team`, `posteam`, `defteam`, `home_coach`, `away_coach`, `roof`, `surface`, `temp`, `wind` |
 
-Every `*_player_id` column uses GSIS ID format (`00-0035228`) and joins to `players.gsis_id`.
+Every `*_player_id` column uses GSIS ID format (`00-0035228`) and joins to `players.player_gsis_id`.
 
 ## Key column cheat sheet
 
@@ -81,18 +81,18 @@ ORDER BY wpa DESC LIMIT 25;
 **Sack leaders (no defensive stats table — use PBP)**
 ```sql
 SELECT p.display_name, COUNT(*) AS sacks
-FROM play_by_play pbp JOIN players p ON p.gsis_id = pbp.sack_player_id
+FROM play_by_play pbp JOIN players p ON p.player_gsis_id = pbp.sack_player_id
 WHERE pbp.season = 2024 AND pbp.sack = 1 AND pbp.sack_player_id IS NOT NULL
-GROUP BY p.gsis_id, p.display_name ORDER BY sacks DESC LIMIT 20;
+GROUP BY p.player_gsis_id, p.display_name ORDER BY sacks DESC LIMIT 20;
 ```
 For half-sacks, union `half_sack_1_player_id` and `half_sack_2_player_id` into the same aggregation.
 
 **Interception leaders**
 ```sql
 SELECT p.display_name, COUNT(*) AS ints
-FROM play_by_play pbp JOIN players p ON p.gsis_id = pbp.interception_player_id
+FROM play_by_play pbp JOIN players p ON p.player_gsis_id = pbp.interception_player_id
 WHERE pbp.season = 2024 AND pbp.interception = 1
-GROUP BY p.gsis_id, p.display_name ORDER BY ints DESC LIMIT 20;
+GROUP BY p.player_gsis_id, p.display_name ORDER BY ints DESC LIMIT 20;
 ```
 
 **Red-zone passing by QB**
@@ -100,9 +100,9 @@ GROUP BY p.gsis_id, p.display_name ORDER BY ints DESC LIMIT 20;
 SELECT p.display_name,
        COUNT(*) AS att, SUM(complete_pass) AS comp, SUM(pass_touchdown) AS tds,
        ROUND(AVG(epa), 3) AS epa_per_play, ROUND(AVG(cpoe), 1) AS cpoe
-FROM play_by_play pbp JOIN players p ON p.gsis_id = pbp.passer_player_id
+FROM play_by_play pbp JOIN players p ON p.player_gsis_id = pbp.passer_player_id
 WHERE pbp.season = 2024 AND pbp.yardline_100 <= 20 AND pbp.pass_attempt = 1
-GROUP BY p.gsis_id, p.display_name HAVING COUNT(*) >= 30
+GROUP BY p.player_gsis_id, p.display_name HAVING COUNT(*) >= 30
 ORDER BY tds DESC LIMIT 20;
 ```
 
@@ -123,9 +123,9 @@ GROUP BY posteam ORDER BY pct DESC;
 SELECT p.display_name, COUNT(*) AS att,
        ROUND(100.0 * AVG(complete_pass), 1) AS pct,
        ROUND(AVG(cpoe), 1) AS cpoe
-FROM play_by_play pbp JOIN players p ON p.gsis_id = pbp.passer_player_id
+FROM play_by_play pbp JOIN players p ON p.player_gsis_id = pbp.passer_player_id
 WHERE pbp.season = 2024 AND pbp.air_yards >= 20 AND pbp.pass_attempt = 1
-GROUP BY p.gsis_id, p.display_name HAVING COUNT(*) >= 20
+GROUP BY p.player_gsis_id, p.display_name HAVING COUNT(*) >= 20
 ORDER BY cpoe DESC LIMIT 20;
 ```
 
@@ -145,9 +145,9 @@ For longest-drive leaderboards, three-and-out rates, scoring-drive rates, and th
 SELECT p.display_name, pbp.penalty_team AS team,
        COUNT(*) AS flags,
        SUM(pbp.penalty_yards) AS yards
-FROM play_by_play pbp JOIN players p ON p.gsis_id = pbp.penalty_player_id
+FROM play_by_play pbp JOIN players p ON p.player_gsis_id = pbp.penalty_player_id
 WHERE pbp.season = 2024 AND pbp.penalty = 1 AND pbp.penalty_player_id IS NOT NULL
-GROUP BY p.gsis_id, p.display_name, pbp.penalty_team
+GROUP BY p.player_gsis_id, p.display_name, pbp.penalty_team
 ORDER BY flags DESC LIMIT 20;
 ```
 Filter by `pbp.penalty_type` (e.g. `'Holding'`, `'False Start'`, `'Defensive Pass Interference'`) to narrow. Team-level: group by `pbp.penalty_team` instead of `penalty_player_id`.
@@ -168,25 +168,25 @@ SELECT p.display_name,
        COUNT(*) AS clutch_tds,
        ROUND(AVG(pbp.epa), 2) AS avg_epa
 FROM play_by_play pbp
-JOIN players p ON p.gsis_id = pbp.passer_player_id
+JOIN players p ON p.player_gsis_id = pbp.passer_player_id
 WHERE pbp.season BETWEEN 2015 AND 2024     -- narrow window
   AND pbp.qtr >= 4
   AND pbp.score_differential < 0            -- trailing
   AND pbp.touchdown = 1
   AND pbp.pass_attempt = 1                  -- excludes sacks
   AND pbp.passer_player_id IS NOT NULL
-GROUP BY p.gsis_id, p.display_name
+GROUP BY p.player_gsis_id, p.display_name
 HAVING COUNT(*) >= 5
 ORDER BY clutch_tds DESC LIMIT 20;
 ```
 
 ## Multi-role unions (all-purpose TDs, all-purpose yards)
 
-SQLite has no FULL OUTER JOIN. Use UNION ALL in a CTE:
+Use UNION ALL in a CTE to combine multiple role-specific player-id columns into one column for grouping:
 
 ```sql
 WITH all_tds AS (
-  SELECT passer_player_id AS gsis_id, 'pass' AS td_type FROM play_by_play
+  SELECT passer_player_id AS player_gsis_id, 'pass' AS td_type FROM play_by_play
     WHERE season = 2024 AND touchdown = 1 AND pass = 1
   UNION ALL
   SELECT rusher_player_id, 'rush' FROM play_by_play
@@ -199,9 +199,9 @@ SELECT p.display_name, COUNT(*) AS total_tds,
        SUM(CASE WHEN td_type='pass' THEN 1 ELSE 0 END) AS pass_tds,
        SUM(CASE WHEN td_type='rush' THEN 1 ELSE 0 END) AS rush_tds,
        SUM(CASE WHEN td_type='rec'  THEN 1 ELSE 0 END) AS rec_tds
-FROM all_tds JOIN players p ON p.gsis_id = all_tds.gsis_id
-WHERE all_tds.gsis_id IS NOT NULL
-GROUP BY p.gsis_id, p.display_name ORDER BY total_tds DESC LIMIT 20;
+FROM all_tds JOIN players p ON p.player_gsis_id = all_tds.player_gsis_id
+WHERE all_tds.player_gsis_id IS NOT NULL
+GROUP BY p.player_gsis_id, p.display_name ORDER BY total_tds DESC LIMIT 20;
 ```
 
 ## Performance tips
@@ -216,9 +216,9 @@ GROUP BY p.gsis_id, p.display_name ORDER BY total_tds DESC LIMIT 20;
 
 ```sql
 SELECT p.display_name, COUNT(*) AS tds
-FROM play_by_play pbp JOIN players p ON p.gsis_id = pbp.passer_player_id
+FROM play_by_play pbp JOIN players p ON p.player_gsis_id = pbp.passer_player_id
 WHERE pbp.season >= 2004 AND pbp.touchdown = 1 AND pbp.pass = 1
-GROUP BY p.gsis_id, p.display_name ORDER BY tds DESC LIMIT 20;
+GROUP BY p.player_gsis_id, p.display_name ORDER BY tds DESC LIMIT 20;
 ```
 
 Use this join instead of calling `search_players` to decode abbreviated `*_player_name` columns.

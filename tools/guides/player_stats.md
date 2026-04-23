@@ -6,14 +6,14 @@ Weekly and season-long stat tables, plus the supplementary usage/advanced tables
 
 ### `game_stats` — weekly stats, all position groups (476K rows, 1999–2025)
 
-- **ID: `player_id`** (this column holds the GSIS ID despite the name). Join: `players.gsis_id = game_stats.player_id`.
+- **ID: `player_gsis_id`** — direct join to `players.player_gsis_id`.
 - **Team column: `team`**, opponent column: `opponent_team` (NOT `opponent`).
 - **`season_type`**: `'REG'` / `'POST'`.
 - Contains all offensive stats + kicker stats + fantasy points. Weekly granularity.
 
 ### `season_stats` — season totals, all position groups (49K rows, 1999–2025)
 
-- **ID: `player_id`** (same as game_stats — GSIS ID in the `player_id` column).
+- **ID: `player_gsis_id`** — direct join to `players.player_gsis_id`.
 - **Team column: `recent_team`** (NOT `team`). Backfilled from game_stats as the player's most common team that season.
 - Also has `games` (games played) column.
 - Regular season only. `season_type='REG'` filter is tidy but redundant.
@@ -63,14 +63,14 @@ Both tables carry a **full defensive block** for every player-season/player-game
 ```sql
 -- Sack leaders (season)
 SELECT p.display_name, p.position, ss.recent_team AS team, ss.games, ss.def_sacks
-FROM season_stats ss JOIN players p ON p.gsis_id = ss.player_id
+FROM season_stats ss JOIN players p ON p.player_gsis_id = ss.player_gsis_id
 WHERE ss.season = 2025 AND ss.season_type = 'REG' AND ss.def_sacks > 0
 ORDER BY ss.def_sacks DESC LIMIT 20;
 
 -- Interception leaders (season)
 SELECT p.display_name, p.position, ss.recent_team AS team,
        ss.def_interceptions, ss.def_interception_yards, ss.def_tds
-FROM season_stats ss JOIN players p ON p.gsis_id = ss.player_id
+FROM season_stats ss JOIN players p ON p.player_gsis_id = ss.player_gsis_id
 WHERE ss.season = 2024 AND ss.season_type = 'REG' AND ss.def_interceptions > 0
 ORDER BY ss.def_interceptions DESC LIMIT 20;
 
@@ -83,10 +83,10 @@ SELECT p.display_name,
        SUM(ss.def_fumbles_forced) AS ff,
        SUM(ss.def_pass_defended) AS pbu,
        SUM(ss.def_tds) AS def_tds
-FROM season_stats ss JOIN players p ON p.gsis_id = ss.player_id
-WHERE p.gsis_id = '00-0029382'  -- (e.g. Aaron Donald)
+FROM season_stats ss JOIN players p ON p.player_gsis_id = ss.player_gsis_id
+WHERE p.player_gsis_id = '00-0029382'  -- (e.g. Aaron Donald)
   AND ss.season_type = 'REG'
-GROUP BY p.gsis_id, p.display_name;
+GROUP BY p.player_gsis_id, p.display_name;
 ```
 
 **When to use PBP instead**: play-level filters (e.g. "sacks in the 4th quarter trailing by 1 score", "INTs on 3rd down"), or when you need the victim / down / game context. For "top sacks in a season", use `season_stats.def_sacks` — don't aggregate PBP.
@@ -96,28 +96,27 @@ GROUP BY p.gsis_id, p.display_name;
 ### `snap_counts` — usage / snap share (277K rows, 2015–2025)
 
 **The #1 source of query errors.** Rules:
-- **ID**: `pfr_player_id` — bridges via `player_ids.pfr_id` (note: DIFFERENT column names; `player_ids.pfr_player_id` does NOT exist).
+- **ID**: `player_pfr_id` — direct join to `players.player_pfr_id` (no bridge required).
 - **Player-name column is `player`** (NOT `player_name`, NOT `display_name`).
 - **`offense_pct` is a 0–1 fraction.** Display as `ROUND(offense_pct * 100, 1)`.
 - **No season totals** — there's no `week = 0` row. Compute with `AVG(offense_pct)` + `WHERE week BETWEEN 1 AND 18`.
 - **Always filter by season**. Without it, joins time out.
-- **Bridge joins without a season filter also time out.** Aggregate snap_counts in a CTE first, THEN join:
+- **Joins without a season filter also time out.** Aggregate snap_counts in a CTE first, THEN join:
 ```sql
 WITH totals AS (
-  SELECT pfr_player_id, team, SUM(defense_snaps) AS total
+  SELECT player_pfr_id, team, SUM(defense_snaps) AS total
   FROM snap_counts WHERE season = 2024
-  GROUP BY pfr_player_id, team ORDER BY total DESC LIMIT 50
+  GROUP BY player_pfr_id, team ORDER BY total DESC LIMIT 50
 )
 SELECT p.display_name, t.team, t.total
 FROM totals t
-JOIN player_ids pi ON pi.pfr_id = t.pfr_player_id
-JOIN players p ON p.gsis_id = pi.gsis_id
+JOIN players p ON p.player_pfr_id = t.player_pfr_id
 ORDER BY t.total DESC LIMIT 20;
 ```
 
 ### `ngs_stats` — Next Gen Stats (27K rows, 2016–2025)
 
-- **IDs are DIFFERENT.** `player_gsis_id` (NOT `gsis_id`), `player_display_name` (NOT `display_name`), `team_abbr` (NOT `team`).
+- **Player-column names are idiosyncratic:** `player_display_name` (NOT `display_name`), `team_abbr` (NOT `team`). ID (`player_gsis_id`) is canonical — joins directly to `players`.
 - **`stat_type`**: `'passing'` / `'rushing'` / `'receiving'` (full words — different from `pfr_advanced`).
 - **`week = 0` means season totals.** Weekly rows are week=1, 2, …
 
@@ -158,7 +157,7 @@ WC/DIV/CON align across all three tables; only the SB is offset. **Never join `n
 *(a) NGS alone — simplest:*
 ```sql
 SELECT n.season, n.week, n.team_abbr, n.targets, n.receptions, n.yards, n.avg_separation
-FROM ngs_stats n JOIN players p ON p.gsis_id = n.player_gsis_id
+FROM ngs_stats n JOIN players p ON p.player_gsis_id = n.player_gsis_id
 WHERE p.display_name = 'DeVonta Smith'
   AND n.stat_type = 'receiving' AND n.season_type = 'POST'
 ORDER BY n.season, n.week;
@@ -181,13 +180,13 @@ Joining ngs → games directly gives you `g.game_type` (WC/DIV/CON/SB round labe
 
 ### `pfr_advanced` — PFR advanced stats (7.8K rows, 2018–2025)
 
-- **ID**: `pfr_id` — bridges via `player_ids.pfr_id`.
+- **ID**: `player_pfr_id` — direct join to `players.player_pfr_id` (no bridge required).
 - **`stat_type`**: `'pass'` / `'rush'` / `'rec'` (abbreviated — different from NGS which uses full words).
 - **Player-name column is `player`** (not `display_name`). **Team is `team`** (plus `tm` on some rows).
 
 **Column catalog by stat_type** — columns are sparse, populated only when they apply to the row's `stat_type`:
 
-*Shared (always populated):* `season`, `pfr_id`, `player`, `team`, `tm`, `age`, `pos`, `g` (games), `gs` (games started), `stat_type`, `loaded`.
+*Shared (always populated):* `season`, `player_pfr_id`, `player`, `team`, `tm`, `age`, `pos`, `g` (games), `gs` (games started), `stat_type`, `loaded`.
 
 *`stat_type = 'pass'`* — 31 pass-specific columns:
 `pass_attempts`, `throwaways`, `spikes`, `drops`, `drop_pct`, `bad_throws`, `bad_throw_pct`, `pocket_time`, `times_blitzed`, `times_hurried`, `times_hit`, `times_pressured`, `pressure_pct`, `batted_balls`, `on_tgt_throws`, `on_tgt_pct`, `rpo_plays`, `rpo_yards`, `rpo_pass_att`, `rpo_pass_yards`, `rpo_rush_att`, `rpo_rush_yards`, `pa_pass_att`, `pa_pass_yards`, `intended_air_yards`, `intended_air_yards_per_pass_attempt`, `completed_air_yards`, `completed_air_yards_per_completion`, `completed_air_yards_per_pass_attempt`, `pass_yards_after_catch`, `pass_yards_after_catch_per_completion`, `scrambles`, `scramble_yards_per_attempt`.
@@ -202,7 +201,7 @@ Joining ngs → games directly gives you `g.game_type` (WC/DIV/CON/SB round labe
 
 ### `qbr` — ESPN QBR (9.6K rows, 2006–2023)
 
-- **ID**: `player_id` (ESPN ID, integer-stringy) — bridges via `player_ids.espn_id` with `CAST(pi.espn_id AS INTEGER) = CAST(q.player_id AS INTEGER)`.
+- **ID**: `player_espn_id` — direct join to `players.player_espn_id` (VARCHAR, no CAST required).
 - **`game_week` is INTEGER** (1, 2, …). Also has `week_text` ("Week 1"/"Wild Card").
 - **No season-total rows exist.** Compute with `AVG(qbr_total)`, `SUM(pts_added)` GROUP BY player+season.
 - **`season_type`**: `'Regular'` / `'Postseason'` (NOT `REG`/`POST` — different from every other table).
@@ -210,24 +209,28 @@ Joining ngs → games directly gives you `g.game_type` (WC/DIV/CON/SB round labe
 - **`name_display`** (NOT `player_name`).
 - **Coverage ends 2023.** No 2024–2025 QBR data. For recent QB efficiency, use `passing_epa` / `passing_cpoe` on `season_stats` or `completion_percentage_above_expectation` on `ngs_stats` instead.
 
-## Bridge joins — exact SQL
+## Player joins — direct, no bridge needed
+
+Since the 2026-04-23 ID normalization, every supplementary table joins `players` directly on its normalized ID column:
 
 ```sql
--- snap_counts → players
-JOIN player_ids pi ON pi.pfr_id = sc.pfr_player_id
-JOIN players p ON p.gsis_id = pi.gsis_id
+-- snap_counts → players (player_pfr_id)
+JOIN players p ON p.player_pfr_id = sc.player_pfr_id
 
--- pfr_advanced → players
-JOIN player_ids pi ON pi.pfr_id = pa.pfr_id
-JOIN players p ON p.gsis_id = pi.gsis_id
+-- pfr_advanced → players (player_pfr_id)
+JOIN players p ON p.player_pfr_id = pa.player_pfr_id
 
--- qbr → players
-JOIN player_ids pi ON CAST(pi.espn_id AS INTEGER) = CAST(q.player_id AS INTEGER)
-JOIN players p ON p.gsis_id = pi.gsis_id
+-- combine → players (player_pfr_id)
+JOIN players p ON p.player_pfr_id = c.player_pfr_id
 
--- ngs → players
-JOIN players p ON p.gsis_id = n.player_gsis_id
+-- qbr → players (player_espn_id)
+JOIN players p ON p.player_espn_id = q.player_espn_id
+
+-- ngs → players (player_gsis_id)
+JOIN players p ON p.player_gsis_id = n.player_gsis_id
 ```
+
+`player_ids` is only needed when the caller starts from a non-canonical ID (yahoo, sleeper, fantasy_data) and wants the player's GSIS profile.
 
 ## Templates
 
@@ -235,7 +238,7 @@ JOIN players p ON p.gsis_id = n.player_gsis_id
 ```sql
 SELECT p.display_name, ss.recent_team AS team, ss.passing_yards, ss.passing_tds,
        ss.passing_interceptions, ss.fantasy_points_ppr
-FROM season_stats ss JOIN players p ON p.gsis_id = ss.player_id
+FROM season_stats ss JOIN players p ON p.player_gsis_id = ss.player_gsis_id
 WHERE p.position = 'QB' AND ss.season = 2024
 ORDER BY ss.passing_yards DESC LIMIT 20;
 ```
@@ -251,7 +254,7 @@ SELECT ss.season, ss.recent_team AS team, ss.games,
        COALESCE(ss.sack_fumbles_lost, 0) + COALESCE(ss.rushing_fumbles_lost, 0)
          + COALESCE(ss.receiving_fumbles_lost, 0) AS fumbles_lost,
        ss.fantasy_points_ppr
-FROM season_stats ss JOIN players p ON p.gsis_id = ss.player_id
+FROM season_stats ss JOIN players p ON p.player_gsis_id = ss.player_gsis_id
 WHERE p.display_name = 'Matthew Stafford' AND ss.season_type = 'REG'
 ORDER BY ss.season;
 ```
@@ -262,21 +265,21 @@ SELECT gs.week, gs.team, gs.opponent_team,
        gs.passing_yards, gs.passing_tds, gs.passing_interceptions,
        gs.fantasy_points_ppr
 FROM game_stats gs
-WHERE gs.player_id = '00-0033873' AND gs.season = 2024 AND gs.season_type = 'REG'
+WHERE gs.player_gsis_id = '00-0033873' AND gs.season = 2024 AND gs.season_type = 'REG'
 ORDER BY gs.week;
 ```
 
 **Multi-player comparison**
 ```sql
 SELECT p.display_name, ss.carries, ss.rushing_yards, ss.rushing_tds
-FROM season_stats ss JOIN players p ON p.gsis_id = ss.player_id
+FROM season_stats ss JOIN players p ON p.player_gsis_id = ss.player_gsis_id
 WHERE p.display_name IN ('Derrick Henry', 'Saquon Barkley') AND ss.season = 2024;
 ```
 
 **NGS CPOE leaders (season)**
 ```sql
 SELECT p.display_name, n.pass_yards, n.pass_touchdowns, n.completion_percentage_above_expectation
-FROM ngs_stats n JOIN players p ON p.gsis_id = n.player_gsis_id
+FROM ngs_stats n JOIN players p ON p.player_gsis_id = n.player_gsis_id
 WHERE n.season = 2024 AND n.week = 0 AND n.stat_type = 'passing'
 ORDER BY n.completion_percentage_above_expectation DESC LIMIT 15;
 ```
@@ -284,6 +287,6 @@ ORDER BY n.completion_percentage_above_expectation DESC LIMIT 15;
 ## Gotchas
 
 - `season_type`: `'REG'` / `'POST'` on game_stats/season_stats/ngs_stats/play_by_play. `'Regular'` / `'Postseason'` on qbr. `'REG'`/`'WC'`/`'DIV'`/`'CON'`/`'SB'` on games/snap_counts/depth_charts (different column: `game_type`).
-- `game_stats.player_id` / `season_stats.player_id` hold GSIS IDs. `snap_counts.pfr_player_id` holds PFR IDs. Bridge via `player_ids`.
+- Canonical player-ID columns: `player_gsis_id` on game_stats/season_stats/ngs_stats/depth_charts/draft_picks; `player_pfr_id` on snap_counts/pfr_advanced/combine/draft_picks; `player_espn_id` on qbr. `players` carries all three — join directly. `player_ids` is only a bridge for non-canonical IDs (yahoo, sleeper, fantasy_data).
 - Always alias tables (ss for season_stats, gs for game_stats, sc for snap_counts, n for ngs_stats, pa for pfr_advanced, q for qbr, p for players, pi for player_ids) — columns like `season`, `week`, `team` exist in multiple tables.
 - Call `get_schema` before the first query against `pfr_advanced`, `ngs_stats`, `qbr`, `draft_picks`, or `combine`. Skip it for game_stats, season_stats, games, play_by_play, players.
