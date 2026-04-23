@@ -1,6 +1,6 @@
-"""Static schema metadata: table aliases, per-table database, and the
-bidirectional join graph. Separated from `get_schema.py` so the handler
-file focuses on introspection logic.
+"""Static schema metadata: table aliases and the bidirectional join graph.
+Separated from `get_schema.py` so the handler file focuses on introspection
+logic.
 """
 
 from __future__ import annotations
@@ -25,24 +25,6 @@ TABLE_ALIASES: dict[str, str] = {
 
 TABLE_TO_ALIAS: dict[str, str] = {v: k for k, v in TABLE_ALIASES.items()}
 
-# Which database each table lives in.
-TABLE_DATABASE: dict[str, str] = {
-    "players": "main",
-    "game_stats": "main",
-    "season_stats": "main",
-    "games": "main",
-    "snap_counts": "main",
-    "ngs_stats": "main",
-    "depth_charts": "main",
-    "pfr_advanced": "main",
-    "qbr": "main",
-    "draft_picks": "main",
-    "combine": "main",
-    "player_ids": "main",
-    "play_by_play": "pbp",
-    "depth_charts_2025": "main",
-}
-
 # Join graph: (table_a, table_b) -> (a_col, b_col, cast_needed). Populated
 # bidirectionally at import time so callers can look up an edge in either
 # direction.
@@ -63,7 +45,7 @@ JOIN_EDGES: dict[tuple[str, str], tuple[str, str, bool]] = {
     ("game_stats", "games"): ("game_id", "game_id", False),
     ("games", "snap_counts"): ("game_id", "game_id", False),
     ("games", "depth_charts"): ("season", "season", False),  # + week
-    # play_by_play joins (cross-database)
+    # play_by_play joins
     ("play_by_play", "games"): ("game_id", "game_id", False),
 }
 

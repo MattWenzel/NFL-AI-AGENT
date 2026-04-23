@@ -26,7 +26,7 @@ Every week, every snap. The agent has access to:
 - **Play-by-play** — 1.28 million plays with EPA, WPA, success rate, air yards, pressure, pass location, drive context — everything nflverse ships.
 - **Supplementary** — snap counts, Next Gen Stats (passing/rushing/receiving), PFR Advanced, ESPN QBR, depth charts, draft picks, NFL Combine.
 
-Full schema in [NFLVERSE/docs/DATABASE.md](NFLVERSE/docs/DATABASE.md).
+Full schema in `../NFLVERSE/docs/DATABASE.md` — the sibling repo that owns the data pipeline and produces `nflverse.duckdb`. This app consumes it read-only via `DB_PATH` in `.env`.
 
 ### Bring your own model
 

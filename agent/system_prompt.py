@@ -40,7 +40,7 @@ On long sessions the runtime may insert a `<prior_conversation_summary>` block i
 | depth_charts_2025 | 477K | 2025 | gsis_id | 2025 depth charts (uses `dt` datetime) |
 | pfr_advanced | 7.8K | 2018–2025 | pfr_id | PFR advanced (needs PFR bridge) |
 | qbr | 9.6K | 2006–2023 | player_id (ESPN) | ESPN QBR (needs ESPN bridge) |
-| play_by_play | 1.28M | 1999–2025 | game_id+play_id | 372 cols; separate pbp.db |
+| play_by_play | 1.28M | 1999–2025 | game_id+play_id | 372 cols; large — always filter before scanning |
 
 ## Guide Index — call `get_guide` before writing SQL
 
@@ -72,7 +72,7 @@ These bite every LLM that doesn't read the guides carefully. Burn them in:
    - `season_type` (binary): game_stats, season_stats, ngs_stats, play_by_play → `'REG'`/`'POST'`.
    - QBR is the odd one out: `season_type` = `'Regular'`/`'Postseason'`.
    - `play_by_play` has NO `game_type` — use `season_type`+`week`, or join to `games`. Full cheatsheet: `get_guide("postseason")`.
-4. **`play_by_play` is in a separate `pbp.db` that auto-attaches.** Always filter by `season` / `week` / `team` / player — unfiltered 1.28M-row scans time out.
+4. **`play_by_play` is large (1.28M rows × 372 cols).** Always filter by `season` / `week` / `team` / player — unfiltered scans time out.
 5. **Defensive stats live on `season_stats` / `game_stats` in a `def_*` block** (`def_sacks`, `def_interceptions`, `def_tackles_solo`, `def_fumbles_forced`, etc.) — use these for season/weekly totals. `play_by_play` is only for play-level detail (who sacked on 3rd down, which INT was returned for a TD).
 6. **Column-name traps on `game_stats` / `season_stats`** — these plain names DO NOT exist; the query will error out:
    - `sacks` → `sacks_suffered` (offensive, QB got sacked) or `def_sacks` (defensive)

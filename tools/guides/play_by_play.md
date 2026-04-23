@@ -1,8 +1,8 @@
 # Play-by-Play Guide
 
-The `play_by_play` table has 1,279,628 rows × 372 columns (1999–2025). It lives in a separate `pbp.db` that auto-attaches when you reference `play_by_play` in `execute_sql`. **Always include at least one filter** (season, week, team, or player) — unfiltered scans time out.
+The `play_by_play` table has 1,279,628 rows × 372 columns (1999–2025). **Always include at least one filter** (season, week, team, or player) — unfiltered scans time out.
 
-`pbp.db` has **no indexes**. Filter by `season`, `week`, or team before aggregating.
+Filter by `season`, `week`, or team before aggregating.
 
 ## READ THIS BEFORE ANY DRIVE-LEVEL QUERY
 
@@ -204,12 +204,11 @@ WHERE all_tds.gsis_id IS NOT NULL
 GROUP BY p.gsis_id, p.display_name ORDER BY total_tds DESC LIMIT 20;
 ```
 
-## Performance & SQLite quirks
+## Performance tips
 
-- **Filter PBP on its OWN columns, not via JOIN predicates.** `pbp.db` has NO indexes — not on `game_id`, not on `season`, not on any player_id. A query like `JOIN games g ON g.game_id = pbp.game_id WHERE g.game_type='SB'` makes SQLite build a temporary covering index on `pbp.game_id` before it can filter — ~28s / 626M ops to find the ~25 best Super Bowl plays. Filtering PBP by `WHERE pbp.season_type='POST' AND pbp.week IN (21,22)` runs the same query in ~1s.
+- **Filter PBP on its OWN columns, not via JOIN predicates.** Prefer `WHERE pbp.season_type='POST' AND pbp.week IN (21,22)` over `JOIN games g ON g.game_id = pbp.game_id WHERE g.game_type='SB'` — the direct PBP filter narrows the scan before any join runs.
 - **Pattern:** reduce PBP rows with `season`, `season_type`, `week`, `posteam`, or a player_id column FIRST. Any JOIN to `games` or `players` should come after — it runs against the already-small result set.
 - Filter before joining. `SELECT … FROM play_by_play JOIN players …` on an unfiltered PBP scan will time out.
-- SQLite does **NOT** support `RIGHT JOIN`, `FULL OUTER JOIN`, or `STRING_AGG`. Use `LEFT JOIN` / `UNION ALL` / `GROUP_CONCAT(col, ', ')`.
 - Break complex PBP queries into parts (passing TDs, rushing TDs, receiving TDs each in a separate CTE) rather than one giant join.
 - `play_by_play.season_type` = `'REG'` / `'POST'` (binary; same as game_stats/season_stats). `play_by_play.game_date` (NOT `gameday`).
 

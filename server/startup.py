@@ -14,7 +14,6 @@ from config import (
     DB_PATH,
     EMAIL_FROM_ADDRESS,
     EMAIL_VERIFICATION_REQUIRED,
-    PBP_DB_PATH,
     RESEND_API_KEY,
     RUNTIME_DB_PATH,
     format_file_size,
@@ -115,14 +114,9 @@ async def _seed_password_identities(store: RuntimeStore) -> int:
 
 def log_environment_state() -> None:
     if DB_PATH.exists():
-        logger.info("nflverse.db: %s (%s)", DB_PATH, format_file_size(DB_PATH.stat().st_size))
+        logger.info("nflverse.duckdb: %s (%s)", DB_PATH, format_file_size(DB_PATH.stat().st_size))
     else:
-        logger.warning("nflverse.db NOT FOUND at %s — API endpoints will fail", DB_PATH)
-
-    if PBP_DB_PATH.exists():
-        logger.info("pbp.db: %s (%s)", PBP_DB_PATH, format_file_size(PBP_DB_PATH.stat().st_size))
-    else:
-        logger.warning("pbp.db not found at %s — PBP queries will fail", PBP_DB_PATH)
+        logger.warning("nflverse.duckdb NOT FOUND at %s — API endpoints will fail", DB_PATH)
 
     configured = []
     for info in list_providers():

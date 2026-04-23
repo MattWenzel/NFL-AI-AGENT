@@ -28,8 +28,7 @@ load_dotenv()
 # at a mounted persistent volume (typically /data/...) while local dev keeps
 # using the repo-relative defaults.
 _PROJECT_ROOT = Path(__file__).parent
-DB_PATH = Path(os.environ.get("DB_PATH") or _PROJECT_ROOT / "NFLVERSE" / "data" / "nflverse.db")
-PBP_DB_PATH = Path(os.environ.get("PBP_DB_PATH") or _PROJECT_ROOT / "NFLVERSE" / "data" / "pbp.db")
+DB_PATH = Path(os.environ.get("DB_PATH") or _PROJECT_ROOT / "NFLVERSE" / "data" / "nflverse.duckdb")
 
 # Conversation persistence
 RUNTIME_DB_PATH = Path(os.environ.get("RUNTIME_DB_PATH") or _PROJECT_ROOT / "data" / "runtime.sqlite3")

@@ -6,10 +6,11 @@ NFL player stats database built from [nflverse](https://github.com/nflverse/nflv
 
 | Database | Size | Tables | Rows | Years |
 |----------|------|--------|------|-------|
-| `nflverse.db` | ~327 MB | 13 | ~2.25M | 1999-2025 |
-| `pbp.db` | ~2 GB | 1 | 1.28M | 1999-2025 |
+| `nflverse.duckdb` | ~742 MB | 14 | ~3.5M | 1999-2025 |
 
-**Full schema**: [NFLVERSE/docs/DATABASE.md](NFLVERSE/docs/DATABASE.md)
+Single DuckDB file. Accessed read-only by the chat agent via `tools/sandbox.py` (raw `duckdb.connect(..., read_only=True)`); no ORM involvement.
+
+**Full schema**: `../NFLVERSE/docs/DATABASE.md` (the NFLVERSE data-pipeline repo lives as a sibling directory; this app consumes the DuckDB file it produces via `DB_PATH` in `.env`).
 
 ## Key Tables
 
@@ -17,7 +18,7 @@ NFL player stats database built from [nflverse](https://github.com/nflverse/nflv
 
 **Supplementary**: `snap_counts` (2015+), `ngs_stats` (2016+), `depth_charts` (2001-2024), `depth_charts_2025` (2025, uses `dt` datetime), `pfr_advanced` (2018+), `qbr` (2006-2023)
 
-**Play-by-play**: 1.28M plays in separate `pbp.db` (too large to combine)
+**Play-by-play**: 1.28M plays in the same DuckDB file — reference as `play_by_play`.
 
 ## ID System
 
@@ -149,13 +150,9 @@ python3 run.py                    # API server (port 8001)
 open web/index.html               # Chat UI
 python3 -m pytest tests/          # Run tests
 
-# Build scripts (in NFLVERSE/)
-python3 NFLVERSE/scripts/download.py                      # Fetch raw parquet into data/raw/
-python3 NFLVERSE/scripts/build_db.py --all                # Core DB (from local parquet)
-python3 NFLVERSE/scripts/build_db.py --pbp --all          # Play-by-play (from local parquet)
-python3 NFLVERSE/scripts/build_db_nflreadpy.py --all      # Fallback: core DB via nflreadpy (network)
-python3 NFLVERSE/scripts/build_db_nflreadpy.py --pbp --all # Fallback: PBP via nflreadpy (network)
-python3 NFLVERSE/scripts/check_updates.py                 # Check which tables/years are stale
+# Build scripts live in the sibling NFLVERSE repo (../NFLVERSE/).
+# Run them from that directory — they write to ../NFLVERSE/data/nflverse.duckdb,
+# which this app reads via DB_PATH in .env.
 ```
 
 **Note**: Restart the API server (`python3 run.py`) after changing `agent/system_prompt.py` or `tools/*` — the running server caches imports.

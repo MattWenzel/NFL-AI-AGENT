@@ -21,13 +21,12 @@ TOOL_DEFINITIONS = [
     {
         "name": "execute_sql",
         "description": (
-            "Execute a read-only SQL query against the SQLite database. "
+            "Execute a read-only SQL query against the DuckDB database. "
             "Use this for all data queries: joins, aggregation, window functions, CTEs, UNION, subqueries. "
             "BEFORE querying pfr_advanced, ngs_stats, qbr, combine, or draft_picks for the first time in a conversation, "
             "call get_schema to see the exact column names — these tables use abbreviated or domain-specific naming "
             "that is not reliably memorized in the system prompt, and guessing produces 'no such column' errors. "
-            "The query runs in a sandboxed read-only connection with a 30-second timeout and 500-row limit. "
-            "For play-by-play data, reference the table as play_by_play (it auto-attaches pbp.db)."
+            "The query runs in a sandboxed read-only connection with a 30-second timeout and 500-row limit."
         ),
         "input_schema": {
             "type": "object",
