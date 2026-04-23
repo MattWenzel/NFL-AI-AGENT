@@ -495,6 +495,8 @@ async function onCodexConnect(event) {
   flow.innerHTML = renderCodexFlowPanel(start);
   const cancelBtn = flow.querySelector("[data-codex-action='cancel']");
   if (cancelBtn) cancelBtn.addEventListener("click", onCodexCancel);
+  const copyBtn = flow.querySelector("[data-codex-action='copy-code']");
+  if (copyBtn) copyBtn.addEventListener("click", onCodexCopyCode);
 
   // Open the verification page in a new tab for convenience. Users can
   // still copy the code manually if their browser blocks it.
@@ -513,11 +515,18 @@ async function onCodexConnect(event) {
 }
 
 function renderCodexFlowPanel(start) {
+  const safeCode = escapeHtml(start.user_code);
   return `
     <div class="codex-flow-panel">
       <ol class="codex-steps">
         <li>Open <a href="${escapeHtml(start.verification_url)}" target="_blank" rel="noopener">auth.openai.com/codex/device</a></li>
-        <li>Enter this code: <code class="codex-code">${escapeHtml(start.user_code)}</code></li>
+        <li>
+          Enter this code:
+          <span class="codex-code-row">
+            <code class="codex-code" data-codex-code="${safeCode}">${safeCode}</code>
+            <button type="button" class="codex-copy" data-codex-action="copy-code" aria-label="Copy code">Copy</button>
+          </span>
+        </li>
       </ol>
       <div class="codex-status">Waiting for sign-in…</div>
       <div class="settings-row-actions" style="margin-top:12px;">
@@ -525,6 +534,39 @@ function renderCodexFlowPanel(start) {
       </div>
     </div>
   `;
+}
+
+async function onCodexCopyCode(event) {
+  event.preventDefault();
+  const btn = event.currentTarget;
+  const panel = btn.closest(".codex-flow-panel");
+  const codeEl = panel ? panel.querySelector(".codex-code") : null;
+  const code = codeEl ? (codeEl.dataset.codexCode || codeEl.textContent || "").trim() : "";
+  if (!code) return;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(code);
+    } else {
+      // Fallback for older browsers / non-secure contexts — manual selection.
+      const range = document.createRange();
+      range.selectNodeContents(codeEl);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      document.execCommand("copy");
+      sel.removeAllRanges();
+    }
+    const original = btn.textContent;
+    btn.textContent = "Copied";
+    btn.classList.add("copied");
+    setTimeout(() => {
+      btn.textContent = original;
+      btn.classList.remove("copied");
+    }, 1500);
+  } catch (_) {
+    btn.textContent = "Copy failed";
+    setTimeout(() => { btn.textContent = "Copy"; }, 1500);
+  }
 }
 
 async function pollCodexStatus(section) {
