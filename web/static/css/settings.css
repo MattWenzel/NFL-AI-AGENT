@@ -51,6 +51,24 @@
   margin: 0 0 20px;
 }
 
+.auth-switch {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 18px 0 0;
+  text-align: center;
+}
+
+.auth-switch a {
+  color: var(--accent-strong);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.auth-switch a:hover,
+.auth-switch a:focus {
+  text-decoration: underline;
+}
+
 .auth-form label {
   display: block;
   font-size: 13px;
