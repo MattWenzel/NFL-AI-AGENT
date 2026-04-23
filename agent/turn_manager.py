@@ -10,7 +10,7 @@ from agent.persistence import RuntimePersistence
 from provider import StopReason, ToolUseEvent, Usage
 from storage import ToolRunRecord, TurnRecord
 
-TEXT_PERSIST_FLUSH_CHARS = 256
+TEXT_PERSIST_FLUSH_CHARS = 2048
 TITLE_PREVIEW_CHARS = 80
 
 

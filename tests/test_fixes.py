@@ -124,11 +124,110 @@ class TestSandboxIntegration:
         assert "syntax error" not in out.lower()
 
 
+class TestClampLimitParam:
+    """Tests for _clamp_limit_param — bind-time row-cap enforcement."""
+
+    def test_clamps_above_max(self):
+        from tools.sandbox import _clamp_limit_param
+        # SQL: one placeholder before the LIMIT, LIMIT itself is `?`.
+        out = _clamp_limit_param(
+            "SELECT * FROM players WHERE position = ? LIMIT ?",
+            ("QB", 999_999),
+            max_rows=500,
+        )
+        assert out == ("QB", 500)
+
+    def test_leaves_values_under_max(self):
+        from tools.sandbox import _clamp_limit_param
+        out = _clamp_limit_param(
+            "SELECT * FROM players WHERE position = ? LIMIT ?",
+            ("QB", 5),
+            max_rows=500,
+        )
+        assert out == ("QB", 5)
+
+    def test_no_limit_clause_passthrough(self):
+        from tools.sandbox import _clamp_limit_param
+        out = _clamp_limit_param(
+            "SELECT * FROM players WHERE position = ?",
+            ("QB",),
+            max_rows=500,
+        )
+        assert out == ("QB",)
+
+    def test_numeric_limit_not_clamped_here(self):
+        """Numeric LIMITs are clamped in _ensure_limit, not here."""
+        from tools.sandbox import _clamp_limit_param
+        out = _clamp_limit_param(
+            "SELECT * FROM players LIMIT 999999",
+            (),
+            max_rows=500,
+        )
+        assert out == ()
+
+    def test_live_integration_clamps_oversized_bound(self):
+        """End-to-end: a caller passing LIMIT ? with 999_999 gets 500 rows max."""
+        from tools.sandbox import execute_safe_sql
+        r = execute_safe_sql(
+            "SELECT player_gsis_id FROM players WHERE position = ? LIMIT ?",
+            ("QB", 999_999),
+        )
+        assert r.row_count <= 500
+
+
 # ---------------------------------------------------------------------------
 # 2. Anthropic tool_results merged into a single user message
 # ---------------------------------------------------------------------------
 from provider.anthropic import AnthropicClient
 from provider.base import Message, ToolUseEvent
+
+
+class TestAnthropicPromptCaching:
+    """Regression guard: the cache_control markers must survive refactors.
+
+    Anthropic's prefix-match cache is invisible — stripping the marker is a
+    silent ~10x cost regression with no test failure unless we assert the
+    markers are still in the built kwargs.
+    """
+
+    def _client(self):
+        return AnthropicClient(model="claude-sonnet-4-6", api_key="test-key")
+
+    def test_system_prompt_has_cache_control(self):
+        kwargs = self._client()._build_kwargs(
+            messages=[{"role": "user", "content": "hi"}],
+            tools=None,
+            system="You are a helpful assistant.",
+        )
+        assert isinstance(kwargs["system"], list)
+        assert kwargs["system"][0]["cache_control"] == {"type": "ephemeral"}
+
+    def test_last_message_block_has_cache_control(self):
+        kwargs = self._client()._build_kwargs(
+            messages=[
+                {"role": "user", "content": "turn 1"},
+                {"role": "assistant", "content": "ok"},
+                {"role": "user", "content": "turn 2"},
+            ],
+            tools=None,
+            system=None,
+        )
+        last_content = kwargs["messages"][-1]["content"]
+        assert isinstance(last_content, list)
+        assert last_content[-1]["cache_control"] == {"type": "ephemeral"}
+        # Earlier messages must not be mutated with extra markers.
+        earlier = kwargs["messages"][0]
+        if isinstance(earlier["content"], list):
+            for block in earlier["content"]:
+                assert "cache_control" not in block
+
+    def test_no_system_no_system_kwarg(self):
+        kwargs = self._client()._build_kwargs(
+            messages=[{"role": "user", "content": "hi"}],
+            tools=None,
+            system=None,
+        )
+        assert "system" not in kwargs
 
 
 class TestAnthropicMergeToolResults:

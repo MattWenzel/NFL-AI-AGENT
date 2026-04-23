@@ -119,6 +119,10 @@ def _run_sql(sql: str, max_rows: int, timeout_seconds: int, params: tuple = ()) 
     """
     validate_sql(sql)
 
+    # Clamp a placeholder `LIMIT ?` param at max_rows so a caller passing a
+    # bound value above the cap can't bypass the row limit.
+    params = _clamp_limit_param(sql, params, max_rows)
+
     conn = duckdb.connect(str(DB_PATH), read_only=True)
     timer = threading.Timer(timeout_seconds, conn.interrupt)
     timer.start()
@@ -133,13 +137,12 @@ def _run_sql(sql: str, max_rows: int, timeout_seconds: int, params: tuple = ()) 
             else:
                 cursor = conn.execute(sql_with_limit)
             rows = cursor.fetchall()
+        except duckdb.InterruptException:
+            logger.warning("SQL query timed out: %s", sql[:500])
+            raise SQLValidationError(
+                "Query timed out. Add more filters or simplify the query."
+            )
         except duckdb.Error as e:
-            msg = str(e).lower()
-            if "interrupt" in msg or "timeout" in msg:
-                logger.warning("SQL query timed out: %s", sql[:500])
-                raise SQLValidationError(
-                    "Query timed out. Add more filters or simplify the query."
-                )
             raise SQLValidationError(f"SQL error: {e}")
 
         columns = [desc[0] for desc in cursor.description] if cursor.description else []
@@ -170,12 +173,8 @@ def execute_export_sql(sql: str) -> SQLResult:
 def _ensure_limit(sql: str, max_rows: int) -> str:
     """Add LIMIT clause if missing, or cap an existing numeric LIMIT at max_rows.
 
-    Parameterized LIMITs (`?` or `:name`) are passed through untouched.
-    No internal handler currently emits parameterized LIMITs (search:
-    `tools/`), so the contract is enforced by convention,
-    not by code: if a future handler wants to use `?` for LIMIT, it must
-    clamp the bound value to `MAX_ROWS` / `EXPORT_MAX_ROWS` itself
-    before calling _run_sql, otherwise the row cap is bypassable.
+    Parameterized LIMITs (`?` or `:name`) are passed through untouched at the
+    SQL level — clamping happens at bind time via `_clamp_limit_param`.
     """
     stripped = sql.rstrip().rstrip(";")
     match = _TRAILING_LIMIT.search(stripped)
@@ -184,7 +183,7 @@ def _ensure_limit(sql: str, max_rows: int) -> str:
 
     value = match.group(1)
     if not value.isdigit():
-        # Placeholder LIMIT — trust the caller, don't duplicate.
+        # Placeholder LIMIT — the bound value is clamped in _clamp_limit_param.
         return stripped
 
     existing = int(value)
@@ -192,3 +191,38 @@ def _ensure_limit(sql: str, max_rows: int) -> str:
         offset_part = match.group(2) or ""
         return stripped[: match.start()] + f"LIMIT {max_rows}{offset_part}"
     return stripped
+
+
+def _clamp_limit_param(sql: str, params: tuple, max_rows: int) -> tuple:
+    """Clamp a placeholder `LIMIT ?` param at `max_rows`.
+
+    The SQL regex already detects a trailing `LIMIT ?` (optionally followed
+    by `OFFSET ?`); this helper locates the corresponding positional param
+    and clamps it. OFFSET is left alone — it isn't bounded by row caps.
+
+    Only handles `?` placeholders. Named placeholders (`:name`) would use a
+    dict rather than a tuple; the codebase doesn't mix styles.
+    """
+    if not params:
+        return params
+    stripped = sql.rstrip().rstrip(";")
+    match = _TRAILING_LIMIT.search(stripped)
+    if not match:
+        return params
+    limit_value = match.group(1)
+    if limit_value != "?":
+        return params  # numeric or `:name` — no tuple clamp applies
+    # Count `?` placeholders before the LIMIT clause to find its positional index.
+    before = _strip_strings_and_comments(stripped[: match.start()])
+    limit_idx = before.count("?")
+    if limit_idx >= len(params):
+        return params  # misaligned — let DuckDB raise the real error
+    try:
+        current = params[limit_idx]
+    except IndexError:
+        return params
+    if isinstance(current, int) and current > max_rows:
+        new_params = list(params)
+        new_params[limit_idx] = max_rows
+        return tuple(new_params)
+    return params
