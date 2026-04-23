@@ -147,13 +147,6 @@
   </aside>
 </div>
 
-<script>
-  // API backend URL. Override via ?api=... URL param, or edit the fallback below when deploying.
-  // Default to same-origin ("") so every fetch goes to whatever host serves
-  // web/index.html — this works when FastAPI serves the UI directly. ?api=<url>
-  // overrides for split-hosting or legacy file:// dev.
-  window.API_BASE = new URLSearchParams(location.search).get("api") || "";
-</script>
 <script type="module" src="static/js/main.js"></script>
 </body>
 </html>

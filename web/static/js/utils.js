@@ -1,5 +1,21 @@
 import { API_BASE } from "./state.js";
-import { authHeaders, handleUnauthorized } from "./auth.js";
+import { handleUnauthorized } from "./auth.js";
+
+const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+function readCookie(name) {
+  // document.cookie is a flat "a=1; b=2" string. Parsing once per call is
+  // cheap and avoids staleness if another tab updates the cookie.
+  const pairs = (document.cookie || "").split(";");
+  for (const raw of pairs) {
+    const eq = raw.indexOf("=");
+    if (eq === -1) continue;
+    const k = raw.slice(0, eq).trim();
+    if (k !== name) continue;
+    return decodeURIComponent(raw.slice(eq + 1).trim());
+  }
+  return null;
+}
 
 export async function fetchJSON(path, init) {
   const options = { ...(init || {}) };
@@ -8,10 +24,22 @@ export async function fetchJSON(path, init) {
   // Bouncing the user to login there would be hostile.
   const skipAuthRedirect = options.skipAuthRedirect === true;
   delete options.skipAuthRedirect;
-  options.headers = authHeaders(options.headers || {});
+  // Send cookies so the HttpOnly session cookie travels. Same-origin only —
+  // third-party origins can't read our auth state.
+  options.credentials = options.credentials || "same-origin";
+  const method = (options.method || "GET").toUpperCase();
+  const headers = { ...(options.headers || {}) };
+  if (MUTATING_METHODS.has(method)) {
+    // Double-submit CSRF: echo the csrf_token cookie in the X-CSRF-Token
+    // header. Browsers will send both on same-origin requests; cross-origin
+    // attackers can't read the cookie to forge the header.
+    const csrf = readCookie("csrf_token");
+    if (csrf) headers["X-CSRF-Token"] = csrf;
+  }
+  options.headers = headers;
   const resp = await fetch(`${API_BASE}${path}`, options);
   if (resp.status === 401 && !skipAuthRedirect) {
-    // Token expired or was revoked — bounce to the sign-in screen.
+    // Cookie expired or was revoked — bounce to the sign-in screen.
     if (typeof handleUnauthorized === "function") await handleUnauthorized();
     throw new Error("Session expired — please sign in again.");
   }
@@ -106,7 +134,7 @@ export function autoResize() {
 }
 
 export async function downloadCSV(url, filename) {
-  const resp = await fetch(url, { headers: authHeaders() });
+  const resp = await fetch(url, { credentials: "same-origin" });
   if (resp.status === 401 && typeof handleUnauthorized === "function") {
         await handleUnauthorized();
     throw new Error("Session expired — please sign in again.");

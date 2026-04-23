@@ -8,10 +8,21 @@ from fastapi import FastAPI
 
 from agent.runtime import ChatRuntime
 from auth import encryption
-from config import DB_PATH, PBP_DB_PATH, RUNTIME_DB_PATH, format_file_size
+from config import (
+    ALLOWED_ORIGINS,
+    APP_BASE_URL,
+    DB_PATH,
+    EMAIL_FROM_ADDRESS,
+    EMAIL_VERIFICATION_REQUIRED,
+    PBP_DB_PATH,
+    RESEND_API_KEY,
+    RUNTIME_DB_PATH,
+    format_file_size,
+    google_oauth_enabled,
+)
 from provider import list_providers
 from server.process_state import AppProcessState
-from storage import RuntimeStore
+from storage import IdentityConflictError, RuntimeStore
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +68,50 @@ async def run_housekeeping(app: FastAPI) -> None:
             orphans,
         )
 
+    seeded = await _seed_password_identities(store)
+    if seeded:
+        logger.info("Seeded 'password' identity for %d pre-existing user(s)", seeded)
+
+
+async def _seed_password_identities(store: RuntimeStore) -> int:
+    """Ensure every password-created user has a matching user_identities row.
+
+    After the 0004 migration lands, the settings UI lists identities; without
+    seeding, existing password users would show up as having no identities
+    at all and could be tempted to "add one" via OAuth and then find they
+    can't remove Google later. Idempotent — skips users who already have a
+    `password` identity.
+    """
+    from sqlalchemy import select
+
+    from storage.models import UserRecord
+
+    count = 0
+    async with store._async_session() as session:
+        rows = await session.execute(select(UserRecord))
+        users = list(rows.scalars().all())
+    for user in users:
+        if user.password_hash == "!":
+            continue  # OAuth-only account — no password identity expected
+        existing = await store.get_identity(user_id=user.id, provider="password")
+        if existing is not None:
+            continue
+        try:
+            await store.create_identity(
+                user_id=user.id,
+                provider="password",
+                provider_subject=user.email,
+                email=user.email,
+            )
+            count += 1
+        except IdentityConflictError:
+            # Another row already owns this (email, provider='password') pair —
+            # shouldn't happen since emails are unique, but don't crash startup.
+            logger.warning(
+                "Could not seed password identity for user %d — conflict", user.id
+            )
+    return count
+
 
 def log_environment_state() -> None:
     if DB_PATH.exists():
@@ -83,3 +138,29 @@ def log_environment_state() -> None:
 
     if RUNTIME_DB_PATH.exists():
         logger.info("runtime db: %s (%s)", RUNTIME_DB_PATH, format_file_size(RUNTIME_DB_PATH.stat().st_size))
+
+    # Security posture sanity checks — loud warnings when a prod-shaped
+    # deployment is missing the hardened env vars.
+    looks_prod = APP_BASE_URL.startswith("https://") and "localhost" not in APP_BASE_URL
+    if looks_prod and not ALLOWED_ORIGINS:
+        logger.warning(
+            "ALLOWED_ORIGINS is unset on a prod-shaped APP_BASE_URL (%s) — "
+            "falling back to localhost defaults. Set ALLOWED_ORIGINS=<your-origin>.",
+            APP_BASE_URL,
+        )
+    if EMAIL_VERIFICATION_REQUIRED and (not RESEND_API_KEY or not EMAIL_FROM_ADDRESS):
+        logger.error(
+            "EMAIL_VERIFICATION_REQUIRED=1 but RESEND_API_KEY/EMAIL_FROM_ADDRESS unset — "
+            "new users will not receive verification emails and will be unable to log in."
+        )
+    if not EMAIL_VERIFICATION_REQUIRED:
+        logger.info("Email verification: disabled (EMAIL_VERIFICATION_REQUIRED=0)")
+    else:
+        logger.info("Email verification: enabled — login requires a verified email")
+
+    if google_oauth_enabled():
+        logger.info("Google OAuth: enabled — 'Continue with Google' button active")
+    else:
+        logger.info(
+            "Google OAuth: disabled (set GOOGLE_OAUTH_CLIENT_ID + GOOGLE_OAUTH_CLIENT_SECRET to enable)"
+        )

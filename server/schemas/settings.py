@@ -18,3 +18,22 @@ class ApiKeyStatus(BaseModel):
 
 class ApiKeyUpdate(BaseModel):
     api_key: str | None = Field(None, description="Plaintext key to store (null to delete)")
+
+
+class IdentitySummaryResponse(BaseModel):
+    """Per-identity row shown in Settings → Account → Linked identities."""
+    provider: str  # 'google' | 'password'
+    display: str   # email or other human-readable identifier
+    linked_at: str
+    removable: bool
+
+
+class LinkGoogleStartResponse(BaseModel):
+    """Response from POST /settings/identities/google/link.
+
+    The browser gets this JSON and navigates to `auth_url` — which starts
+    the Google consent-screen flow. The current session cookie travels
+    with the subsequent callback, so the service layer can tell it's a
+    link flow (not a sign-in).
+    """
+    auth_url: str

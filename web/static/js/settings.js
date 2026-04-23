@@ -7,7 +7,7 @@
 // completes sign-in on auth.openai.com/codex/device.
 
 import { fetchJSON, escapeHtml, formatTime } from "./utils.js";
-import { clearAuthToken, getCurrentUser } from "./auth.js";
+import { getCurrentUser, isGoogleOAuthEnabled } from "./auth.js";
 import { confirmDialog } from "./confirm.js";
 import { loadProviders } from "./api.js";
 
@@ -86,6 +86,9 @@ async function renderSettingsBody() {
     if (pwForm) pwForm.addEventListener("submit", onChangePassword);
     const delForm = document.getElementById("accountDeleteForm");
     if (delForm) delForm.addEventListener("submit", onDeleteAccount);
+    // Fetch identities async so the rest of Account tab renders immediately
+    // and doesn't block on the network round-trip.
+    await renderIdentitiesSection();
     return;
   }
   body.innerHTML = `<div class="settings-loading">Loading…</div>`;
@@ -118,6 +121,10 @@ function renderAccountSection() {
   return `
     <section class="settings-section settings-account">
       ${emailLine}
+
+      <h4 class="settings-subheading">Linked sign-in methods</h4>
+      <div id="settingsIdentities" class="settings-loading">Loading…</div>
+      <div id="settingsIdentitiesFeedback" class="settings-feedback" hidden></div>
 
       <h4 class="settings-subheading">Change password</h4>
       <form id="accountPasswordForm" autocomplete="off">
@@ -156,6 +163,108 @@ function renderAccountSection() {
       </form>
     </section>
   `;
+}
+
+async function renderIdentitiesSection() {
+  const container = document.getElementById("settingsIdentities");
+  if (!container) return;
+  let rows;
+  try {
+    rows = await fetchJSON("/settings/identities");
+  } catch (err) {
+    container.innerHTML = `<div class="settings-error">Failed to load: ${escapeHtml(err.message)}</div>`;
+    return;
+  }
+  const hasGoogle = rows.some((r) => r.provider === "google");
+  const canLinkGoogle = isGoogleOAuthEnabled() && !hasGoogle;
+  const listHtml = rows.length
+    ? rows.map(renderIdentityRow).join("")
+    : `<p class="settings-empty">No sign-in methods linked yet.</p>`;
+  const linkHtml = canLinkGoogle
+    ? `<div class="settings-row-actions" style="margin-top:8px;">
+         <button type="button" class="settings-save" id="linkGoogleBtn">Link Google account</button>
+       </div>`
+    : "";
+  container.classList.remove("settings-loading");
+  container.innerHTML = listHtml + linkHtml;
+  container.querySelectorAll("[data-unlink-provider]").forEach((btn) => {
+    btn.addEventListener("click", onUnlinkIdentity);
+  });
+  const linkBtn = document.getElementById("linkGoogleBtn");
+  if (linkBtn) linkBtn.addEventListener("click", onLinkGoogle);
+}
+
+function renderIdentityRow(item) {
+  const label = item.provider === "google" ? "Google" : item.provider === "password" ? "Password" : item.provider;
+  const display = item.provider === "password" ? "set" : item.display || "";
+  const unlinkBtn = item.removable && item.provider !== "password"
+    ? `<button type="button" class="settings-clear" data-unlink-provider="${escapeHtml(item.provider)}">Unlink</button>`
+    : `<span class="settings-status off">${item.removable ? "" : "Required"}</span>`;
+  return `
+    <div class="settings-identity-row">
+      <div class="identity-meta">
+        <span class="identity-provider">${escapeHtml(label)}</span>
+        <span class="identity-display">${escapeHtml(display)}</span>
+      </div>
+      ${unlinkBtn}
+    </div>
+  `;
+}
+
+async function onLinkGoogle(event) {
+  event.preventDefault();
+  const btn = event.currentTarget;
+  btn.disabled = true;
+  btn.textContent = "Starting…";
+  try {
+    const { auth_url } = await fetchJSON("/settings/identities/google/link", {
+      method: "POST",
+    });
+    // Navigate the browser to Google. The current session cookie travels;
+    // the callback will recognize this as a link flow via the user_id
+    // stashed in the pending-flow registry.
+    location.href = auth_url;
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = "Link Google account";
+    const feedback = document.getElementById("settingsIdentitiesFeedback");
+    if (feedback) {
+      feedback.hidden = false;
+      feedback.className = "settings-feedback error";
+      feedback.textContent = err.message || "Could not start Google linking.";
+    }
+  }
+}
+
+async function onUnlinkIdentity(event) {
+  event.preventDefault();
+  const btn = event.currentTarget;
+  const provider = btn.dataset.unlinkProvider;
+  const feedback = document.getElementById("settingsIdentitiesFeedback");
+  const ok = await confirmDialog({
+    title: `Unlink ${provider}?`,
+    message: `You'll stop being able to sign in with ${provider}. You can link it again later.`,
+    confirmText: "Unlink",
+    destructive: true,
+  });
+  if (!ok) return;
+  btn.disabled = true;
+  btn.textContent = "Unlinking…";
+  if (feedback) feedback.hidden = true;
+  try {
+    await fetchJSON(`/settings/identities/${encodeURIComponent(provider)}`, {
+      method: "DELETE",
+    });
+    await renderIdentitiesSection();
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = "Unlink";
+    if (feedback) {
+      feedback.hidden = false;
+      feedback.className = "settings-feedback error";
+      feedback.textContent = err.message || "Unlink failed.";
+    }
+  }
 }
 
 function renderProviderSection(item) {
@@ -317,8 +426,8 @@ async function onDeleteAccount(event) {
       body: JSON.stringify({ password }),
       skipAuthRedirect: true,
     });
-    // Token is dead on the server; drop it locally and reload into the sign-in screen.
-    clearAuthToken();
+    // Session cookie was cleared server-side as part of the delete response.
+    // Reload to land on the sign-in screen.
     location.reload();
   } catch (err) {
     feedback.hidden = false;

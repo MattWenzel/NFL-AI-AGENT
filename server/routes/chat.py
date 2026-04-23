@@ -21,6 +21,7 @@ from fastapi.responses import StreamingResponse
 
 from tools import TOOLS
 from auth.primitives import AuthenticatedUser
+from server.csrf import verify_csrf
 from server.dependencies import get_chat_service, get_chat_stream_gate, get_current_user
 from server.process_state import ChatStreamGate
 from server.schemas.chat import ChatRequest, ChatResponse
@@ -36,7 +37,7 @@ from provider import LLMError
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/chat", tags=["chat"])
+router = APIRouter(prefix="/chat", tags=["chat"], dependencies=[Depends(verify_csrf)])
 
 # Idle interval after which /chat/stream emits an SSE comment keepalive so
 # reverse proxies (nginx 60s default, Cloudflare 100s) don't drop the

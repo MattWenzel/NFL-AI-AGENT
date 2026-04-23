@@ -25,11 +25,15 @@ from alembic import command
 from alembic.config import Config as AlembicConfig
 from sqlalchemy import func, update
 
+from storage.email_verification import EmailVerificationMixin
 from storage.engine import build_async_engine, build_async_sessionmaker, build_sync_engine
 from storage.exports import ExportsMixin
+from storage.login_failures import LoginFailuresMixin
 from storage.models import ToolRunRecord, TurnRecord, utcnow
+from storage.security_events import SecurityEventsMixin
 from storage.session_store import SessionStoreMixin
 from storage.transcript_store import TranscriptStoreMixin
+from storage.user_identities import UserIdentitiesMixin
 from storage.users import UsersMixin
 
 logger = logging.getLogger(__name__)
@@ -37,7 +41,16 @@ logger = logging.getLogger(__name__)
 _ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
 
 
-class RuntimeStore(UsersMixin, SessionStoreMixin, TranscriptStoreMixin, ExportsMixin):
+class RuntimeStore(
+    UsersMixin,
+    SessionStoreMixin,
+    TranscriptStoreMixin,
+    ExportsMixin,
+    EmailVerificationMixin,
+    LoginFailuresMixin,
+    SecurityEventsMixin,
+    UserIdentitiesMixin,
+):
     """SQLite-backed persistence for the refactored NFL agent runtime."""
 
     def __init__(self, db_path: Path):

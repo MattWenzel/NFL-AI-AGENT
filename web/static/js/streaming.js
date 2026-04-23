@@ -1,8 +1,13 @@
 import { API_BASE, state } from "./state.js";
 import { loadTranscript, refreshConversations, refreshCsvs } from "./api.js";
-import { authHeaders, handleUnauthorized } from "./auth.js";
+import { handleUnauthorized } from "./auth.js";
 import { requestRender } from "./render-dispatch.js";
 import { autoResize, renderMarkdown } from "./utils.js";
+
+function readCsrfCookie() {
+  const match = (document.cookie || "").match(/(?:^|;\s*)csrf_token=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
 
 export async function sendMessage() {
   const input = document.getElementById("input");
@@ -28,7 +33,11 @@ export async function sendMessage() {
   try {
     const resp = await fetch(`${API_BASE}/chat/stream`, {
       method: "POST",
-      headers: authHeaders({ "Content-Type": "application/json" }),
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRF-Token": readCsrfCookie(),
+      },
       body: JSON.stringify({
         message: text,
         conversation_id: state.activeSessionId || undefined,

@@ -48,6 +48,11 @@ class CodexOAuthService:
                 provider=CODEX_PROVIDER,
                 encrypted_key=ciphertext,
             )
+            await self.store.record_security_event(
+                event_type="oauth_linked",
+                user_id=rec.user_id,
+                metadata={"provider": "codex", "identity_email": bundle.email},
+            )
             async with rec.lock:
                 rec.status = "complete"
                 rec.email = bundle.email

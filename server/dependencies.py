@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from fastapi import Depends, HTTPException, Request, status
 
 from agent.runtime import ChatRuntime
-from auth.primitives import AuthenticatedUser, _extract_bearer
+from auth.primitives import AuthenticatedUser, _extract_session_token
 from config import AUTH_SESSION_TOUCH_INTERVAL_SECONDS, EXPORTS_DIR
 from server.process_state import (
     AppProcessState,
@@ -21,6 +21,7 @@ from server.services.chat import ChatService
 from server.services.codex_oauth import CodexOAuthService
 from server.services.conversations import ConversationService
 from server.services.exports import ExportService
+from server.services.google_oauth import GoogleOAuthService
 from server.services.settings import SettingsService
 from storage import RuntimeStore
 
@@ -35,7 +36,7 @@ def get_store(request: Request) -> RuntimeStore:
 
 
 async def _resolve_user(request: Request, store: RuntimeStore) -> AuthenticatedUser | None:
-    token = _extract_bearer(request)
+    token = _extract_session_token(request)
     if not token:
         return None
     session = await store.get_auth_session(token)
@@ -152,3 +153,10 @@ def get_settings_service(
     store: RuntimeStore = Depends(get_store),
 ) -> SettingsService:
     return SettingsService(store)
+
+
+def get_google_oauth_service(
+    store: RuntimeStore = Depends(get_store),
+    process_state: AppProcessState = Depends(get_process_state),
+) -> GoogleOAuthService:
+    return GoogleOAuthService(store, process_state.google_oauth_flows)

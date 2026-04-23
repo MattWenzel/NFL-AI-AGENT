@@ -162,28 +162,51 @@ python3 NFLVERSE/scripts/check_updates.py                 # Check which tables/y
 
 ## Auth & multi-user
 
-Multi-user password auth with open signup. First registrant becomes `role='admin'`; subsequent signups get `role='user'`. Sessions are opaque 32-byte bearer tokens stored in `auth_sessions` (30-day TTL, revocable on logout). Per-user API keys are Fernet-encrypted at rest with the master key in `SETTINGS_ENCRYPTION_KEY`. Registration/login are rate-limited per IP (5/15min and 10/15min).
+Multi-user password auth with open signup. First registrant becomes `role='admin'`; subsequent signups get `role='user'`. Sessions are opaque 32-byte tokens stored in `auth_sessions` (30-day TTL, revocable on logout).
+
+**Session transport**: browser UI uses an `HttpOnly`, `Secure`, `SameSite=Lax` cookie (`session`) plus a JS-readable CSRF cookie (`csrf_token`) echoed in the `X-CSRF-Token` header on mutating requests (double-submit pattern). `Authorization: Bearer …` is still accepted for API clients and the `/docs` tester; Bearer requests skip CSRF (browsers can't auto-attach Authorization cross-origin).
+
+**Password handling**: bcrypt cost 12. Failed logins tracked per-email with progressive delay (0s → 0.25s → 0.5s → 1s → 2s → 4s cap) and hard lockout after `LOGIN_LOCKOUT_MAX_FAILURES` (default 10) attempts for `LOGIN_LOCKOUT_DURATION_SECONDS` (default 900s). Layered on top of the per-IP rate limiter.
+
+**Email verification**: optional (`EMAIL_VERIFICATION_REQUIRED=1`). When on, `/auth/register` returns 202 `{status: "verification_pending"}` instead of a session, a verification link is mailed via Resend, and `/auth/login` rejects unverified accounts until `/auth/verify-email` consumes the token. OAuth-verified identities (future Google login) skip this gate via `_create_user_from_verified_identity(verified=True)`.
+
+**API keys**: Per-user, Fernet-encrypted at rest with the master key in `SETTINGS_ENCRYPTION_KEY`. Plaintext is never returned by any endpoint; ciphertext is decrypted only server-side when invoking the LLM.
+
+**Security headers**: `SecurityHeadersMiddleware` attaches CSP, X-Content-Type-Options, Referrer-Policy, Permissions-Policy to every response; HSTS added when the request is over HTTPS.
+
+**Audit log**: `security_events` table records login success/failure/locked, logout, password change, account delete, api_key_set/cleared, oauth_linked/unlinked, csrf_rejected. Each event also logged as structured JSON to stderr.
+
+**Log redaction**: `SecretRedactingFilter` masks `sk-ant-*`, `sk-proj-*`, `Bearer *`, and JWT-shaped substrings in every log record so keys pasted into chat messages don't reach stdout or aggregators.
 
 Env vars:
 - `SETTINGS_ENCRYPTION_KEY` — required. Generate once with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
 - `AUTH_TOKEN_TTL_DAYS` — session lifetime, default 30.
-- `ALLOWED_ORIGINS` — CSV of CORS origins. Unset → localhost defaults only. Set to your prod origin(s) when hosted.
-- `REGISTRATION_INVITE_CODE` — optional invite-code gate. When set, `/auth/register` rejects signups without a matching code (403). When unset, registration is open. Share the code out-of-band with anyone you want to let in; rotate by changing the env var and restarting.
+- `ALLOWED_ORIGINS` — CSV of CORS origins. Unset → localhost defaults. Set to prod origin(s) when hosted.
+- `ALLOW_NULL_ORIGIN` — `1` to add `null` to the CORS allowlist for `file://` testing. Off by default.
+- `REGISTRATION_INVITE_CODE` — optional invite-code gate on `/auth/register`. Rotate by changing the env var and restarting.
+- `RESEND_API_KEY`, `EMAIL_FROM_ADDRESS`, `APP_BASE_URL` — required when `EMAIL_VERIFICATION_REQUIRED=1`. `APP_BASE_URL` is used to build the verification link (e.g. `https://nflverse.fly.dev`).
+- `EMAIL_VERIFICATION_REQUIRED` — `1` to gate login on verified email. Default `0`.
+- `LOGIN_LOCKOUT_MAX_FAILURES`, `LOGIN_LOCKOUT_WINDOW_SECONDS`, `LOGIN_LOCKOUT_DURATION_SECONDS` — per-email lockout tuning, defaults 10/900/900.
 
-### OAuth migration path (deferred)
+### Google OAuth sign-in
 
-When Google OAuth ships, the following six-step plan picks up from the current state. Don't half-land any of it — when it's time, do all six in one branch:
+Shipped 2026-04-23. Users can sign up / sign in with Google, and existing password users can link their Google account from Settings → Account.
 
-1. `pip install authlib` (or `google-auth` + `google-auth-oauthlib`); add to `requirements.txt`.
-2. New table `user_identities(id, user_id, provider, provider_subject, created_at, UNIQUE(provider, provider_subject))`. On migration, seed one `('password', user.email)` row per existing user for consistency. Also rebuild `users` to drop NOT NULL on `password_hash` (SQLite requires a table rebuild — do it in a separate commit with a pre-flight backup).
-3. New endpoints in `server/routes/auth.py`:
-   - `GET /auth/oauth/google/start` — PKCE + state, 302 to Google.
-   - `GET /auth/oauth/google/callback` — exchange code, verify `id_token`, look up by `(provider='google', provider_subject=sub)`. If not found, look up by email: link if an existing password user matches, else call `_create_user_from_verified_identity(email=…, password_hash=None, verified=True)`. Issue session via `_issue_session`.
-4. Frontend: render a "Continue with Google" button in the reserved `.auth-alt` slot (`web/static/js/auth.js`); point it at `/auth/oauth/google/start`.
-5. Settings modal: add an "Account" section listing linked identities, with unlink buttons. Guard: don't let a user unlink their last identity if they have no password.
-6. Google Cloud Console: create OAuth client, set authorized redirect URI to `<prod-url>/auth/oauth/google/callback` (and `http://localhost:8001/auth/oauth/google/callback` for dev).
+**How it works:**
+- `user_identities` table stores one row per linked auth method per user. A user who signs up with a password has a single `('password', email)` row; adding Google adds a second `('google', <sub>)` row. Deleting the user cascades.
+- OAuth-only users get `users.password_hash = "!"` — a sentinel that bcrypt treats as malformed, so `verify_password` returns False for any attempt. Avoids a NOT-NULL schema rebuild. Such users have no `password` identity row, which the unlink guard uses to refuse removing their last sign-in method.
+- New Google sign-in against an email that already has a password account auto-links (trusts Google's verified email). Same-`sub` sign-ins after that reuse the identity without creating a new row.
+- Flow: `/auth/oauth/google/start` generates PKCE + state + nonce, stashes in an in-memory pending-flow registry, 302s to Google. `/auth/oauth/google/callback` verifies state, exchanges the code, verifies the ID token against Google's JWKS (cached 1h), and either issues a session (sign-in flow) or attaches the identity (link flow, started from Settings).
+- Both routes are GETs (browser navigation) and CSRF-exempt by the usual safe-method rule — the `state` parameter is the anti-CSRF for the callback. Session cookies from the rest of the app still travel (SameSite=Lax), which is how the callback can tell a link flow (user_id in pending row) from a sign-in flow.
+- `security_events` gains `oauth_signin_started`, `oauth_signin_succeeded`, `oauth_signin_failed`, `oauth_link_started`, `oauth_linked`, `oauth_unlinked`, `oauth_link_rejected`.
 
-The tail `_create_user_from_verified_identity` → `_issue_session` path in `server/routes/auth.py` is already shaped so the OAuth callback reuses it unchanged — the password and OAuth flows differ only in how they produce a verified email.
+**Files:** `auth/google_oauth.py` (OAuth primitives + ID-token verification), `storage/user_identities.py` (mixin), `server/services/google_oauth.py` (flow orchestration), `server/routes/google_oauth.py` (endpoints), `server/routes/settings.py` (link/unlink + list), `auth/primitives.py`'s existing `_set_auth_cookies` helper is reused unchanged.
+
+**Env vars:**
+- `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` — set via Google Cloud Console. The "Continue with Google" button and `/auth/oauth/google/*` routes only appear when both are set.
+- Redirect URI is derived from `APP_BASE_URL` (`<base>/auth/oauth/google/callback`), so add that URL to the OAuth client's authorized redirects in Google Cloud Console — once for localhost, once for prod.
+
+**Follow-up work:** OAuth-only users can't currently set a password. When we want a "set password" flow (so an OAuth user can turn into a hybrid password+Google user), add `POST /auth/set-password` that requires an authenticated session, rejects if `password_hash != "!"`, writes a real bcrypt hash, and seeds a `password` identity row. Not needed right now since users can also unlink Google (if another identity exists) or keep using OAuth indefinitely.
 
 ## Deployment
 

@@ -1,4 +1,9 @@
-export const API_BASE = window.API_BASE;
+// API backend URL. Default to same-origin ("") so every fetch goes to whatever
+// host serves index.html — this works when FastAPI serves the UI directly.
+// Override via ?api=<url> for split-hosting or legacy file:// dev.
+// Lives in this module (rather than an inline <script> in index.html) so
+// the strict CSP in server/app.py doesn't need 'unsafe-inline' for scripts.
+export const API_BASE = new URLSearchParams(location.search).get("api") || "";
 
 export const state = {
   conversations: [],

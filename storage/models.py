@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
-from sqlalchemy import Column, ForeignKey, Index, Integer, desc
+from sqlalchemy import Column, ForeignKey, Index, Integer, UniqueConstraint, desc
 from sqlmodel import Field, SQLModel
 
 from storage.types import TolerantJSONList, ToolInputJSON
@@ -223,6 +223,86 @@ class AuthSessionRecord(SQLModel, table=True):
     created_at: str
     expires_at: str
     last_used_at: str
+
+
+class EmailVerificationRecord(SQLModel, table=True):
+    __tablename__ = "email_verifications"
+    __table_args__ = (
+        Index("idx_email_verifications_user", "user_id"),
+    )
+
+    token: str = Field(primary_key=True)
+    user_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("users.id", ondelete="CASCADE"),
+            nullable=False,
+        )
+    )
+    purpose: str = "signup"
+    created_at: str
+    expires_at: str
+    used_at: str | None = None
+
+
+class LoginFailureRecord(SQLModel, table=True):
+    __tablename__ = "login_failures"
+
+    email: str = Field(primary_key=True)
+    failure_count: int = 0
+    last_failure_at: str
+    locked_until: str | None = None
+
+
+class UserIdentityRecord(SQLModel, table=True):
+    __tablename__ = "user_identities"
+    __table_args__ = (
+        Index("idx_user_identities_user", "user_id"),
+        UniqueConstraint("provider", "provider_subject", name="uq_user_identities_provider_subject"),
+    )
+
+    id: str = Field(primary_key=True)
+    user_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("users.id", ondelete="CASCADE"),
+            nullable=False,
+        )
+    )
+    # `provider` is open-set: 'google', 'password' (sentinel for password
+    # accounts), future 'apple' / 'github' / etc. `provider_subject` is the
+    # provider's stable identifier for the user — the `sub` claim for OIDC
+    # providers, the normalized email for the 'password' sentinel.
+    provider: str
+    provider_subject: str
+    email: str | None = None
+    created_at: str
+
+
+class SecurityEventRecord(SQLModel, table=True):
+    __tablename__ = "security_events"
+    __table_args__ = (
+        Index("idx_security_events_user_created", "user_id", desc("created_at")),
+        Index("idx_security_events_created", desc("created_at")),
+    )
+
+    id: str = Field(primary_key=True)
+    user_id: int | None = Field(
+        default=None,
+        sa_column=Column(
+            Integer,
+            ForeignKey("users.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
+    )
+    event_type: str
+    ip: str | None = None
+    user_agent: str | None = None
+    event_metadata: dict = Field(
+        default_factory=dict,
+        sa_column=Column("metadata_json", ToolInputJSON, nullable=False),
+    )
+    created_at: str
 
 
 @dataclass(frozen=True)

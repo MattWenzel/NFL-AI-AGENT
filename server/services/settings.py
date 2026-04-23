@@ -66,19 +66,48 @@ class SettingsService:
         return [self._build_status(info, existing.get(info.name)) for info in list_providers()]
 
     async def update_api_key(
-        self, *, user_id: int, provider: str, api_key: str | None
+        self,
+        *,
+        user_id: int,
+        provider: str,
+        api_key: str | None,
+        audit_ip: str | None = None,
+        audit_user_agent: str | None = None,
     ) -> ApiKeyStatus:
         info = self._provider_info(provider)
         raw = (api_key or "").strip() if api_key is not None else None
         if info.credential_shape == "codex_oauth" and raw:
             raise SettingsServiceError("Codex uses OAuth — use POST /settings/oauth/codex/start to connect.")
         if raw is None or raw == "":
-            await self.store.delete_api_key(user_id=user_id, provider=provider)
+            removed = await self.store.delete_api_key(user_id=user_id, provider=provider)
+            if removed:
+                # Codex uses OAuth credentials in the same column; distinguish
+                # its clear event so OAuth and API-key audits can be counted
+                # separately and Google OAuth will fit the same schema.
+                event_type = (
+                    "oauth_unlinked"
+                    if info.credential_shape == "codex_oauth"
+                    else "api_key_cleared"
+                )
+                await self.store.record_security_event(
+                    event_type=event_type,
+                    user_id=user_id,
+                    ip=audit_ip,
+                    user_agent=audit_user_agent,
+                    metadata={"provider": provider},
+                )
             return self._build_status(info, None)
         rec = await self.store.upsert_api_key(
             user_id=user_id,
             provider=provider,
             encrypted_key=encryption.encrypt(raw),
+        )
+        await self.store.record_security_event(
+            event_type="api_key_set",
+            user_id=user_id,
+            ip=audit_ip,
+            user_agent=audit_user_agent,
+            metadata={"provider": provider},
         )
         return self._build_status(info, rec)
 

@@ -10,28 +10,38 @@ from storage.models import (
     AssistantPartRecord,
     AuthSessionRecord,
     CompactionSummaryRecord,
+    EmailVerificationRecord,
     ExportRecord,
+    LoginFailureRecord,
+    SecurityEventRecord,
     SessionListEntry,
     SessionRecord,
     SessionTranscript,
     ToolRunRecord,
     TurnRecord,
     UserApiKeyRecord,
+    UserIdentityRecord,
     UserRecord,
 )
 from storage.store import RuntimeStore
+from storage.user_identities import IdentityConflictError
 
 __all__ = [
     "RuntimeStore",
     "AssistantPartRecord",
     "AuthSessionRecord",
     "CompactionSummaryRecord",
+    "EmailVerificationRecord",
     "ExportRecord",
+    "IdentityConflictError",
+    "LoginFailureRecord",
+    "SecurityEventRecord",
     "SessionListEntry",
     "SessionRecord",
     "SessionTranscript",
     "ToolRunRecord",
     "TurnRecord",
     "UserApiKeyRecord",
+    "UserIdentityRecord",
     "UserRecord",
 ]

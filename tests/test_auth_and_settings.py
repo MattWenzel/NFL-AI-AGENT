@@ -207,6 +207,8 @@ class TestAuthRouter:
             "authenticated": False,
             "user": None,
             "invite_required": False,
+            "verification_required": False,
+            "google_oauth_enabled": False,
         }
 
     async def test_first_user_becomes_admin_second_is_user(self, client, store):

@@ -113,6 +113,84 @@ class PendingCodexOAuthFlowStore(Protocol):
     async def cancel_all(self) -> None: ...
 
 
+@dataclass
+class PendingGoogleOAuthFlow:
+    """State carried across Google's consent-screen redirect.
+
+    `code_verifier` and `nonce` must travel from `/auth/oauth/google/start`
+    to `/auth/oauth/google/callback` without being visible to the browser.
+    Keeping them in memory avoids a cookie round-trip; the keying `state`
+    parameter is what the browser echoes back, so the server can look up
+    the rest. `user_id` is set for link flows (started from settings)
+    so the callback knows to attach the identity rather than sign in.
+    """
+
+    code_verifier: str
+    nonce: str
+    created_at: float
+    user_id: int | None = None  # None → sign-in/sign-up flow; int → link flow
+
+
+class InMemoryPendingGoogleOAuthFlows:
+    """Process-local pending-flow registry for Google OAuth sign-ins.
+
+    Keyed by the OAuth `state` parameter. 10-minute TTL — if the user takes
+    longer than that at Google's consent screen, they restart. Evictions
+    run lazily on each `create` so stale entries don't accumulate.
+    """
+
+    _STALE_AFTER_SECONDS = 10 * 60
+
+    def __init__(self):
+        self._flows: dict[str, PendingGoogleOAuthFlow] = {}
+
+    def create(
+        self,
+        state: str,
+        *,
+        code_verifier: str,
+        nonce: str,
+        user_id: int | None = None,
+    ) -> PendingGoogleOAuthFlow:
+        self._evict_stale()
+        flow = PendingGoogleOAuthFlow(
+            code_verifier=code_verifier,
+            nonce=nonce,
+            created_at=time.monotonic(),
+            user_id=user_id,
+        )
+        self._flows[state] = flow
+        return flow
+
+    def pop(self, state: str) -> PendingGoogleOAuthFlow | None:
+        return self._flows.pop(state, None)
+
+    def _evict_stale(self) -> None:
+        now = time.monotonic()
+        stale = [
+            key for key, flow in self._flows.items()
+            if now - flow.created_at > self._STALE_AFTER_SECONDS
+        ]
+        for key in stale:
+            self._flows.pop(key, None)
+
+    def reset(self) -> None:
+        self._flows.clear()
+
+
+class PendingGoogleOAuthFlowStore(Protocol):
+    def create(
+        self,
+        state: str,
+        *,
+        code_verifier: str,
+        nonce: str,
+        user_id: int | None = None,
+    ) -> PendingGoogleOAuthFlow: ...
+    def pop(self, state: str) -> PendingGoogleOAuthFlow | None: ...
+    def reset(self) -> None: ...
+
+
 class ChatStreamGate(Protocol):
     async def acquire(self, key: str | int, *, detail: str) -> None: ...
     async def release(self, key: str | int) -> None: ...
@@ -146,6 +224,9 @@ class AppProcessState:
     )
     codex_refresh_locks: PerUserLockRegistry = field(
         default_factory=InMemoryPerUserLockRegistry
+    )
+    google_oauth_flows: PendingGoogleOAuthFlowStore = field(
+        default_factory=InMemoryPendingGoogleOAuthFlows
     )
 
     async def aclose(self) -> None:

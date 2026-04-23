@@ -1,19 +1,41 @@
-"""Settings endpoints for per-user API key storage."""
+"""Settings endpoints for per-user API key storage + linked OAuth identities."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from auth.primitives import AuthenticatedUser
-from server.dependencies import get_current_user, get_settings_service
-from server.schemas.settings import ApiKeyStatus, ApiKeyUpdate
+from server.csrf import verify_csrf
+from server.dependencies import (
+    get_current_user,
+    get_google_oauth_service,
+    get_process_state,
+    get_settings_service,
+)
+from server.process_state import AppProcessState
+from server.routes.auth import _audit_from
+from server.schemas.settings import (
+    ApiKeyStatus,
+    ApiKeyUpdate,
+    IdentitySummaryResponse,
+    LinkGoogleStartResponse,
+)
+from server.services.google_oauth import (
+    GoogleOAuthDisabledError,
+    GoogleOAuthLastIdentityError,
+    GoogleOAuthLinkConflictError,
+    GoogleOAuthService,
+    GoogleOAuthServiceError,
+)
 from server.services.settings import (
     SettingsService,
     SettingsNotFoundError,
     SettingsServiceError,
 )
 
-router = APIRouter(prefix="/settings", tags=["settings"])
+# CSRF applies to mutating routes on this router; the GET /api-keys listing
+# is safe. Wiring at router level avoids per-route Depends sprawl.
+router = APIRouter(prefix="/settings", tags=["settings"], dependencies=[Depends(verify_csrf)])
 
 
 @router.get("/api-keys", response_model=list[ApiKeyStatus])
@@ -28,16 +50,82 @@ async def list_api_key_status(
 async def update_api_key(
     provider: str,
     payload: ApiKeyUpdate,
+    request: Request,
     user: AuthenticatedUser = Depends(get_current_user),
     service: SettingsService = Depends(get_settings_service),
+    process_state: AppProcessState = Depends(get_process_state),
 ) -> ApiKeyStatus:
+    # Rate-limit per-IP so a stolen token can't cycle keys infinitely. Reuses
+    # the same limiter the account endpoints use — 5 attempts / 15 min.
+    process_state.account_limiter.check(request)
     try:
         return await service.update_api_key(
             user_id=user.id,
             provider=provider,
             api_key=payload.api_key,
+            audit_ip=_client_ip(request),
+            audit_user_agent=request.headers.get("User-Agent"),
         )
     except SettingsNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except SettingsServiceError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+def _client_ip(request: Request) -> str | None:
+    if request.client is not None:
+        return request.client.host
+    return None
+
+
+# ---------------- linked identities ----------------
+
+
+@router.get("/identities", response_model=list[IdentitySummaryResponse])
+async def list_identities(
+    user: AuthenticatedUser = Depends(get_current_user),
+    service: GoogleOAuthService = Depends(get_google_oauth_service),
+) -> list[IdentitySummaryResponse]:
+    rows = await service.list_identities(user.id)
+    return [
+        IdentitySummaryResponse(
+            provider=r.provider,
+            display=r.display,
+            linked_at=r.linked_at,
+            removable=r.removable,
+        )
+        for r in rows
+    ]
+
+
+@router.post("/identities/google/link", response_model=LinkGoogleStartResponse)
+async def start_link_google(
+    request: Request,
+    user: AuthenticatedUser = Depends(get_current_user),
+    service: GoogleOAuthService = Depends(get_google_oauth_service),
+) -> LinkGoogleStartResponse:
+    try:
+        url = await service.begin_link(user_id=user.id, audit=_audit_from(request))
+    except GoogleOAuthDisabledError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except GoogleOAuthServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return LinkGoogleStartResponse(auth_url=url)
+
+
+@router.delete("/identities/{provider}")
+async def unlink_identity(
+    provider: str,
+    request: Request,
+    user: AuthenticatedUser = Depends(get_current_user),
+    service: GoogleOAuthService = Depends(get_google_oauth_service),
+):
+    if provider not in {"google"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown provider")
+    try:
+        await service.unlink(user_id=user.id, provider=provider, audit=_audit_from(request))
+    except GoogleOAuthLastIdentityError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except GoogleOAuthLinkConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    return {"ok": True}
