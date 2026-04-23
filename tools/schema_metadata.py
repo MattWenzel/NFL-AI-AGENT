@@ -22,6 +22,7 @@ TABLE_ALIASES: dict[str, str] = {
     "ngs": "ngs_stats",
     "dc": "depth_charts",
     "dc25": "depth_charts_2025",
+    "vdc": "v_depth_charts",
     "pfr": "pfr_advanced",
     "qbr": "qbr",
     "dp": "draft_picks",
@@ -43,6 +44,11 @@ JOIN_EDGES: dict[tuple[str, str], tuple[str, str, bool]] = {
     ("players", "ngs_stats"): ("player_gsis_id", "player_gsis_id", False),
     ("players", "depth_charts"): ("player_gsis_id", "player_gsis_id", False),
     ("players", "depth_charts_2025"): ("player_gsis_id", "player_gsis_id", False),
+    # v_depth_charts is a UNION view over depth_charts + depth_charts_2025 with
+    # a normalized 12-column schema. Prefer this for cross-era queries; the
+    # base tables remain available for era-specific columns (elias_id,
+    # first_name, last_name on legacy; pos_grp_id / pos_slot on 2025).
+    ("players", "v_depth_charts"): ("player_gsis_id", "player_gsis_id", False),
     ("players", "draft_picks"): ("player_gsis_id", "player_gsis_id", False),
     # Direct player_pfr_id joins (previously required player_ids bridge)
     ("players", "snap_counts"): ("player_pfr_id", "player_pfr_id", False),

@@ -31,7 +31,8 @@ def _introspect_db(db_path: Path) -> None:
             row[0]
             for row in conn.execute(
                 "SELECT table_name FROM information_schema.tables "
-                "WHERE table_schema = 'main' AND table_type = 'BASE TABLE' "
+                "WHERE table_schema = 'main' "
+                "AND table_type IN ('BASE TABLE', 'VIEW') "
                 "ORDER BY table_name"
             ).fetchall()
         ]

@@ -81,7 +81,7 @@ TOOL_DEFINITIONS = [
             "properties": {
                 "table_name": {
                     "type": "string",
-                    "description": "Table name: players, player_ids, game_stats, season_stats, games, draft_picks, combine, snap_counts, ngs_stats, depth_charts, depth_charts_2025, pfr_advanced, qbr, play_by_play",
+                    "description": "Table name: players, player_ids, game_stats, season_stats, games, draft_picks, combine, snap_counts, ngs_stats, v_depth_charts (cross-era view — preferred for depth charts), depth_charts, depth_charts_2025, pfr_advanced, qbr, play_by_play",
                 },
             },
             "required": ["table_name"],

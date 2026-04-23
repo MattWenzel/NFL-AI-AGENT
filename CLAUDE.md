@@ -16,7 +16,9 @@ Single DuckDB file. Accessed read-only by the chat agent via `tools/sandbox.py` 
 
 **Core**: `players`, `player_ids`, `games`, `game_stats`, `season_stats`, `draft_picks`, `combine`
 
-**Supplementary**: `snap_counts` (2015+), `ngs_stats` (2016+), `depth_charts` (2001-2024), `depth_charts_2025` (2025, uses `dt` datetime), `pfr_advanced` (2018+), `qbr` (2006-2023)
+**Supplementary**: `snap_counts` (2015+), `ngs_stats` (2016+), `pfr_advanced` (2018+), `qbr` (2006-2023)
+
+**Depth charts**: `v_depth_charts` (2001-2025, 1.35M rows — normalized UNION view, **preferred for cross-era queries**). Base tables `depth_charts` (2001-2024) and `depth_charts_2025` (daily grain) remain available for era-specific columns not in the view (`game_type`, `elias_id`, `pos_slot`, etc.).
 
 **Play-by-play**: 1.28M plays in the same DuckDB file — reference as `play_by_play`.
 

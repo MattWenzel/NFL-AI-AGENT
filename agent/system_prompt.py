@@ -36,8 +36,9 @@ On long sessions the runtime may insert a `<prior_conversation_summary>` block i
 | combine | 8.6K | 2000–2025 | player_pfr_id | Measurables — joins to players via player_pfr_id. |
 | snap_counts | 277K | 2015–2025 | player_pfr_id | Snap share — joins players directly via player_pfr_id. |
 | ngs_stats | 27K | 2016–2025 | player_gsis_id | Next Gen Stats (CPOE, separation) |
-| depth_charts | 869K | 2001–2024 | player_gsis_id | Historical depth charts |
-| depth_charts_2025 | 477K | 2025 | player_gsis_id | 2025 depth charts (uses `dt` datetime) |
+| v_depth_charts | 1.35M | 2001–2025 | player_gsis_id | **Preferred.** Union view over depth_charts + depth_charts_2025 with a normalized 12-col schema. `source` = `'legacy'` or `'v2025'`. |
+| depth_charts | 869K | 2001–2024 | player_gsis_id | Base table; use when you need `elias_id` / `first_name` / `last_name` / `game_type` (not in view) |
+| depth_charts_2025 | 477K | 2025 | player_gsis_id | Base table; use for deep-rank (≥4) or point-in-time `dt`-filtered queries |
 | pfr_advanced | 7.8K | 2018–2025 | player_pfr_id | PFR advanced — joins players directly via player_pfr_id. |
 | qbr | 9.6K | 2006–2023 | player_espn_id | ESPN QBR — joins players directly via player_espn_id. |
 | play_by_play | 1.28M | 1999–2025 | game_id+play_id | 372 cols; large — always filter before scanning |

@@ -124,8 +124,8 @@ _ERROR_HINTS = [
     ("not found in any queried table", "Hint: Call get_schema(table_name) to see available columns."),
     ("timed out", "Hint: Add WHERE filters (season, team, or player). For snap_counts, always filter by season."),
     ("no join path", "Hint: players has player_gsis_id / player_pfr_id / player_espn_id — join directly instead of going through player_ids."),
-    ("no such table", "Hint: Valid tables: players, player_ids, game_stats, season_stats, games, draft_picks, combine, snap_counts, ngs_stats, depth_charts, depth_charts_2025, pfr_advanced, qbr, play_by_play."),
-    ("invalid table", "Hint: Valid tables: players, player_ids, game_stats, season_stats, games, draft_picks, combine, snap_counts, ngs_stats, depth_charts, depth_charts_2025, pfr_advanced, qbr, play_by_play."),
+    ("no such table", "Hint: Valid tables: players, player_ids, game_stats, season_stats, games, draft_picks, combine, snap_counts, ngs_stats, v_depth_charts (cross-era view — preferred), depth_charts, depth_charts_2025, pfr_advanced, qbr, play_by_play."),
+    ("invalid table", "Hint: Valid tables: players, player_ids, game_stats, season_stats, games, draft_picks, combine, snap_counts, ngs_stats, v_depth_charts (cross-era view — preferred), depth_charts, depth_charts_2025, pfr_advanced, qbr, play_by_play."),
 ]
 
 
