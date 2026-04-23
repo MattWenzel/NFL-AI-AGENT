@@ -40,7 +40,7 @@ Schemas use Anthropic's `tool_use` input_schema format (JSON Schema). The OpenAI
 ## Data flow for one tool call
 
 ```
-ToolExecutionService.execute_one(tool_run)            agent/tool_execution.py
+Turn._execute_one_tool(tool_run)                      agent/turn.py
     │
     ├─ persistence.begin_tool_execution (running + tool_status part)
     │
@@ -65,7 +65,7 @@ execute_tool_structured(name, input, ctx)             registry.py:86
 persistence.complete_tool_execution (status + result_part)
 ```
 
-`ToolExecutionService` (in `agent/`, not here) persists the envelope to the store and the runtime yields a `tool_completed` or `tool_failed` event. The **`content` string** (not the parsed dict) is what the model sees on the next turn — so tools must be careful that the JSON they return is legible to the LLM, not just to code.
+`Turn` (in `agent/turn.py`, not here) persists the envelope to the store and the runtime yields a `tool_completed` or `tool_failed` event. The **`content` string** (not the parsed dict) is what the model sees on the next turn — so tools must be careful that the JSON they return is legible to the LLM, not just to code.
 
 ## The dispatch table
 
@@ -76,7 +76,7 @@ def _handler(input_data: dict, ctx: dict | None) -> str:
     ...  # returns JSON-string result
 ```
 
-All handlers are synchronous. The dispatcher wraps them in `asyncio.to_thread` (`registry.py:74`) so blocking SQLite I/O doesn't stall the event loop. This matters because `ToolExecutionService.execute_many` fans out to each tool under `asyncio.gather` — multiple tools from one pass run concurrently, each on its own thread.
+All handlers are synchronous. The dispatcher wraps them in `asyncio.to_thread` (`registry.py:74`) so blocking SQLite I/O doesn't stall the event loop. This matters because `Turn.execute_tools` fans out to each tool under `asyncio.gather` — multiple tools from one pass run concurrently, each on its own thread.
 
 ### Registry drift guard
 
@@ -147,7 +147,7 @@ If `pbp.db` is missing and the query references it, `SQLValidationError` is rais
 
 Handlers have a uniform `(input_data, ctx)` signature, but most ignore `ctx`. It exists so handlers can reach runtime services without importing them. Right now only `create_csv_export` uses it.
 
-`ToolExecutionService.execute_one` (`agent/tool_execution.py:61`) builds `ctx`:
+`Turn._execute_one_tool` (`agent/turn.py`) builds `ctx`:
 
 ```python
 ctx = {
@@ -161,7 +161,7 @@ ctx = {
 
 `create_csv_export` (`tools/create_csv_export.py:53`) pulls the callback, calls it after writing the CSV, and unlinks the file if registration fails so orphan files don't accumulate. If `ctx` is `None` (e.g., calling the tool from a test), the handler still returns the download info but skips library registration — this is what makes handlers independently testable.
 
-Adding a new side-channel means: (1) build it in `ToolExecutionService.execute_one`, (2) read it in the handler, (3) handle the `None` case for tests. No registry to touch.
+Adding a new side-channel means: (1) build it in `Turn._execute_one_tool`, (2) read it in the handler, (3) handle the `None` case for tests. No registry to touch.
 
 ## Handler contract
 
@@ -177,7 +177,7 @@ Every handler returns a JSON string. The shape is tool-specific but two conventi
 1. Add the schema dict to `TOOL_DEFINITIONS` in `definitions.py`.
 2. Write the handler in `tools/<name>.py` with signature `(input_data, ctx) -> str`.
 3. Import the handler in `registry.py` and add it to `_TOOL_DISPATCH`. The drift-guard assert will fail otherwise.
-4. If the handler needs runtime state, extend `ctx` in `agent/tool_execution.py:61`. Otherwise ignore `ctx`.
+4. If the handler needs runtime state, extend `ctx` in `Turn._execute_one_tool` (`agent/turn.py`). Otherwise ignore `ctx`.
 5. If tool output can produce novel error strings users should correct, add a `(pattern, hint)` pair to `_ERROR_HINTS` in `validation.py`.
 
 No test fixtures, no registration decorators, no boot-time side effects. The drift-guard assert and the uniform handler signature are the only contracts.

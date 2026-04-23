@@ -13,7 +13,7 @@ This doc covers the trigger, the retention policy, how the summary is generated 
 
 ## The trigger
 
-`compact_if_needed` (`compaction.py:241`) is called once per loop iteration from `ChatRuntime.run_session` (via `RuntimeLoopState.compact_if_needed`, see [runtime.md](runtime.md#the-iteration-loop)). Sequence:
+`compact_if_needed` (`compaction.py:241`) is called once per loop iteration from `ChatRuntime.run_session` (via `Turn.compact_if_needed`, see [runtime.md](runtime.md#the-iteration-loop)). Sequence:
 
 1. Session must have a `context_window` set — otherwise compaction is off.
 2. `estimate_active_tokens(store, session_id)` counts what the next call will cost.
@@ -26,7 +26,7 @@ The returned dict is surfaced as a `compaction_started` `RuntimeEvent` with fiel
 
 ## Forced compaction (context-overflow retry)
 
-When the provider rejects a prompt our estimator was happy with (`ContextOverflowError`), the runtime catches it at `runtime.py:204`, marks the current turn `error`, and calls `RuntimeLoopState.handle_overflow()` which sets `force_overflow_compaction=True`. The next iteration calls `compact_if_needed` with:
+When the provider rejects a prompt our estimator was happy with (`ContextOverflowError`), the runtime catches it in `run_session`'s inner try, marks the current turn `error`, and calls `Turn.handle_overflow()` which sets `force_overflow_compaction=True`. The next iteration calls `compact_if_needed` with:
 
 - `force=True` — run the full two-phase compaction unconditionally, even if `estimate_active_tokens` says we're under the window.
 - `retention_budget_override = context_window // 4` — about a quarter of what we'd normally keep, so the active prompt shrinks dramatically.

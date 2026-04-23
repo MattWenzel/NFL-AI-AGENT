@@ -85,15 +85,15 @@ Following a single message from the browser back to the browser:
  │       │   ├─ TextEvent  → yield   │
  │       │   └─ ToolUseEvent → queue │
  │       ├─ if no tools: done        │
- │       ├─ raise_if_doom_loop       │       (runtime_policy.py)
+ │       ├─ raise_if_doom_loop       │       (agent/turn.py)
  │       ├─ asyncio.gather(tools)    │      → tool layer (tools.md)
  │       └─ loop                     │
  └───────────────────────────────────┘
                 │
                 │ (each tool call)
                 ▼
- ┌── agent/tool_execution.py ────────┐
- │ ToolExecutionService.execute_one  │
+ ┌── agent/turn.py ──────────────────┐
+ │ Turn._execute_one_tool            │
  │  ├─ persist tool_run (pending)    │
  │  ├─ call execute_tool_structured  │      → tools/ (below)
  │  └─ persist result / error        │
@@ -128,7 +128,7 @@ Common "where does X happen" questions:
 | Who owns this conversation? | IDOR guard in `ChatService.prepare_chat`, `server/services/chat.py:101` ([transport.md](transport.md#idor-protection)) |
 | Which API key to use? | `ProviderCredentialService.get_api_key` → `encryption.decrypt` ([auth.md](auth.md#api-keys)) |
 | Model selects a tool | Streamed `ToolUseEvent` from the provider adapter ([providers.md](providers.md#streaming)) |
-| Tool call actually runs | `ToolExecutionService.execute_one` → `execute_tool_structured` ([tools.md](tools.md#data-flow-for-one-tool-call)) |
+| Tool call actually runs | `Turn._execute_one_tool` → `execute_tool_structured` ([tools.md](tools.md#data-flow-for-one-tool-call)) |
 | SQL query limits | `sandbox.py` — 500 rows, ~30s, PBP auto-attach ([tools.md](tools.md#the-sql-sandbox)) |
 | Which tools are available? | `tools/definitions.py` — 7 tools ([tools.md](tools.md#the-seven-tools)) |
 | What the model sees as system prompt | `get_base_prompt()` in `agent/system_prompt.py` ([prompts.md](prompts.md#the-base-prompt)) |
