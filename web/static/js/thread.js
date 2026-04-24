@@ -396,11 +396,21 @@ function renderThinkingBlock(toolRuns, { forceOpen = false, groupKey = "" } = {}
   const rows = toolRuns.map(run => {
     const preview = extractToolPreview(run);
     const turnAttr = run.turn_id ? ` data-turn-id="${escapeHtml(run.turn_id)}"` : "";
+    // While a tool is running, show an elapsed-seconds span updated in place
+    // by the ticker in streaming.js — gives the user a heartbeat during
+    // multi-second tool calls instead of a silent spinner. The span drops
+    // from the DOM once status flips (tool_result / tool_failed).
+    let elapsedHtml = "";
+    if (run.status === "running" && run.startTime) {
+      const elapsed = Math.floor((Date.now() - run.startTime) / 1000);
+      elapsedHtml = `<span class="thinking-elapsed" data-tool-start="${run.startTime}">${elapsed}s</span>`;
+    }
     return `
       <div class="thinking-row ${escapeHtml(run.status)}"${turnAttr}>
         <span class="thinking-status-dot"></span>
         <span class="thinking-tool">${escapeHtml(run.tool_name)}</span>
         <span class="thinking-preview">${escapeHtml(preview)}</span>
+        ${elapsedHtml}
       </div>`;
   }).join("");
 

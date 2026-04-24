@@ -135,7 +135,9 @@ function handleStreamEvent(event) {
       status: "running",
       result: null,
       error: null,
+      startTime: Date.now(),
     });
+    ensureElapsedTicker();
   } else if (event.type === "tool_result") {
     const tool = state.liveTurn.toolRuns.find(run => run.id === event.tool_run_id);
     if (tool) tool.status = "completed";
@@ -165,6 +167,31 @@ function handleStreamEvent(event) {
     return;
   }
   requestRender();
+}
+
+// Tick any [data-tool-start] spans in the DOM every second so users see
+// elapsed time during long tool calls. A singleton interval self-terminates
+// when no running spans remain — tool_result/tool_failed events flip the
+// row's status and the next render drops the elapsed span.
+let _elapsedTickerHandle = null;
+function tickElapsedDisplays() {
+  const spans = document.querySelectorAll("[data-tool-start]");
+  if (spans.length === 0) {
+    clearInterval(_elapsedTickerHandle);
+    _elapsedTickerHandle = null;
+    return;
+  }
+  const now = Date.now();
+  for (const el of spans) {
+    const start = parseInt(el.dataset.toolStart, 10);
+    if (!Number.isNaN(start)) {
+      el.textContent = `${Math.floor((now - start) / 1000)}s`;
+    }
+  }
+}
+function ensureElapsedTicker() {
+  if (_elapsedTickerHandle) return;
+  _elapsedTickerHandle = setInterval(tickElapsedDisplays, 1000);
 }
 
 async function finishLiveTurn() {

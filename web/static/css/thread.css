@@ -337,6 +337,13 @@
   min-width: 0;
 }
 
+.thinking-elapsed {
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
 .typing-dots {
   display: inline-flex;
   gap: 4px;
