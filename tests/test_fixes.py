@@ -4,6 +4,24 @@ import asyncio
 import json
 import pytest
 
+
+def _skip_if_stats_db_locked():
+    """Skip a test when the stats DuckDB file isn't openable.
+
+    DuckDB refuses cross-process file access even in read-only mode, so
+    if a concurrent NFLVERSE build script holds the lock, every test that
+    opens the real DB hard-fails. Integration tests that legitimately need
+    the DB should call this first — locked-DB becomes a skip with a clear
+    reason instead of a flaky failure.
+    """
+    import duckdb
+    from config import DB_PATH
+    try:
+        duckdb.connect(str(DB_PATH), read_only=True).close()
+    except Exception as exc:
+        pytest.skip(f"stats DB unavailable ({exc.__class__.__name__}) — likely a concurrent build")
+
+
 # ---------------------------------------------------------------------------
 # 1. OFFSET preserved when LIMIT is capped
 # ---------------------------------------------------------------------------
@@ -109,6 +127,7 @@ class TestSandboxIntegration:
 
     def test_parameterized_limit_query_runs(self):
         """LIMIT ? placeholder must execute without SQL syntax error."""
+        _skip_if_stats_db_locked()
         from tools.sandbox import execute_safe_sql
         result = execute_safe_sql(
             "SELECT player_gsis_id FROM players WHERE position = ? LIMIT ?",
@@ -118,6 +137,7 @@ class TestSandboxIntegration:
 
     def test_search_players_tool_works(self):
         """Regression: _search_players must not produce duplicate LIMIT."""
+        _skip_if_stats_db_locked()
         from tools.player_lookup import _search_players
         out = _search_players({"position": "QB", "limit": 3})
         # Result is a JSON string; must not contain a syntax error marker.
@@ -167,6 +187,7 @@ class TestClampLimitParam:
 
     def test_live_integration_clamps_oversized_bound(self):
         """End-to-end: a caller passing LIMIT ? with 999_999 gets 500 rows max."""
+        _skip_if_stats_db_locked()
         from tools.sandbox import execute_safe_sql
         r = execute_safe_sql(
             "SELECT player_gsis_id FROM players WHERE position = ? LIMIT ?",
@@ -445,15 +466,27 @@ class TestCsvExportRegistration:
 
     def test_csv_export_registers_library_row(self, tmp_path, monkeypatch):
         import asyncio
-        from config import EXPORTS_DIR
+        import json
         from storage import RuntimeStore
         from agent.runtime import ChatRuntime
         from agent.turn import Turn
-        from provider.base import BaseLLMClient, Usage, StopReason
+        from tools.sandbox import SQLResult
 
         # Point exports at a tmp dir so we don't pollute the repo.
         tmp_exports = tmp_path / "exports"
         monkeypatch.setattr("tools.create_csv_export.EXPORTS_DIR", tmp_exports)
+
+        # Mock the DuckDB-reading SQL path so this test doesn't depend on
+        # the stats DB being available or unlocked. The test is about the
+        # register_export bridge — it shouldn't flake on concurrent DB builds.
+        def fake_execute_export_sql(sql):
+            return SQLResult(
+                columns=["n", "name"],
+                rows=[{"n": 1, "name": "alice"}, {"n": 2, "name": "bob"}],
+                row_count=2,
+                truncated=False,
+            )
+        monkeypatch.setattr("tools.create_csv_export.execute_export_sql", fake_execute_export_sql)
 
         async def _run():
             store = RuntimeStore(tmp_path / "runtime.sqlite3")
@@ -463,11 +496,11 @@ class TestCsvExportRegistration:
             )
 
             async def execute_tool(name, input_data, *, ctx=None):
-                # Emulate what the real handler returns — but actually exercise
-                # the register_export bridge from a worker thread.
+                # Run the real handler via the real to_thread bridge — that's
+                # the code path we need to exercise to catch the sync→async
+                # register_export bug.
                 from tools.create_csv_export import _create_csv_export
                 result_str = await asyncio.to_thread(_create_csv_export, input_data, ctx)
-                import json
                 result = json.loads(result_str)
                 return {
                     "status": "error" if "error" in result else "completed",
@@ -489,17 +522,16 @@ class TestCsvExportRegistration:
             from provider.base import ToolUseEvent
             await turn.record_tool_call(ToolUseEvent(
                 id="t1", name="create_csv_export",
-                input={
-                    "sql": "SELECT 1 AS n, 'alice' AS name UNION ALL SELECT 2, 'bob'",
-                    "filename": "regression_test_export",
-                },
+                input={"sql": "ignored by the mock", "filename": "regression_test_export"},
             ))
             results = await turn.execute_tools()
 
-            # Tool ran to completion (no "error" in result JSON).
             assert results[0].is_completed, f"tool errored: {results[0].error}"
 
-            # And — the critical assertion — a library row landed.
+            # The critical assertion — a library row landed. Without the
+            # sync→async bridge fix in Turn._execute_one_tool, the async
+            # register_export coroutine is silently dropped and this row
+            # never gets written.
             exports = await store.list_exports()
             assert len(exports) == 1, (
                 "CSV export did not register in the library. "

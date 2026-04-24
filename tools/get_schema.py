@@ -5,6 +5,7 @@ in `schema_metadata.py`.
 """
 
 import json
+import logging
 from pathlib import Path
 
 import duckdb
@@ -16,17 +17,33 @@ from tools.schema_metadata import (
     TABLE_TO_ALIAS,
 )
 
+logger = logging.getLogger(__name__)
+
 
 TABLE_COLUMNS: dict[str, dict[str, str]] = {}
 
 
 def _introspect_db(db_path: Path) -> None:
-    """Read table/column metadata from a DuckDB file via information_schema."""
+    """Read table/column metadata from a DuckDB file via information_schema.
+
+    If the file is missing or locked (e.g. a concurrent build script on
+    the NFLVERSE side holds the lock — DuckDB refuses cross-process
+    access even in read-only mode), log a warning and leave TABLE_COLUMNS
+    empty. Callers degrade gracefully: `get_schema` tool returns "Unknown
+    table" until the lock is released and the process restarts. Matches
+    the resilience pattern in `schema_metadata._load_join_edges_from_db`.
+    """
     if not db_path.exists():
         return
-    conn = None
     try:
         conn = duckdb.connect(str(db_path), read_only=True)
+    except Exception as exc:
+        logger.warning(
+            "Could not open DB for schema introspection (continuing with empty table map): %s",
+            exc,
+        )
+        return
+    try:
         tables = [
             row[0]
             for row in conn.execute(
@@ -48,8 +65,7 @@ def _introspect_db(db_path: Path) -> None:
                 for row in cols
             }
     finally:
-        if conn:
-            conn.close()
+        conn.close()
 
 
 def _init_columns() -> None:
