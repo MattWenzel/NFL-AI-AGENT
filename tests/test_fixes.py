@@ -433,6 +433,84 @@ class TestRuntimeTranscript:
 # ---------------------------------------------------------------------------
 # 5. Tool result pairing in /chat/message now uses tool_run_id
 # ---------------------------------------------------------------------------
+class TestCsvExportRegistration:
+    """Regression guard: the `register_export` ctx callback bridges sync→async correctly.
+
+    `store.register_export` is an async coroutine; the tool handler runs in
+    `asyncio.to_thread`. Without `run_coroutine_threadsafe`, the lambda just
+    returns a coroutine object, the DB row never gets written, and the CSV
+    stays orphaned on disk. This test exercises the full ChatRuntime → Turn →
+    _execute_one_tool path and asserts the library row lands.
+    """
+
+    def test_csv_export_registers_library_row(self, tmp_path, monkeypatch):
+        import asyncio
+        from config import EXPORTS_DIR
+        from storage import RuntimeStore
+        from agent.runtime import ChatRuntime
+        from agent.turn import Turn
+        from provider.base import BaseLLMClient, Usage, StopReason
+
+        # Point exports at a tmp dir so we don't pollute the repo.
+        tmp_exports = tmp_path / "exports"
+        monkeypatch.setattr("tools.create_csv_export.EXPORTS_DIR", tmp_exports)
+
+        async def _run():
+            store = RuntimeStore(tmp_path / "runtime.sqlite3")
+            session = await store.get_or_create_session(
+                None, provider="anthropic", model="claude-sonnet-4-6",
+                context_window=200_000, user_id=None,
+            )
+
+            async def execute_tool(name, input_data, *, ctx=None):
+                # Emulate what the real handler returns — but actually exercise
+                # the register_export bridge from a worker thread.
+                from tools.create_csv_export import _create_csv_export
+                result_str = await asyncio.to_thread(_create_csv_export, input_data, ctx)
+                import json
+                result = json.loads(result_str)
+                return {
+                    "status": "error" if "error" in result else "completed",
+                    "content": result_str,
+                    "error": result.get("error"),
+                    "hint": None,
+                    "duration_ms": 0,
+                }
+
+            turn = Turn(
+                store=store,
+                persistence=ChatRuntime(store).persistence,
+                session=session,
+                execute_tool=execute_tool,
+            )
+            turn.begin_iteration()
+            await turn.open_assistant_turn()
+
+            from provider.base import ToolUseEvent
+            await turn.record_tool_call(ToolUseEvent(
+                id="t1", name="create_csv_export",
+                input={
+                    "sql": "SELECT 1 AS n, 'alice' AS name UNION ALL SELECT 2, 'bob'",
+                    "filename": "regression_test_export",
+                },
+            ))
+            results = await turn.execute_tools()
+
+            # Tool ran to completion (no "error" in result JSON).
+            assert results[0].is_completed, f"tool errored: {results[0].error}"
+
+            # And — the critical assertion — a library row landed.
+            exports = await store.list_exports()
+            assert len(exports) == 1, (
+                "CSV export did not register in the library. "
+                "Check the sync→async bridge in Turn._execute_one_tool's ctx."
+            )
+            assert exports[0].title == "regression_test_export"
+            assert exports[0].row_count == 2
+
+        asyncio.run(_run())
+
+
 class TestToolResultPairing:
     """Test that tool results are paired with the matching tool_run_id."""
 

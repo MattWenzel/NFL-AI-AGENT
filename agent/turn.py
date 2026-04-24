@@ -397,13 +397,26 @@ class Turn:
             tool_run.id,
             tool_run.tool_name,
         )
-        ctx = {
-            "register_export": lambda meta: self._store.register_export(
-                **meta,
-                source_session_id=session_id,
-                source_tool_run_id=tool_run.id,
-            ),
-        }
+        # The handler runs in asyncio.to_thread (a worker thread) but
+        # `store.register_export` is an async coroutine. Bridge via
+        # run_coroutine_threadsafe so the worker thread actually waits on
+        # the registration to complete — without this wrapper the lambda
+        # returns a coroutine object that gets silently discarded, the
+        # DB row never gets written, and the CSV is orphaned on disk.
+        loop = asyncio.get_running_loop()
+
+        def register_export(meta: dict):
+            future = asyncio.run_coroutine_threadsafe(
+                self._store.register_export(
+                    **meta,
+                    source_session_id=session_id,
+                    source_tool_run_id=tool_run.id,
+                ),
+                loop,
+            )
+            return future.result()
+
+        ctx = {"register_export": register_export}
         raw_result = await self._execute_tool(
             tool_run.tool_name, tool_run.input, ctx=ctx
         )
