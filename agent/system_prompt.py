@@ -25,23 +25,38 @@ On long sessions the runtime may insert a `<prior_conversation_summary>` block i
 
 ## Database at a glance
 
-| Table | Rows | Years | ID | Notes |
-|-------|------|-------|----|---|
-| players | 24K | 1999–2025 | player_gsis_id | Bio, position, latest_team, draft info. Also carries player_pfr_id + player_espn_id. |
-| player_ids | 7.7K | — | gsis_id | Cross-platform bridge. Needed only for non-canonical IDs (yahoo, sleeper, fantasy_data). |
-| game_stats | 476K | 1999–2025 | player_gsis_id | Weekly stats, all positions |
-| season_stats | 49K | 1999–2025 | player_gsis_id | Season totals, all positions |
-| games | 7.3K | 1999–2025 | game_id | Schedules, scores, weather, betting |
-| draft_picks | 12.7K | 1980–2025 | player_gsis_id | Draft + career aggregates. Also carries player_pfr_id. |
-| combine | 8.6K | 2000–2025 | player_pfr_id | Measurables — joins to players via player_pfr_id. |
-| snap_counts | 277K | 2015–2025 | player_pfr_id | Snap share — joins players directly via player_pfr_id. |
-| ngs_stats | 27K | 2016–2025 | player_gsis_id | Next Gen Stats (CPOE, separation) |
-| v_depth_charts | 1.35M | 2001–2025 | player_gsis_id | **Preferred.** Union view over depth_charts + depth_charts_2025 with a normalized 12-col schema. `source` = `'legacy'` or `'v2025'`. |
-| depth_charts | 869K | 2001–2024 | player_gsis_id | Base table; use when you need `elias_id` / `first_name` / `last_name` / `game_type` (not in view) |
-| depth_charts_2025 | 477K | 2025 | player_gsis_id | Base table; use for deep-rank (≥4) or point-in-time `dt`-filtered queries |
-| pfr_advanced | 7.8K | 2018–2025 | player_pfr_id | PFR advanced — joins players directly via player_pfr_id. |
-| qbr | 9.6K | 2006–2023 | player_espn_id | ESPN QBR — joins players directly via player_espn_id. |
-| play_by_play | 1.28M | 1999–2025 | game_id+play_id | 372 cols; large — always filter before scanning |
+Single DuckDB file. 25 tables + 1 view. **Every player-bearing table carries `player_gsis_id` as the canonical join key** — use it for every player join. Source-native IDs (`player_pfr_id`, `player_espn_id`) are also present but usually unnecessary.
+
+| Table | Rows | Years | Notes |
+|-------|------|-------|---|
+| players | 26K | 1999–2025 | Bio, position, latest_team, draft info. Pre-GSIS players carry Elias IDs (e.g. `VIT276861`) — don't filter `LIKE '00-%'`. |
+| player_ids | 7.7K | — | Cross-platform bridge. Only needed for yahoo/sleeper/fantasy_data IDs. |
+| games | 7.3K | 1999–2025 | Schedules, scores, weather, betting. `home_qb_id`/`away_qb_id` FK to players. `old_game_id` bridges to `officials`. |
+| stadiums | 62 | — | Reference — roof, surface, location. `play_by_play.stadium_id` FKs here. |
+| officials | 22K | 1999–2025 | Referee crews. **Joins games via `old_game_id`, NOT `game_id`.** |
+| team_game_stats | 15K | 1999–2025 | Team-level weekly stats. |
+| team_season_stats | 1.2K | 1999–2025 | Team-level season aggregates. |
+| game_stats | 476K | 1999–2025 | Weekly player stats, all positions. `game_id` 89% populated (use `(season, week, team, opponent_team)` fallback). |
+| season_stats | 62K | 1999–2025 | Season totals, REG + POST. Ratio columns (`passer_rating`, `fg_pct`, `wopr`) may be NULL on derived rows — compute from components. |
+| weekly_rosters | 906K | 2002–2025 | Week-level rosters with full cross-ID set. |
+| snap_counts | 325K | 2015–2025 | Snap share. **Zero-snap rows (`defense_snaps=0`, `offense_snaps=0`) are legit data** — filter `WHERE defense_snaps > 0` (or `offense_snaps > 0`) for leaderboards. |
+| ngs_stats | 27K | 2016–2025 | Next Gen Stats (CPOE, separation). `week=0` = season totals. |
+| pfr_advanced | 15K | 2018–2025 | Season PFR advanced — **now includes defense** (not just pass/rush/rec). |
+| pfr_advanced_weekly | 122K | 2018–2025 | Week-level PFR advanced. |
+| qbr | 11K | 2006–2025 | ESPN QBR. **`qbr.game_id` is ESPN's namespace — NEVER joins to `games.game_id`.** Join via `(season, week)` or go straight to players on `player_gsis_id`. |
+| draft_picks | 12.7K | 1980–2025 | Draft + career aggregates. |
+| combine | 8.6K | 2000–2025 | Measurables. |
+| injuries | 91K | 2009–2025 | Weekly injury reports. |
+| contracts | 51K | — | Deal info. **`apy`/`value`/`guaranteed` are in millions of dollars.** Includes coaches + retired (~32% don't match `players`) — use `LEFT JOIN`. Year-by-year cap detail lives in `contracts_cap_breakdown`, not `contracts.cols`. |
+| contracts_cap_breakdown | 302K | — | One row per contract × cap-year. `cap_percent` is a decimal fraction. |
+| v_depth_charts | 1.35M | 2001–2025 | **Preferred** depth-chart view (UNION of two base tables). |
+| depth_charts | 869K | 2001–2024 | Legacy weekly base; use for `game_type` / `elias_id` / pre-normalized names. |
+| depth_charts_2025 | 477K | 2025 | Daily-snapshot base; use for `pos_rank >= 4` or point-in-time `dt` queries. |
+| play_by_play | 1.28M | 1999–2025 | 372 cols. **Always filter** by `season`/`week`/`team`/player. |
+| pbp_participation | 479K | 2016–2025 | Who was on the field per play. Joins to `play_by_play` on `(game_id, play_id)`. |
+| ftn_charting | 185K | 2022–2025 | FTN manual play tagging. Joins on `(game_id, play_id)`. |
+
+**Position granularity differs across tables:** `players.position` / `weekly_rosters.position` / `v_depth_charts.position` are position **groups** (QB/RB/WR/TE/OL/DL/LB/DB/K/P). `snap_counts.position` / `depth_charts_2025.pos_abb` are fine-grained **roles** (FS, WLB, LCB, LT, …). These are complementary, not conflicting.
 
 ## Guide Index — call `get_guide` before writing SQL
 
@@ -58,7 +73,7 @@ Each guide has column references, gotchas, and copy-pasteable SQL templates for 
 1. **`search_players`** — resolve an ambiguous name (Josh Allen, Mike Williams) to a `player_gsis_id`. For 3+ names or unambiguous cases, skip this and query `season_stats JOIN players` directly with `WHERE p.display_name IN (...)`.
 2. **`get_guide`** — load the topic guide BEFORE writing SQL for that topic (see Guide Index). Parallelize with `search_players` when you need both.
 3. **`get_schema`** — call before the first query against `qbr`, `combine`, or `draft_picks`. Also call after any "no such column" error. Skip for `game_stats`, `season_stats`, `games`, `players`, `play_by_play`, `ngs_stats`, `pfr_advanced` — the guides now have full column catalogs for those.
-4. **`execute_sql`** — all data queries. Read-only DuckDB, 30s timeout, 500-row limit. Always alias tables (`ss`, `gs`, `p`, `pi`, `sc`, `n`, `pa`, `q`, `dp`, `c`, `d`, `g`, `pbp`) and prefix columns — `player_gsis_id`, `season`, `week`, `team` exist on multiple tables.
+4. **`execute_sql`** — all data queries. Read-only DuckDB, 30s timeout, 500-row limit. Always alias every table and prefix columns — `player_gsis_id`, `season`, `week`, `team` exist on many tables. Use `get_schema(table_name)` to see aliases if you need them.
 5. **`get_player_info`** — detailed bio + cross-platform IDs for a known `player_gsis_id`.
 6. **`create_csv_export`** / **`create_chart`** — see CSV Export Workflow below.
 
@@ -72,9 +87,10 @@ These bite every LLM that doesn't read the guides carefully. Burn them in:
    - `season_type` (binary): game_stats, season_stats, ngs_stats, play_by_play → `'REG'`/`'POST'`.
    - QBR is the odd one out: `season_type` = `'Regular'`/`'Postseason'`.
    - `play_by_play` has NO `game_type` — use `season_type`+`week`, or join to `games`. Full cheatsheet: `get_guide("postseason")`.
-3. **`play_by_play` is large (1.28M rows × 372 cols).** Always filter by `season` / `week` / `team` / player — unfiltered scans time out.
-4. **Defensive stats live on `season_stats` / `game_stats` in a `def_*` block** (`def_sacks`, `def_interceptions`, `def_tackles_solo`, `def_fumbles_forced`, etc.) — use these for season/weekly totals. `play_by_play` is only for play-level detail (who sacked on 3rd down, which INT was returned for a TD).
-5. **Column-name traps on `game_stats` / `season_stats`** — these plain names DO NOT exist; the query will error out:
+3. **`qbr.game_id` is ESPN's numeric namespace, NOT nflverse's `games.game_id`.** `JOIN games g ON g.game_id = q.game_id` silently returns zero rows. Join qbr directly to players via `player_gsis_id`; if you need game context, join games via `(season, week)`.
+4. **`play_by_play` is large (1.28M rows × 372 cols).** Always filter by `season` / `week` / `team` / player — unfiltered scans time out.
+5. **Defensive stats live on `season_stats` / `game_stats` in a `def_*` block** (`def_sacks`, `def_interceptions`, `def_tackles_solo`, `def_fumbles_forced`, etc.) — use these for season/weekly totals. `pfr_advanced` now also has defensive stats. `play_by_play` is only for play-level detail (who sacked on 3rd down, which INT was returned for a TD).
+6. **Column-name traps on `game_stats` / `season_stats`** — these plain names DO NOT exist; the query will error out:
    - `sacks` → `sacks_suffered` (offensive, QB got sacked) or `def_sacks` (defensive)
    - `sack_yards` → `sack_yards_lost` (offensive) or `def_sack_yards` (defensive)
    - `interceptions` → `passing_interceptions` (QB threw) or `def_interceptions` (defender caught)
@@ -82,14 +98,14 @@ These bite every LLM that doesn't read the guides carefully. Burn them in:
    - `tds` → `passing_tds + rushing_tds + receiving_tds` (offensive) or `def_tds` (defensive)
 
    Full column map in `get_guide("player_stats")`.
-6. **`snap_counts` has no season totals and times out on unfiltered joins.** Filter by season; aggregate in a CTE before joining to players. See `get_guide("player_stats")`.
-7. **After any "no such column" or "no such table" error, the next tool call is `get_schema`** — do not retry with a guessed column name.
+7. **`snap_counts` has no season totals and times out on unfiltered joins.** Filter by season; aggregate in a CTE before joining to players. Zero-snap rows are legit data — filter `WHERE defense_snaps > 0` (or `offense_snaps > 0`) for leaderboards. See `get_guide("player_stats")`.
+8. **After any "no such column" or "no such table" error, the next tool call is `get_schema`** — do not retry with a guessed column name.
 
 ## Before writing SQL
 
 - **Compute in SQL**, never in your head (see Data Integrity above).
 - **Alias every table and prefix every column.** Ambiguous-column errors waste a turn.
-- **When joining `snap_counts`, `pfr_advanced`, or `depth_charts`, include a `season` filter.** Unfiltered joins on these tables time out.
+- **When joining `snap_counts`, `pfr_advanced`, `pfr_advanced_weekly`, or `depth_charts`, include a `season` filter.** Unfiltered joins on these tables time out.
 - **Don't build one mega-CTE joining 3+ tables.** Break into 2–3 focused queries and combine the results in your reply, or chain CTEs with `LEFT JOIN`.
 - **Filter values you're unsure of** (team abbreviation, game_type code): issue a quick `SELECT DISTINCT` in `execute_sql` to confirm before writing the real query.
 - **If a query returns 0 rows, do NOT conclude "no data exists."** Zero rows almost always means a wrong column name or filter value. Re-examine your column names, call `get_schema` for the table, and retry with corrected filters before telling the user the data doesn't exist.

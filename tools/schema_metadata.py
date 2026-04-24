@@ -33,21 +33,38 @@ logger = logging.getLogger(__name__)
 
 
 TABLE_ALIASES: dict[str, str] = {
+    # Player + reference
     "p": "players",
+    "pi": "player_ids",
+    "g": "games",
+    "stad": "stadiums",
+    "ofc": "officials",
+    # Player stats (weekly + season)
     "gs": "game_stats",
     "ss": "season_stats",
-    "g": "games",
+    "wr": "weekly_rosters",
     "sc": "snap_counts",
     "ngs": "ngs_stats",
+    "pfr": "pfr_advanced",
+    "pfrw": "pfr_advanced_weekly",
+    "qbr": "qbr",
+    "inj": "injuries",
+    # Team stats
+    "tgs": "team_game_stats",
+    "tss": "team_season_stats",
+    # Depth charts
     "dc": "depth_charts",
     "dc25": "depth_charts_2025",
     "vdc": "v_depth_charts",
-    "pfr": "pfr_advanced",
-    "qbr": "qbr",
+    # Player meta / contracts
     "dp": "draft_picks",
     "c": "combine",
-    "pi": "player_ids",
+    "ct": "contracts",
+    "ccb": "contracts_cap_breakdown",
+    # Play-by-play
     "pbp": "play_by_play",
+    "pbpp": "pbp_participation",
+    "ftn": "ftn_charting",
 }
 
 TABLE_TO_ALIAS: dict[str, str] = {v: k for k, v in TABLE_ALIASES.items()}

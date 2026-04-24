@@ -124,8 +124,8 @@ _ERROR_HINTS = [
     ("not found in any queried table", "Hint: Call get_schema(table_name) to see available columns."),
     ("timed out", "Hint: Add WHERE filters (season, team, or player). For snap_counts, always filter by season."),
     ("no join path", "Hint: players has player_gsis_id / player_pfr_id / player_espn_id — join directly instead of going through player_ids."),
-    ("no such table", "Hint: Valid tables: players, player_ids, game_stats, season_stats, games, draft_picks, combine, snap_counts, ngs_stats, v_depth_charts (cross-era view — preferred), depth_charts, depth_charts_2025, pfr_advanced, qbr, play_by_play."),
-    ("invalid table", "Hint: Valid tables: players, player_ids, game_stats, season_stats, games, draft_picks, combine, snap_counts, ngs_stats, v_depth_charts (cross-era view — preferred), depth_charts, depth_charts_2025, pfr_advanced, qbr, play_by_play."),
+    ("no such table", "Hint: Valid tables: players, player_ids, games, stadiums, officials, team_game_stats, team_season_stats, game_stats, season_stats, weekly_rosters, snap_counts, ngs_stats, pfr_advanced, pfr_advanced_weekly, qbr, draft_picks, combine, injuries, contracts, contracts_cap_breakdown, v_depth_charts (preferred depth-chart view), depth_charts, depth_charts_2025, play_by_play, pbp_participation, ftn_charting."),
+    ("invalid table", "Hint: Valid tables: players, player_ids, games, stadiums, officials, team_game_stats, team_season_stats, game_stats, season_stats, weekly_rosters, snap_counts, ngs_stats, pfr_advanced, pfr_advanced_weekly, qbr, draft_picks, combine, injuries, contracts, contracts_cap_breakdown, v_depth_charts (preferred depth-chart view), depth_charts, depth_charts_2025, play_by_play, pbp_participation, ftn_charting."),
 ]
 
 

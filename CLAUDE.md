@@ -6,31 +6,31 @@ NFL player stats database built from [nflverse](https://github.com/nflverse/nflv
 
 | Database | Size | Tables | Rows | Years |
 |----------|------|--------|------|-------|
-| `nflverse.duckdb` | ~742 MB | 14 | ~3.5M | 1999-2025 |
+| `nflverse.duckdb` | ~1.2 GB | 25 + 1 view | ~5M | 1999-2025 |
 
-Single DuckDB file. Accessed read-only by the chat agent via `tools/sandbox.py` (raw `duckdb.connect(..., read_only=True)`); no ORM involvement.
+Single DuckDB file with **78 FK constraints** enforced at build time. Accessed read-only by the chat agent via `tools/sandbox.py` (raw `duckdb.connect(..., read_only=True)`); no ORM involvement.
 
-**Full schema**: `../NFLVERSE/docs/DATABASE.md` (the NFLVERSE data-pipeline repo lives as a sibling directory; this app consumes the DuckDB file it produces via `DB_PATH` in `.env`).
+**Full schema**: `../NFLVERSE/docs/CONSUMER_GUIDE.md` (short, gotcha-focused) + `../NFLVERSE/docs/DATABASE.md` (full reference). Sibling repo.
 
 ## Key Tables
 
-**Core**: `players`, `player_ids`, `games`, `game_stats`, `season_stats`, `draft_picks`, `combine`
+**Player reference**: `players`, `player_ids`
 
-**Supplementary**: `snap_counts` (2015+), `ngs_stats` (2016+), `pfr_advanced` (2018+), `qbr` (2006-2023)
+**Games / teams / venues**: `games`, `stadiums`, `officials` (joins via `old_game_id`), `team_game_stats`, `team_season_stats`
 
-**Depth charts**: `v_depth_charts` (2001-2025, 1.35M rows — normalized UNION view, **preferred for cross-era queries**). Base tables `depth_charts` (2001-2024) and `depth_charts_2025` (daily grain) remain available for era-specific columns not in the view (`game_type`, `elias_id`, `pos_slot`, etc.).
+**Player stats (weekly + season)**: `game_stats`, `season_stats` (REG + POST), `weekly_rosters` (2002+), `snap_counts` (2015+), `ngs_stats` (2016+), `pfr_advanced` (2018+, now includes defense), `pfr_advanced_weekly` (2018+), `qbr` (2006-2025), `injuries` (2009+)
 
-**Play-by-play**: 1.28M plays in the same DuckDB file — reference as `play_by_play`.
+**Player meta / contracts**: `draft_picks` (1980+), `combine` (2000+), `contracts` (apy in millions of dollars), `contracts_cap_breakdown` (year-by-year cap)
 
-## ID System (post-2026-04-23 normalization)
+**Depth charts**: `v_depth_charts` (preferred — UNION view). Base tables `depth_charts` (2001-2024), `depth_charts_2025` (daily grain).
 
-Three canonical player-ID columns, consistently named across every table that carries one:
+**Play-by-play**: `play_by_play` (1.28M plays, 372 cols), `pbp_participation` (2016+), `ftn_charting` (2022+).
 
-- **`player_gsis_id`** (`00-0033873`) — primary cross-DB key. On `players`, `game_stats`, `season_stats`, `ngs_stats`, `depth_charts`, `depth_charts_2025`, `draft_picks`.
-- **`player_pfr_id`** (`MahoPa00`) — on `players`, `snap_counts`, `pfr_advanced`, `combine`, `draft_picks`.
-- **`player_espn_id`** (`'4480'`, VARCHAR) — on `players`, `depth_charts_2025`, `qbr`. No CAST required anywhere.
+## ID System
 
-`players` carries all three so every supplementary table joins it directly. `player_ids` is the cross-reference for *non-canonical* IDs (yahoo, sleeper, fantasy_data, pff) and uses short names (`gsis_id` / `pfr_id` / `espn_id`) because each row IS an ID mapping.
+Every player-bearing table carries **`player_gsis_id`** as the canonical join key — use it for every player join. Source-native IDs (`player_pfr_id`, `player_espn_id`) are also present on `players` if needed. `player_ids` is the cross-reference for non-canonical IDs (yahoo, sleeper, fantasy_data, pff).
+
+Pre-GSIS historical players use Elias-format IDs (`VIT276861`, `YOU597411`) — deliberate, so draft_picks and HoF queries still join. Don't filter `LIKE '00-%'`.
 
 ## API
 

@@ -14,6 +14,7 @@ GUIDE_TOPICS: tuple[str, ...] = (
     "postseason",
     "player_profile",
     "games",
+    "contracts",
 )
 
 GUIDE_INDEX_ROWS: tuple[tuple[str, str], ...] = (
@@ -24,4 +25,5 @@ GUIDE_INDEX_ROWS: tuple[tuple[str, str], ...] = (
     ("Playoffs, Super Bowls, Wild Card / Divisional / Conference games", 'get_guide({"topic": "postseason"})'),
     ("Player bio, IDs, draft, combine, depth chart", 'get_guide({"topic": "player_profile"})'),
     ("Schedules, game results, weather, betting lines", 'get_guide({"topic": "games"})'),
+    ("Player contracts, salary, APY, cap hits, year-by-year cap breakdown", 'get_guide({"topic": "contracts"})'),
 )

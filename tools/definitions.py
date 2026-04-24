@@ -81,7 +81,7 @@ TOOL_DEFINITIONS = [
             "properties": {
                 "table_name": {
                     "type": "string",
-                    "description": "Table name: players, player_ids, game_stats, season_stats, games, draft_picks, combine, snap_counts, ngs_stats, v_depth_charts (cross-era view — preferred for depth charts), depth_charts, depth_charts_2025, pfr_advanced, qbr, play_by_play",
+                    "description": "Table name. Player/reference: players, player_ids, games, stadiums, officials. Player stats: game_stats, season_stats, weekly_rosters, snap_counts, ngs_stats, pfr_advanced, pfr_advanced_weekly, qbr, injuries. Team stats: team_game_stats, team_season_stats. Player meta: draft_picks, combine, contracts, contracts_cap_breakdown. Depth charts: v_depth_charts (cross-era view — preferred), depth_charts, depth_charts_2025. Play-by-play: play_by_play, pbp_participation, ftn_charting.",
                 },
             },
             "required": ["table_name"],
