@@ -1,7 +1,8 @@
 """Shared types for the chat runtime.
 
-Event variants live in `agent/events.py`; exceptions live in `agent/errors.py`.
-This module holds the contracts and value types consumed by `Turn` and
+Event variants live in `agent/events.py`; `RuntimeLoopError` is defined
+in `agent/turn.py` next to the doom-loop detector that raises it. This
+module holds the contracts and value types consumed by `Turn` and
 `ChatRuntime` — the tool-execution seam and its structured result.
 """
 

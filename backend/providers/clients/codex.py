@@ -6,8 +6,10 @@ provider, this talks to OpenAI's internal Responses API (the one Codex CLI
 uses), not the public Chat Completions endpoint — so the request body,
 streaming event names, and tool-call shape all differ.
 
-Token refresh happens one layer up (in `server/dependencies.py`), so the
-client here only ever sees a live access token string passed as `api_key`.
+Token refresh happens one layer up (in
+`backend/processes/oauth/codex/credentials.py::resolve_access_token`),
+so the client here only ever sees a live access token string passed as
+`api_key`.
 """
 
 from __future__ import annotations

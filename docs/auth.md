@@ -11,7 +11,7 @@ This doc covers the password flow, token scheme, rate limiting, Fernet-encrypted
 - `backend/security/types.py` — `AuthenticatedUser`, OAuth token bundles, identity-provider constants.
 - `backend/security/encryption.py` — Fernet wrapper (`encrypt` / `decrypt`) + `require_configured()` startup check.
 - `backend/security/codex_oauth.py` — ChatGPT device-code OAuth protocol (`request_device_code`, `poll_device_code`, `exchange_code`, `refresh_access_token`). Talks directly to `https://auth.openai.com`.
-- `backend/audit.py` — shared `AuditContext` and `audit_log` helper used by auth and OAuth services.
+- `backend/security/audit.py` — shared `AuditContext` and `audit_log` helper used by auth and OAuth services.
 
 **Services (`backend/processes/`):**
 - `auth/service.py` — `AuthService`: register, login, logout, change_password, delete_account.
@@ -29,7 +29,7 @@ This doc covers the password flow, token scheme, rate limiting, Fernet-encrypted
 - `settings.py` — `/settings/api-keys`, `/settings/oauth/codex/*`, and linked-identity endpoints.
 
 **Storage:**
-- `backend/persistence/users/users.py` — `UsersMixin`: `users`, `auth_sessions`, `user_api_keys` tables + their CRUD.
+- `backend/persistence/users.py` — `UsersMixin` + `UserIdentitiesMixin` + `LoginFailuresMixin` + `EmailVerificationMixin` + `SecurityEventsMixin`: CRUD for `users`, `auth_sessions`, `user_api_keys`, `user_identities`, `login_failures`, `email_verification`, `security_events`.
 - `backend/api/rate_limit.py` — sliding-window IP rate limiter.
 - `backend/api/session.py` — FastAPI request parsing for Bearer tokens plus browser session/CSRF cookie helpers.
 

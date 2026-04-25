@@ -49,7 +49,7 @@ AUTH_SESSION_TOUCH_INTERVAL_SECONDS = int(
 REGISTRATION_INVITE_CODE: str | None = os.environ.get("REGISTRATION_INVITE_CODE") or None
 
 # Per-email login lockout. Layered on top of the per-IP rate limiter in
-# app/bootstrap/rate_limit.py — the IP limit stops one address pounding login,
+# backend/api/rate_limit.py — the IP limit stops one address pounding login,
 # the per-email lockout stops an IP-rotating attacker targeting one account.
 LOGIN_LOCKOUT_MAX_FAILURES = int(os.environ.get("LOGIN_LOCKOUT_MAX_FAILURES", "10"))
 LOGIN_LOCKOUT_WINDOW_SECONDS = int(os.environ.get("LOGIN_LOCKOUT_WINDOW_SECONDS", "900"))
