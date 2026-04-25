@@ -1,12 +1,24 @@
-"""Application service for provider availability."""
+"""Provider process: schemas and application service."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
+from pydantic import BaseModel
+
 from backend.persistence import RuntimeStore
 from backend.providers import list_providers, provider_is_available
-from backend.processes.providers.schemas import ProviderResponse
+
+
+class ProviderResponse(BaseModel):
+    name: str
+    display_name: str
+    models: list[str]
+    default_model: str
+    available: bool
+    context_window: int
+    supports_streaming: bool
+    supports_tools: bool
 
 
 @dataclass

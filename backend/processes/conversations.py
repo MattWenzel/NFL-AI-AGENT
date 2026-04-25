@@ -1,15 +1,56 @@
-"""Application service for conversation APIs."""
+"""Conversation process: schemas, errors, and application service."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from backend.processes.conversations.schemas import (
-    ConversationInfo,
-    ConversationTranscriptResponse,
+from pydantic import BaseModel, Field
+
+from backend.persistence import (
+    AssistantPartRecord,
+    CompactionSummaryRecord,
+    RuntimeStore,
+    SessionListEntry,
+    SessionTranscript,
+    ToolRunRecord,
+    TurnRecord,
 )
-from backend.processes.conversations.errors import ConversationNotFoundError
-from backend.persistence import RuntimeStore, SessionListEntry, SessionTranscript
+
+
+class ConversationServiceError(Exception):
+    pass
+
+
+class ConversationNotFoundError(ConversationServiceError):
+    pass
+
+
+class ConversationInfo(BaseModel):
+    id: str
+    message_count: int
+    title: str
+    provider: str | None = None
+    model: str | None = None
+    updated_at: str | None = None
+    pinned_at: str | None = None
+    source_csv_id: str | None = None
+
+
+class ConversationUpdate(BaseModel):
+    title: str | None = Field(None, min_length=1, max_length=200, description="New conversation title")
+    pinned: bool | None = Field(None, description="Pin or unpin this conversation")
+
+
+class ConversationTranscriptResponse(BaseModel):
+    session_id: str
+    title: str | None = None
+    provider: str | None = None
+    model: str | None = None
+    updated_at: str | None = None
+    turns: list[TurnRecord]
+    parts: list[AssistantPartRecord]
+    tool_runs: list[ToolRunRecord]
+    summaries: list[CompactionSummaryRecord]
 
 
 def _conversation_info_from_row(item: SessionListEntry) -> ConversationInfo:
@@ -86,9 +127,6 @@ class ConversationService:
             user_id=user_id,
         )
         if entry is None:
-            # Session existed when we read it at the top, so None here means
-            # a concurrent delete landed between our mutation and the re-read.
-            # Surface it honestly rather than returning stale synthesized data.
             raise ConversationNotFoundError("Conversation not found")
         return _conversation_info_from_row(entry)
 

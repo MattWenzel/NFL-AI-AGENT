@@ -1,10 +1,12 @@
-"""Application service for chat request orchestration."""
+"""Chat process: schemas, errors, DTOs, and application service."""
 
 from __future__ import annotations
 
-from typing import AsyncGenerator
+from dataclasses import dataclass
+from typing import AsyncGenerator, Literal
 
-from backend.security.types import AuthenticatedUser
+from pydantic import BaseModel, Field
+
 from backend.agent.events import (
     RuntimeErrorEvent,
     RuntimeEvent,
@@ -13,26 +15,75 @@ from backend.agent.events import (
     ToolFailedEvent,
     ToolPendingEvent,
 )
-from backend.providers.base import BaseLLMClient
-from backend.providers.errors import LLMError
 from backend.agent.runtime import ChatRuntime
+from backend.persistence import RuntimeStore, SessionRecord
+from backend.processes.oauth.credentials import ProviderCredentialService
+from backend.processes.oauth.errors import CredentialServiceError
 from backend.providers import (
     create_client,
     get_default_provider,
     get_provider,
     provider_is_available,
 )
-from backend.persistence import RuntimeStore
-from backend.processes.chat.schemas import ChatRequest, ChatResponse, ToolCallPreview
-from backend.processes.oauth.credentials import ProviderCredentialService
-from backend.processes.chat.errors import (
-    ChatConfigurationError,
-    ChatNotFoundError,
-    ChatServiceError,
-)
-from backend.processes.chat.types import PreparedChat, ToolCallLogEntry
-from backend.processes.oauth.errors import CredentialServiceError
+from backend.providers.base import BaseLLMClient
+from backend.providers.errors import LLMError
 from backend.runtime_state import PerUserLockRegistry
+from backend.security.types import AuthenticatedUser
+
+
+class ChatServiceError(Exception):
+    """Base class for application-service chat failures."""
+
+
+class ChatNotFoundError(ChatServiceError):
+    """The referenced conversation does not exist for the caller."""
+
+
+class ChatConfigurationError(ChatServiceError):
+    """Provider, credential, or model selection failed."""
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=10000, description="User message")
+    conversation_id: str | None = Field(None, description="Existing conversation ID (omit to create new)")
+    provider: str | None = Field(None, description="LLM provider (anthropic, openai)")
+    model: str | None = Field(None, description="Model name override")
+    tool_choice: Literal["auto", "required", "none"] | None = Field(
+        None,
+        description=(
+            "Tool-use control for this turn: 'auto' (default — model chooses), "
+            "'required' (force a tool call), 'none' (text only). Omit or null "
+            "to use the model's default behavior."
+        ),
+    )
+
+
+class ToolCallPreview(BaseModel):
+    tool: str
+    input: dict
+    result_preview: str
+
+
+class ChatResponse(BaseModel):
+    conversation_id: str
+    response: str
+    tool_calls: list[ToolCallPreview] = Field(default_factory=list)
+    truncated: bool = Field(False, description="True when the agent hit its iteration limit")
+
+
+@dataclass
+class PreparedChat:
+    client: BaseLLMClient
+    provider_name: str
+    session: SessionRecord
+
+
+@dataclass
+class ToolCallLogEntry:
+    tool_run_id: str
+    tool: str
+    input: dict
+    result_preview: str = ""
 
 
 async def close_client(client: BaseLLMClient) -> None:
@@ -115,15 +166,7 @@ class ChatService:
         *,
         tools,
     ) -> AsyncGenerator[RuntimeEvent, None]:
-        """Return the runtime event source for a prepared chat turn.
-
-        Wraps `ChatRuntime.run_session` so route code can drive the stream
-        without knowing the service holds a runtime. The return type is an
-        async generator — callers can both iterate and `aclose()` to force
-        the runtime's `finally` block (releases the session lock, reconciles
-        pending tool runs) rather than waiting on GC. Callers also own
-        closing `prepared.client`.
-        """
+        """Return the runtime event source for a prepared chat turn."""
         return self.runtime.run_session(
             prepared.session,
             body.message,

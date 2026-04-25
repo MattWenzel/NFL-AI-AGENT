@@ -15,33 +15,33 @@ from backend.api.dependencies import (
 )
 from backend.api.request_context import audit_from_request, client_ip
 from backend.api.process_state import AppProcessState
-from backend.processes.settings.schemas import (
+from backend.processes.settings import (
     ApiKeyStatus,
     ApiKeyUpdate,
     IdentitySummaryResponse,
     LinkGoogleStartResponse,
 )
-from backend.processes.oauth.codex.errors import (
+from backend.processes.oauth.codex import (
     CodexOAuthUnknownFlowError,
     CodexOAuthUpstreamError,
 )
-from backend.processes.oauth.codex.schemas import (
+from backend.processes.oauth.codex import (
     CodexOAuthStartResponse,
     CodexOAuthStatusResponse,
 )
-from backend.processes.oauth.codex.service import CodexOAuthService
-from backend.processes.oauth.google.errors import (
+from backend.processes.oauth.codex import CodexOAuthService
+from backend.processes.oauth.google import (
     GoogleOAuthDisabledError,
     GoogleOAuthLastIdentityError,
     GoogleOAuthLinkConflictError,
     GoogleOAuthServiceError,
 )
-from backend.processes.settings.errors import (
+from backend.processes.settings import (
     SettingsNotFoundError,
     SettingsServiceError,
 )
-from backend.processes.oauth.google.service import GoogleOAuthService
-from backend.processes.settings.service import SettingsService
+from backend.processes.oauth.google import GoogleOAuthService
+from backend.processes.settings import SettingsService
 
 # CSRF applies to mutating routes on this router; the GET /api-keys listing
 # is safe. Wiring at router level avoids per-route Depends sprawl.

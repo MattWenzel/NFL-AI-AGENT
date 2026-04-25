@@ -5,9 +5,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from backend.security.types import AuthenticatedUser
 from backend.api.csrf import verify_csrf
 from backend.api.dependencies import get_conversation_service, get_current_user
-from backend.processes.conversations.schemas import ConversationInfo, ConversationTranscriptResponse, ConversationUpdate
-from backend.processes.conversations.service import ConversationService
-from backend.processes.conversations.errors import ConversationNotFoundError
+from backend.processes.conversations import ConversationInfo, ConversationTranscriptResponse, ConversationUpdate
+from backend.processes.conversations import ConversationService
+from backend.processes.conversations import ConversationNotFoundError
 
 # CSRF dep skips GET/HEAD/OPTIONS internally, so the list + transcript
 # endpoints are unaffected; the PATCH + DELETE routes get protection.

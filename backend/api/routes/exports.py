@@ -5,15 +5,15 @@ from fastapi.responses import FileResponse
 
 from backend.api.csrf import verify_csrf
 from backend.api.dependencies import get_current_user, get_export_service
-from backend.processes.exports.schemas import (
+from backend.processes.exports import (
     ExportDetail,
     ExportInfo,
     ExportUpdate,
     NewSessionFromExportRequest,
     NewSessionFromExportResponse,
 )
-from backend.processes.exports.errors import ExportNotFoundError, ExportServiceError
-from backend.processes.exports.service import ExportService
+from backend.processes.exports import ExportNotFoundError, ExportServiceError
+from backend.processes.exports import ExportService
 from backend.security.types import AuthenticatedUser
 
 router = APIRouter(prefix="/chat/exports", tags=["csv-library"], dependencies=[Depends(verify_csrf)])

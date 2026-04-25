@@ -1,1 +1,0 @@
-"""Codex OAuth application services."""

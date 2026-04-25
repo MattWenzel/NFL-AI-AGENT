@@ -1,4 +1,4 @@
-"""Application service for settings."""
+"""Settings process: schemas, errors, and application service."""
 
 from __future__ import annotations
 
@@ -6,13 +6,53 @@ import json
 import logging
 from dataclasses import dataclass
 
-from backend.security import codex_oauth, encryption
-from backend.providers import ProviderInfo, get_provider, list_providers
-from backend.processes.settings.schemas import ApiKeyStatus
-from backend.processes.settings.errors import SettingsNotFoundError, SettingsServiceError
+from pydantic import BaseModel, Field
+
 from backend.persistence import AuditEvent, RuntimeStore
+from backend.providers import ProviderInfo, get_provider, list_providers
+from backend.security import codex_oauth, encryption
 
 logger = logging.getLogger(__name__)
+
+
+class SettingsServiceError(Exception):
+    pass
+
+
+class SettingsNotFoundError(SettingsServiceError):
+    pass
+
+
+class ApiKeyStatus(BaseModel):
+    provider: str
+    display_name: str
+    has_key: bool
+    updated_at: str | None = None
+    # OAuth-only fields — populated for providers with credential_shape="codex_oauth".
+    # `email` surfaces which ChatGPT account is linked; `credential_shape` lets the
+    # Settings UI pick the right input type without hard-coding provider names.
+    credential_shape: str = "api_key"
+    email: str | None = None
+    expires_at: int | None = Field(None, description="Epoch ms; OAuth tokens only")
+
+
+class ApiKeyUpdate(BaseModel):
+    api_key: str | None = Field(None, description="Plaintext key to store (null to delete)")
+
+
+class IdentitySummaryResponse(BaseModel):
+    """Per-identity row shown in Settings -> Account -> Linked identities."""
+
+    provider: str
+    display: str
+    linked_at: str
+    removable: bool
+
+
+class LinkGoogleStartResponse(BaseModel):
+    """Response from POST /settings/identities/google/link."""
+
+    auth_url: str
 
 
 @dataclass
@@ -73,9 +113,6 @@ class SettingsService:
         if raw is None or raw == "":
             removed = await self.store.delete_api_key(user_id=user_id, provider=provider)
             if removed:
-                # Codex uses OAuth credentials in the same column; distinguish
-                # its clear event so OAuth and API-key audits can be counted
-                # separately and Google OAuth will fit the same schema.
                 event_type = (
                     AuditEvent.OAUTH_UNLINKED
                     if info.credential_shape == "codex_oauth"

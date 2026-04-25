@@ -1,4 +1,4 @@
-"""Application service for CSV export library APIs."""
+"""CSV export process: schemas, errors, and application service."""
 
 from __future__ import annotations
 
@@ -8,20 +8,56 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from pydantic import BaseModel, Field
+
 from backend.config import EXPORTS_DIR
-from backend.providers import get_default_provider, get_provider
-from backend.processes.exports.schemas import (
-    ExportDetail,
-    ExportInfo,
-    NewSessionFromExportResponse,
-)
-from backend.processes.exports.errors import ExportNotFoundError, ExportServiceError
 from backend.persistence import RuntimeStore
+from backend.providers import get_default_provider, get_provider
 
 logger = logging.getLogger(__name__)
 
 PREVIEW_ROW_LIMIT = 50
 _SAFE_FILENAME = re.compile(r"^[a-zA-Z0-9_\-]+\.csv$")
+
+
+class ExportServiceError(Exception):
+    pass
+
+
+class ExportNotFoundError(ExportServiceError):
+    pass
+
+
+class ExportInfo(BaseModel):
+    id: str
+    filename: str
+    title: str
+    row_count: int
+    columns: list[str]
+    file_size: int
+    created_at: str
+    updated_at: str
+    download_url: str
+    source_session_id: str | None = None
+
+
+class ExportDetail(ExportInfo):
+    sql: str
+    preview_rows: list[dict]
+    preview_truncated: bool
+
+
+class ExportUpdate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+
+
+class NewSessionFromExportRequest(BaseModel):
+    provider: str | None = Field(None, description="LLM provider for the new session")
+    model: str | None = Field(None, description="Model override for the new session")
+
+
+class NewSessionFromExportResponse(BaseModel):
+    conversation_id: str
 
 
 @dataclass
