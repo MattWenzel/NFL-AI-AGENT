@@ -20,7 +20,7 @@ from backend.server.session import (
     rotate_csrf_cookie,
     set_auth_cookies,
 )
-from backend.lib.credentials.types import AuthenticatedUser
+from backend.lib.auth.types import AuthenticatedUser
 from backend.config import EMAIL_VERIFICATION_REQUIRED
 from backend.server.csrf import verify_csrf
 from backend.server.dependencies import (

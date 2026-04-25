@@ -19,8 +19,8 @@ from urllib.parse import urlencode
 
 import httpx
 
-from backend.lib.credentials.errors import CodexOAuthError, DeviceCodeExpired
-from backend.lib.credentials.types import DeviceCodeAuthorized, DeviceCodeStart, TokenBundle
+from backend.lib.auth.errors import CodexOAuthError, DeviceCodeExpired
+from backend.lib.auth.types import DeviceCodeAuthorized, DeviceCodeStart, TokenBundle
 
 logger = logging.getLogger(__name__)
 

@@ -20,18 +20,26 @@ import logging
 import secrets
 from dataclasses import dataclass
 
-from backend.lib.credentials import google_oauth
-from backend.lib.credentials.errors import GoogleOAuthError
-from backend.lib.credentials.types import GOOGLE, OAUTH_ONLY_SENTINEL_HASH, PASSWORD, GoogleIdentity
+from backend.lib.auth import google_oauth
+from backend.lib.auth.errors import GoogleOAuthError
+from backend.lib.auth.types import GOOGLE, OAUTH_ONLY_SENTINEL_HASH, PASSWORD, GoogleIdentity
 from backend.config import (
     GOOGLE_OAUTH_CLIENT_ID,
     GOOGLE_OAUTH_CLIENT_SECRET,
     google_oauth_enabled,
     google_oauth_redirect_uri,
 )
-from backend.lib.credentials.audit import AuditContext, audit_log
+from backend.lib.auth.audit import AuditContext, audit_log
 from backend.features.auth.errors import AuthConflictError
-from backend.features.auth.lifecycle import IdentitySeed, create_user_account, issue_session
+from backend.features.oauth.google.errors import (
+    GoogleOAuthDisabledError,
+    GoogleOAuthEmailUnverifiedError,
+    GoogleOAuthInvalidStateError,
+    GoogleOAuthLastIdentityError,
+    GoogleOAuthLinkConflictError,
+    GoogleOAuthServiceError,
+)
+from backend.lib.auth.lifecycle import IdentitySeed, create_user_account, issue_session
 from backend.features.oauth.google.types import (
     IdentitySummary,
     LinkOutcome,
@@ -41,30 +49,6 @@ from backend.lib.storage import AuditEvent, IdentityConflictError, RuntimeStore
 from backend.runtime_state import PendingGoogleOAuthFlows
 
 logger = logging.getLogger(__name__)
-
-
-class GoogleOAuthServiceError(Exception):
-    """Base class for Google OAuth flow failures."""
-
-
-class GoogleOAuthDisabledError(GoogleOAuthServiceError):
-    pass
-
-
-class GoogleOAuthInvalidStateError(GoogleOAuthServiceError):
-    pass
-
-
-class GoogleOAuthEmailUnverifiedError(GoogleOAuthServiceError):
-    pass
-
-
-class GoogleOAuthLinkConflictError(GoogleOAuthServiceError):
-    """Raised when the Google identity is already linked to a different user."""
-
-
-class GoogleOAuthLastIdentityError(GoogleOAuthServiceError):
-    """Raised when unlinking would leave the user with no login method."""
 
 
 @dataclass

@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from urllib.parse import urlencode
 
-from backend.lib.credentials.errors import EmailError
+from backend.lib.auth.errors import EmailError
 from backend.config import APP_BASE_URL, EMAIL_FROM_ADDRESS, RESEND_API_KEY
 
 logger = logging.getLogger(__name__)

@@ -7,7 +7,7 @@ import os
 from fastapi import FastAPI
 
 from backend.lib.agent.runtime import ChatRuntime
-from backend.lib.credentials import encryption
+from backend.lib.auth import encryption
 from backend.config import (
     ALLOWED_ORIGINS,
     APP_BASE_URL,
@@ -19,7 +19,7 @@ from backend.config import (
     format_file_size,
     google_oauth_enabled,
 )
-from backend.lib.credentials.types import OAUTH_ONLY_SENTINEL_HASH, PASSWORD
+from backend.lib.auth.types import OAUTH_ONLY_SENTINEL_HASH, PASSWORD
 from backend.lib.providers import list_providers
 from backend.server.process_state import AppProcessState
 from backend.lib.storage import IdentityConflictError, RuntimeStore

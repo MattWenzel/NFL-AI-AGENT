@@ -19,19 +19,19 @@ from dataclasses import dataclass
 import pytest
 from cryptography.fernet import Fernet
 
-from backend.lib.credentials import google_oauth as google_oauth_module
-from backend.lib.credentials import encryption
-from backend.lib.credentials.primitives import verify_password
+from backend.lib.auth import google_oauth as google_oauth_module
+from backend.lib.auth import encryption
+from backend.lib.auth.primitives import verify_password
 from backend.features.auth import service as auth_service_module
 from backend.features.auth.service import AuthService
-from backend.features.oauth.google.service import (
+from backend.features.oauth.google.errors import (
     GoogleOAuthEmailUnverifiedError,
     GoogleOAuthInvalidStateError,
     GoogleOAuthLastIdentityError,
     GoogleOAuthLinkConflictError,
-    GoogleOAuthService,
 )
-from backend.lib.credentials.audit import AuditContext
+from backend.features.oauth.google.service import GoogleOAuthService
+from backend.lib.auth.audit import AuditContext
 from backend.features.oauth.google.types import LinkOutcome, SignInOutcome
 from backend.lib.storage import RuntimeStore
 from backend.runtime_state import PendingGoogleOAuthFlows

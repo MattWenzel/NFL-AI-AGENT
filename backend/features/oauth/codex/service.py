@@ -7,8 +7,8 @@ import logging
 import uuid
 from dataclasses import dataclass
 
-from backend.lib.credentials import codex_oauth, encryption
-from backend.lib.credentials.errors import CodexOAuthError, DeviceCodeExpired
+from backend.lib.auth import codex_oauth, encryption
+from backend.lib.auth.errors import CodexOAuthError, DeviceCodeExpired
 from backend.lib.providers.types import CODEX
 from backend.features.oauth.codex.schemas import CodexOAuthStartResponse, CodexOAuthStatusResponse
 from backend.lib.storage import AuditEvent, RuntimeStore

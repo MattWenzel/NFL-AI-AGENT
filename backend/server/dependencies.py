@@ -8,7 +8,7 @@ from fastapi import Depends, HTTPException, Request, status
 
 from backend.lib.agent.runtime import ChatRuntime
 from backend.server.session import _extract_session_token
-from backend.lib.credentials.types import AuthenticatedUser
+from backend.lib.auth.types import AuthenticatedUser
 from backend.config import AUTH_SESSION_TOUCH_INTERVAL_SECONDS, EXPORTS_DIR
 from backend.server.process_state import AppProcessState
 from backend.features.auth.service import AuthService

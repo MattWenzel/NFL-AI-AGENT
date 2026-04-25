@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import AsyncGenerator
 
-from backend.lib.credentials.types import AuthenticatedUser
+from backend.lib.auth.types import AuthenticatedUser
 from backend.lib.agent.events import (
     RuntimeErrorEvent,
     RuntimeEvent,
@@ -24,7 +24,7 @@ from backend.lib.providers import (
 )
 from backend.lib.storage import RuntimeStore
 from backend.features.chat.schemas import ChatRequest, ChatResponse, ToolCallPreview
-from backend.features.oauth.credentials import (
+from backend.features.oauth.provider_credentials import (
     CredentialServiceError,
     ProviderCredentialService,
 )

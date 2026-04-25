@@ -8,8 +8,8 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from backend.lib.agent.events import TextDeltaEvent
-from backend.lib.credentials import encryption
-from backend.lib.credentials.types import AuthenticatedUser
+from backend.lib.auth import encryption
+from backend.lib.auth.types import AuthenticatedUser
 from backend.server.dependencies import get_chat_service, get_current_user
 from backend.server.process_state import AppProcessState
 from backend.features.chat.schemas import ChatResponse

@@ -19,7 +19,7 @@ import pytest
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
-from backend.lib.credentials import encryption
+from backend.lib.auth import encryption
 from backend.server.app import create_app
 from backend.features.auth import service as auth_service_module
 from backend.lib.storage import RuntimeStore

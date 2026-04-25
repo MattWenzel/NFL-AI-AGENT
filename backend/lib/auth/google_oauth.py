@@ -28,8 +28,8 @@ import httpx
 from joserfc import jwt
 from joserfc.jwk import KeySet
 
-from backend.lib.credentials.errors import GoogleOAuthError
-from backend.lib.credentials.types import GoogleIdentity
+from backend.lib.auth.errors import GoogleOAuthError
+from backend.lib.auth.types import GoogleIdentity
 
 logger = logging.getLogger(__name__)
 

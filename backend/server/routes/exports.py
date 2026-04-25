@@ -14,7 +14,7 @@ from backend.features.exports import (
 )
 from backend.features.exports import ExportNotFoundError, ExportServiceError
 from backend.features.exports import ExportService
-from backend.lib.credentials.types import AuthenticatedUser
+from backend.lib.auth.types import AuthenticatedUser
 
 router = APIRouter(prefix="/chat/exports", tags=["csv-library"], dependencies=[Depends(verify_csrf)])
 download_router = APIRouter(tags=["exports"])

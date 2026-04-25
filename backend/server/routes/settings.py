@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
-from backend.lib.credentials.types import GOOGLE, AuthenticatedUser
+from backend.lib.auth.types import GOOGLE, AuthenticatedUser
 from backend.server.csrf import verify_csrf
 from backend.server.dependencies import (
     get_codex_oauth_service,
@@ -30,7 +30,7 @@ from backend.features.oauth.codex.service import (
     CodexOAuthUnknownFlowError,
     CodexOAuthUpstreamError,
 )
-from backend.features.oauth.google.service import (
+from backend.features.oauth.google.errors import (
     GoogleOAuthDisabledError,
     GoogleOAuthLastIdentityError,
     GoogleOAuthLinkConflictError,

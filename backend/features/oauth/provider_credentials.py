@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from backend.lib.credentials import encryption
+from backend.lib.auth import encryption
 from backend.features.oauth.codex.credentials import (
     CodexCredentialError,
     resolve_access_token as resolve_codex_access_token,

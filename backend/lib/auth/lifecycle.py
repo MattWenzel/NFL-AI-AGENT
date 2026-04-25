@@ -10,7 +10,7 @@ from backend.config import AUTH_TOKEN_TTL_DAYS
 from backend.lib.storage import RuntimeStore
 from backend.features.auth.errors import AuthConflictError
 from backend.features.auth.types import IssuedSession
-from backend.lib.credentials.primitives import generate_token
+from backend.lib.auth.primitives import generate_token
 
 logger = logging.getLogger(__name__)
 

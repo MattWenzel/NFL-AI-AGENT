@@ -2,7 +2,7 @@
 
 from fastapi import Request
 
-from backend.lib.credentials.audit import AuditContext
+from backend.lib.auth.audit import AuditContext
 
 
 def client_ip(request: Request) -> str | None:

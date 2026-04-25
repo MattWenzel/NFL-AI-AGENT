@@ -9,9 +9,9 @@ from __future__ import annotations
 import json
 import logging
 
-from backend.lib.credentials import codex_oauth, encryption
-from backend.lib.credentials.errors import CodexOAuthError
-from backend.lib.credentials.types import TokenBundle
+from backend.lib.auth import codex_oauth, encryption
+from backend.lib.auth.errors import CodexOAuthError
+from backend.lib.auth.types import TokenBundle
 from backend.lib.storage import RuntimeStore
 from backend.runtime_state import PerUserLockRegistry
 

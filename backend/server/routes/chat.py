@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from backend.lib.tools import TOOLS
-from backend.lib.credentials.types import AuthenticatedUser
+from backend.lib.auth.types import AuthenticatedUser
 from backend.server.csrf import verify_csrf
 from backend.server.dependencies import get_chat_service, get_current_user, get_process_state
 from backend.server.process_state import AppProcessState

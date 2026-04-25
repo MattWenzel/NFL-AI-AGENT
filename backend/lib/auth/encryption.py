@@ -14,7 +14,7 @@ import os
 
 from cryptography.fernet import Fernet, InvalidToken
 
-from backend.lib.credentials.errors import ENV_KEY, EncryptionKeyInvalid, EncryptionKeyMissing
+from backend.lib.auth.errors import ENV_KEY, EncryptionKeyInvalid, EncryptionKeyMissing
 
 _fernet: Fernet | None = None
 

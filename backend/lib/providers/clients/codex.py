@@ -24,8 +24,8 @@ from typing import AsyncIterator
 
 import httpx
 
-from backend.lib.credentials.codex_oauth import decode_account_id
-from backend.lib.credentials.errors import CodexOAuthError
+from backend.lib.auth.codex_oauth import decode_account_id
+from backend.lib.auth.errors import CodexOAuthError
 from backend.lib.providers.base import BaseLLMClient
 from backend.lib.providers.errors import ContextOverflowError, LLMError, RetryableError
 from backend.lib.providers.overflow import is_context_overflow

@@ -10,9 +10,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from backend.lib.credentials import email as email_sender
-from backend.lib.credentials.primitives import hash_password, verify_password
-from backend.lib.credentials.types import AuthenticatedUser
+from backend.lib.auth import email as email_sender
+from backend.lib.auth.primitives import hash_password, verify_password
+from backend.lib.auth.types import AuthenticatedUser
 from backend.config import (
     EMAIL_VERIFICATION_REQUIRED,
     LOGIN_LOCKOUT_DURATION_SECONDS,
@@ -35,9 +35,9 @@ from backend.features.auth.errors import (
     AuthServiceError,
     AuthValidationError,
 )
-from backend.lib.credentials.types import PASSWORD
-from backend.lib.credentials.audit import AuditContext, audit_log
-from backend.features.auth.lifecycle import IdentitySeed, create_user_account, issue_session
+from backend.lib.auth.types import PASSWORD
+from backend.lib.auth.audit import AuditContext, audit_log
+from backend.lib.auth.lifecycle import IdentitySeed, create_user_account, issue_session
 from backend.features.auth.types import IssuedSession, RegistrationResult
 from backend.lib.storage import AuditEvent, RuntimeStore
 
