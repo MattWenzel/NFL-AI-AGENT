@@ -1,6 +1,6 @@
 # Deployment
 
-The app is single-origin: FastAPI serves the UI (`GET /` → `web/index.html`, static assets at `/static/*`) and the API. One process, one domain. **TLS is mandatory** — passwords, bearer tokens, and user API keys all move over the wire; without HTTPS they leak.
+The app is single-origin: FastAPI serves the UI (`GET /` → `frontend/index.html`, static assets at `/static/*`) and the API. One process, one domain. **TLS is mandatory** — passwords, bearer tokens, and user API keys all move over the wire; without HTTPS they leak.
 
 Two documented paths: **Fly.io** (recommended, minimal ops overhead, TLS + volumes built-in) and **self-hosted VPS with Caddy** (more DIY, more control).
 
@@ -131,7 +131,7 @@ REGISTRATION_INVITE_CODE=<a secret>       # optional; open signup if unset
 ### Run
 
 ```bash
-uvicorn app.main:app \
+uvicorn backend.app.main:app \
     --host 127.0.0.1 --port 8001 \
     --proxy-headers --forwarded-allow-ips 127.0.0.1
 ```
@@ -164,7 +164,7 @@ After=network.target
 User=nflverse
 WorkingDirectory=/srv/nflverse
 EnvironmentFile=/srv/nflverse/.env
-ExecStart=/srv/nflverse/.venv/bin/uvicorn app.main:app \
+ExecStart=/srv/nflverse/.venv/bin/uvicorn backend.app.main:app \
     --host 127.0.0.1 --port 8001 \
     --proxy-headers --forwarded-allow-ips 127.0.0.1
 Restart=on-failure

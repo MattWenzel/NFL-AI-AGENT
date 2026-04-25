@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from core.providers.tool_calls import build_tool_use_event, emit_accumulated_tool_calls
+from backend.core.providers.tool_calls import build_tool_use_event, emit_accumulated_tool_calls
 
 
 def test_build_tool_use_event_parses_valid_json():

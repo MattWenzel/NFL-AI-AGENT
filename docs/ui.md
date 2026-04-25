@@ -1,35 +1,29 @@
 # UI
 
-A zero-framework browser app. Vanilla JavaScript, a handful of globals, one module-less `<script>` tag per file. Everything lives under `web/` and mounts into the single `web/index.html` shell. No build step, no bundler, no npm.
+A zero-framework browser app. Vanilla JavaScript modules, a handful of globals, and a single `<script type="module">` entrypoint. Everything lives under `frontend/` and mounts into the single `frontend/index.html` shell. No build step, no bundler, no npm.
 
 This doc covers the boot flow, state shape, SSE consumption, the `patchLiveText` performance trick, settings/auth plumbing, and cross-tab sync.
 
 ## File map
 
-- `web/index.html` — entry point. One file, loaded at `/`.
-- `web/static/js/main.js` — boot + event wiring.
-- `web/static/js/state.js` — the single global `state` object.
-- `web/static/js/render-dispatch.js` — `registerRenderHook(fn)` + `requestRender()`: the single render trigger used throughout the app, coalescing multiple state mutations in a tick into one DOM update.
-- `web/static/js/render.js` — the `render()` function itself; thin, delegates to sub-renderers.
-- `web/static/js/auth.js` — token storage, `/auth/status` boot, login/register screens.
-- `web/static/js/streaming.js` — SSE consumption and the live-turn state machine.
-- `web/static/js/api.js` — fetch wrappers.
-- `web/static/js/thread.js` — render the transcript into the main column (largest file).
-- `web/static/js/sidebar.js` — conversation + CSV list rendering.
-- `web/static/js/navigation.js` — sidebar tab switching (chats / csvs).
-- `web/static/js/inspector.js` — right-side inspector panel (tool runs, compaction info).
-- `web/static/js/settings.js` — settings modal + Codex OAuth device-code flow UI.
-- `web/static/js/charts.js` — Chart.js bindings for `create_chart` output.
-- `web/static/js/csv.js` — CSV library tab.
-- `web/static/js/confirm.js` — small confirm dialog.
-- `web/static/js/utils.js` — helpers: `escapeHtml`, `renderMarkdown`, etc.
-- `web/static/css/*.css` — split by pane (`theme`, `layout`, `sidebar`, `thread`, `composer`, `inspector`, `settings`, `csv`, etc.).
+- `frontend/index.html` — HTML shell, static CSS links, and `static/js/app/main.js`.
+- `frontend/static/js/app/` — boot, event wiring, and the top-level render orchestrator.
+- `frontend/static/js/core/` — shared state, fetch helpers, render dispatch, markdown/DOM utilities, Chart.js lifecycle.
+- `frontend/static/js/processes/auth/` — token/session state, `/auth/status` boot, login/register screens.
+- `frontend/static/js/processes/chat/` — composer controls, SSE streaming, transcript rendering, live-turn fast path.
+- `frontend/static/js/processes/conversations/` — conversation sidebar list and selection/deletion flows.
+- `frontend/static/js/processes/exports/` — CSV/report list, preview, rename/delete, download, seed-new-chat flows.
+- `frontend/static/js/processes/inspector/` — runtime inspector panel.
+- `frontend/static/js/processes/navigation/` — sidebar tab switching and drawer state.
+- `frontend/static/js/processes/settings/` — settings modal, provider credentials, linked identities, Codex OAuth device flow.
+- `frontend/static/js/components/` — small reusable widgets such as confirm dialogs.
+- `frontend/static/css/base/`, `components/`, `processes/` — CSS grouped by the same high-level ownership.
 
-Scripts are loaded in order via plain `<script>` tags (no modules, no imports). Load order matters: `auth.js` before `api.js` (authHeaders), `state.js` before anything that reads `state`, `main.js` last.
+The browser loads only `static/js/app/main.js`; native ES module imports pull in the rest. Relative import paths now encode ownership, so missing paths fail loudly in the browser console.
 
 ## Boot flow
 
-`main.js:182`. Self-invoking async IIFE:
+`static/js/app/main.js`. Self-invoking async IIFE:
 
 ```
 boot()
@@ -236,5 +230,5 @@ The cost: there's no component boundary. Adding a new pane means reading every f
 
 - **New endpoint integration**: write a fetch wrapper in `api.js` and a call site wherever it fires. Use `authHeaders()` and `fetchJSON` to get the 401 handling free.
 - **New state field**: add to `state.js`, update everywhere that reads or mutates it, call `render()`.
-- **New DOM element**: add to `web/index.html`, wire event listeners in `main.js`. Style in `web/static/css/*.css`.
+- **New DOM element**: add to `frontend/index.html`, wire event listeners in `static/js/app/main.js`. Style in the matching `frontend/static/css/` ownership folder.
 - **New streaming event**: add a case to `handleStreamEvent`, add a server-side emitter to [transport.md's](transport.md#sse-event-catalog) catalog.

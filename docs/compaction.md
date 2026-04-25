@@ -6,10 +6,10 @@ This doc covers the trigger, the retention policy, how the summary is generated 
 
 ## File map
 
-- `agent/compaction.py` — trigger, retention policy, token estimation, two-phase algorithm, heuristic fallback.
-- `agent/summarizer.py` — LLM-backed summarizer with its own input-budget trimming and timeout.
-- `agent/token_counting.py` — `count_text_tokens` via `cl100k_base` tiktoken (lazy singleton, falls back to `len//4`).
-- `storage/transcript_store.py` + `storage/models.py` — persists summary turns + `compaction_summaries` rows; rebuilds wire messages with them via `message_builder.py`.
+- `backend/core/agent/compaction.py` — trigger, retention policy, token estimation, two-phase algorithm, heuristic fallback.
+- `backend/core/agent/summarizer.py` — LLM-backed summarizer with its own input-budget trimming and timeout.
+- `backend/core/agent/token_counting.py` — `count_text_tokens` via `cl100k_base` tiktoken (lazy singleton, falls back to `len//4`).
+- `backend/core/persistence/transcript_store.py` + `backend/core/persistence/models.py` — persists summary turns + `compaction_summaries` rows; rebuilds wire messages with them via `message_builder.py`.
 
 ## The trigger
 
@@ -77,7 +77,7 @@ Two paths, `_build_summary` (`compaction.py:371`):
 
 ### LLM path
 
-`summarize_for_compaction` (`summarizer.py:64`). Uses the provider's **summarizer_model** — a cheap sibling of the main model (e.g., Haiku for Anthropic, gpt-5-mini for OpenAI). Declared per provider in `provider/__init__.py`. See [providers.md](providers.md#summarizer-model).
+`summarize_for_compaction` (`summarizer.py:64`). Uses the provider's **summarizer_model** — a cheap sibling of the main model (e.g., Haiku for Anthropic, gpt-5-mini for OpenAI). Declared per provider in `backend/core/providers/__init__.py`. See [providers.md](providers.md#summarizer-model).
 
 System prompt `SUMMARIZER_SYSTEM_PROMPT` (`summarizer.py:30`) instructs the model to produce a dense bulleted memo preserving:
 
@@ -126,7 +126,7 @@ Fallback triggers (all handled in `_build_summary`, `compaction.py:371`):
 
 ## Persisting a summary
 
-`RuntimeStore.record_compaction` (`storage/transcript_store.py:191`) performs three writes in a single transaction:
+`RuntimeStore.record_compaction` (`backend/core/persistence/transcript_store.py:191`) performs three writes in a single transaction:
 
 1. Create a new turn with `role = "summary"` and the summary text.
 2. Insert a `compaction_summaries` row recording `(summary_turn_id, source_turn_ids)`.
@@ -138,7 +138,7 @@ The `compacted` flag is how every downstream consumer knows to skip a row. The s
 
 ## Re-injecting summaries into the next model call
 
-`build_model_messages` (`agent/message_builder.py:12`). This is where compacted context re-enters the wire protocol.
+`build_model_messages` (`backend/core/agent/message_builder.py:12`). This is where compacted context re-enters the wire protocol.
 
 Order of emission:
 
@@ -149,7 +149,7 @@ Why summaries go first rather than chronologically: a summary represents compact
 
 ## The summary wrapping
 
-`wrap_summaries_for_prompt` (`storage/models.py:33`). Multiple summaries (layered compactions over a very long session) are concatenated with `---` separators, then wrapped:
+`wrap_summaries_for_prompt` (`backend/core/persistence/models.py:33`). Multiple summaries (layered compactions over a very long session) are concatenated with `---` separators, then wrapped:
 
 ```
 <prior_conversation_summary>
@@ -171,7 +171,7 @@ Two things are happening here:
 1. **Tag wrapping** — gives the model a clean delimiter so it can distinguish "memory" from "live conversation".
 2. **Anti-mimic note** — the summary's format (dashes, "tool X (completed): input=" lines) is exactly the kind of pattern LLMs will copy into their replies if not told otherwise. The note heads that off. Users reported early versions where the assistant's reply started with bullet lists echoing the memo; the note + a matching rule in the system prompt fixed it.
 
-The `Conversation Memory` section of the system prompt (`agent/system_prompt.py`) reinforces this — both the wrapping note and the system prompt tell the model to treat the summary as private memory.
+The `Conversation Memory` section of the system prompt (`backend/core/agent/system_prompt.py`) reinforces this — both the wrapping note and the system prompt tell the model to treat the summary as private memory.
 
 ## Interaction with the iteration loop
 

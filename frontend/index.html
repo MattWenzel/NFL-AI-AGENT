@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NFL AI Stats Agent</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<link rel="stylesheet" href="static/css/base/theme.css">
+<link rel="stylesheet" href="static/css/base/layout.css">
+<link rel="stylesheet" href="static/css/components/sidebar.css">
+<link rel="stylesheet" href="static/css/processes/exports.css">
+<link rel="stylesheet" href="static/css/components/composer.css">
+<link rel="stylesheet" href="static/css/processes/chat.css">
+<link rel="stylesheet" href="static/css/processes/inspector.css">
+<link rel="stylesheet" href="static/css/processes/settings.css">
+</head>
+<body>
+<div id="authScreen" hidden></div>
+<div class="shell" hidden>
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-brand">
+        <span class="brand-mark">N</span>
+        <span class="brand-title">NFL Stats</span>
+        <button type="button" class="theme-toggle" id="themeToggle" title="Toggle theme" aria-label="Toggle theme">
+          <svg class="theme-icon-sun" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+          <svg class="theme-icon-moon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+      </div>
+      <button type="button" class="nav-row" id="newChatBtn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+        <span>New chat</span>
+      </button>
+    </div>
+    <div class="sidebar-tabs" role="tablist">
+      <button type="button" class="sidebar-tab active" id="tabChats" role="tab">Chats</button>
+      <button type="button" class="sidebar-tab" id="tabCsvs" role="tab">Reports</button>
+    </div>
+    <div class="sidebar-search">
+      <input type="search" id="sidebarSearch" placeholder="Search conversations" autocomplete="off">
+      <div class="sidebar-search-count" id="sidebarSearchCount"></div>
+    </div>
+    <div class="sidebar-pane" id="pane-chats">
+      <div class="conversation-list" id="conversationList"></div>
+    </div>
+    <div class="sidebar-pane" id="pane-csvs" hidden>
+      <div class="csv-list" id="csvList"></div>
+    </div>
+    <div class="sidebar-footer">
+      <div class="user-menu" id="userMenu" hidden>
+        <button type="button" id="openSettingsBtn">Settings</button>
+        <button type="button" id="signOutBtn">Sign out</button>
+        <div class="user-menu-confirm" id="signOutConfirm" hidden>
+          <p>Sign out of this account?</p>
+          <div class="user-menu-confirm-actions">
+            <button type="button" id="cancelSignOutBtn">Cancel</button>
+            <button type="button" id="confirmSignOutBtn" class="destructive">Sign out</button>
+          </div>
+        </div>
+      </div>
+      <button type="button" class="user-widget" id="userWidget" aria-haspopup="true" aria-expanded="false">
+        <span class="user-avatar" id="userAvatar">?</span>
+        <span class="user-label">
+          <span class="user-name" id="userName">Not signed in</span>
+          <span class="user-role">Account</span>
+        </span>
+        <svg class="user-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <main class="main">
+    <header class="mobile-topbar">
+      <button type="button" class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Open menu">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
+      </button>
+      <div class="mobile-brand">
+        <span class="brand-mark">N</span>
+        <span class="brand-title">NFL Stats</span>
+      </div>
+      <button type="button" class="mobile-inspector-btn" id="mobileInspectorBtn" aria-label="Open inspector">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="15" y1="4" x2="15" y2="20"/></svg>
+      </button>
+    </header>
+    <section class="thread" id="thread"></section>
+
+    <footer class="input-shell">
+      <div class="composer-row">
+        <div class="composer">
+          <textarea id="input" placeholder="Ask about NFL stats, exports, or a player comparison..." rows="1"></textarea>
+          <div class="composer-meta">
+            <div class="composer-meta-left">
+              <select id="providerSelect" class="composer-select" aria-label="Provider"></select>
+              <select id="modelSelect" class="composer-select" aria-label="Model"></select>
+              <select id="toolChoiceSelect" class="composer-select" aria-label="Tool use" title="Control whether the model uses tools this turn">
+                <option value="auto">Auto</option>
+                <option value="required">Force tool</option>
+                <option value="none">Text only</option>
+              </select>
+            </div>
+            <button id="sendBtn" title="Send">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M2 21 23 12 2 3v7l15 2-15 2v7Z"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="composer-hint">Enter to send · Shift+Enter for a new line</div>
+      </div>
+    </footer>
+  </main>
+
+  <button class="inspector-toggle" id="inspectorToggle" title="Open inspector" aria-label="Open inspector">
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="15" y1="4" x2="15" y2="20"/></svg>
+    Inspector
+  </button>
+  <div class="inspector-backdrop" id="inspectorBackdrop"></div>
+  <div class="settings-backdrop" id="settingsBackdrop"></div>
+  <div class="settings-modal" id="settingsModal" role="dialog" aria-labelledby="settingsTitle" aria-modal="true">
+    <div class="settings-header">
+      <h2 id="settingsTitle">Settings</h2>
+      <button type="button" class="settings-close" id="settingsCloseBtn" aria-label="Close">&times;</button>
+    </div>
+    <div class="settings-tabs" role="tablist">
+      <button type="button" class="settings-tab active" id="settingsTabProviders" data-tab="providers" role="tab" aria-selected="true" aria-controls="settingsBody" tabindex="0">Providers</button>
+      <button type="button" class="settings-tab" id="settingsTabAccount" data-tab="account" role="tab" aria-selected="false" aria-controls="settingsBody" tabindex="-1">Account</button>
+    </div>
+    <div class="settings-body" id="settingsBody" role="tabpanel" aria-labelledby="settingsTabProviders"></div>
+  </div>
+  <div class="confirm-backdrop" id="confirmBackdrop"></div>
+  <div class="confirm-modal" id="confirmModal" role="dialog" aria-labelledby="confirmTitle" aria-modal="true">
+    <h2 id="confirmTitle">Confirm</h2>
+    <p id="confirmMessage"></p>
+    <div class="confirm-actions">
+      <button type="button" id="confirmCancelBtn">Cancel</button>
+      <button type="button" id="confirmOkBtn">Confirm</button>
+    </div>
+  </div>
+  <aside class="inspector" id="inspector">
+    <div class="inspector-header">
+      <button class="inspector-collapse" id="inspectorCollapse" title="Close inspector" aria-label="Close inspector">&times;</button>
+      <h3>Runtime Inspector</h3>
+      <p>Inspect session metadata, selected turn details, tool lifecycle, and compaction history.</p>
+    </div>
+    <div class="inspector-body" id="inspectorBody"></div>
+  </aside>
+</div>
+
+<script type="module" src="static/js/app/main.js"></script>
+</body>
+</html>

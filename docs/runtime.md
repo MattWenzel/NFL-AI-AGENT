@@ -6,19 +6,19 @@ This doc covers the iteration loop, the event stream, the session lock, doom-loo
 
 ## File map
 
-The `agent/` package is split by concern. The runtime orchestrator and the per-user-message state machine live in two files; the rest are helpers.
+The `backend/core/agent/` package is split by concern. The runtime orchestrator and the per-user-message state machine live in two files; the rest are helpers.
 
-- `agent/runtime.py` — `ChatRuntime`: the loop itself. Thin orchestrator that acquires the session lock, instantiates a `Turn`, and iterates.
-- `agent/turn.py` — `Turn`: per-user-message state owner. Holds iteration bookkeeping (counter, overflow retry one-shot, doom-loop fingerprint list, forced tool-choice), the active assistant iteration (its `TurnRecord`, text buffer, tool runs), lifecycle methods, and in-turn tool execution. Module-level `raise_if_doom_loop` + `DOOM_LOOP_MATCH` also live here.
-- `agent/persistence.py` — `RuntimePersistence`: write-side facade over `RuntimeStore` for hot-path ops.
-- `agent/events.py` — `RuntimeEvent` dataclass + `RuntimeLoopError` exception.
-- `agent/message_builder.py` — `build_model_messages`: `SessionTranscript` → wire-format `list[Message]` for the next provider call.
-- `agent/system_prompt.py` — `get_base_prompt`: the slim base system prompt (rules + guide index).
-- `agent/compaction.py`, `agent/summarizer.py`, `agent/token_counting.py` — see [compaction.md](compaction.md).
+- `backend/core/agent/runtime.py` — `ChatRuntime`: the loop itself. Thin orchestrator that acquires the session lock, instantiates a `Turn`, and iterates.
+- `backend/core/agent/turn.py` — `Turn`: per-user-message state owner. Holds iteration bookkeeping (counter, overflow retry one-shot, doom-loop fingerprint list, forced tool-choice), the active assistant iteration (its `TurnRecord`, text buffer, tool runs), lifecycle methods, and in-turn tool execution. Module-level `raise_if_doom_loop` + `DOOM_LOOP_MATCH` also live here.
+- `backend/core/agent/persistence.py` — `RuntimePersistence`: write-side facade over `RuntimeStore` for hot-path ops.
+- `backend/core/agent/events.py` — `RuntimeEvent` dataclass + `RuntimeLoopError` exception.
+- `backend/core/agent/message_builder.py` — `build_model_messages`: `SessionTranscript` → wire-format `list[Message]` for the next provider call.
+- `backend/core/agent/system_prompt.py` — `get_base_prompt`: the slim base system prompt (rules + guide index).
+- `backend/core/agent/compaction.py`, `backend/core/agent/summarizer.py`, `backend/core/agent/token_counting.py` — see [compaction.md](compaction.md).
 
 ## `ChatRuntime`
 
-Defined at `agent/runtime.py:42`. Minimal constructor:
+Defined at `backend/core/agent/runtime.py:42`. Minimal constructor:
 
 ```python
 class ChatRuntime:
@@ -85,7 +85,7 @@ Cross-session calls are unaffected — the lock is keyed by `session.id`, not gl
 
 ## `Turn` — per-user-message state
 
-`agent/turn.py`. One object, constructed at the start of each `run_session`, lives for the duration of that user message. Consolidates what used to be spread across `RuntimeLoopState`, `AssistantTurnManager`, `AssistantTurnContext`, `AssistantTextBuffer`, and `ToolExecutionService`.
+`backend/core/agent/turn.py`. One object, constructed at the start of each `run_session`, lives for the duration of that user message. Consolidates what used to be spread across `RuntimeLoopState`, `AssistantTurnManager`, `AssistantTurnContext`, `AssistantTextBuffer`, and `ToolExecutionService`.
 
 **Per-user-turn fields** (persist across the 1..N assistant iterations):
 
@@ -122,11 +122,11 @@ Exposed read-only via `has_active_assistant_turn`, `active_assistant_turn_id`, `
 | `handle_overflow()` | First call arms forced compaction + returns True; second returns False. |
 | `max_iterations_event(max)` | Builds the terminal `runtime_error` event when the budget exhausts. |
 
-`TITLE_PREVIEW_CHARS = 80` (also `agent/turn.py`) is the truncation length for the auto-generated session title.
+`TITLE_PREVIEW_CHARS = 80` (also `backend/core/agent/turn.py`) is the truncation length for the auto-generated session title.
 
 ## `RuntimeEvent`
 
-One dataclass, one discriminator field (`agent/events.py`). Relevant fields per event:
+One dataclass, one discriminator field (`backend/core/agent/events.py`). Relevant fields per event:
 
 | Field | Used by |
 |-------|---------|
@@ -155,11 +155,11 @@ One dataclass, one discriminator field (`agent/events.py`). Relevant fields per 
 | `assistant_requires_followup` | after tools, before next pass | `turn_id`, `iterations` |
 | `runtime_error` | overflow retry exhausted, `RuntimeLoopError`, or max iterations | `error`, `iterations` |
 
-Transports serialize these differently. The SSE adapter (`server/sse.py`) drops internal events like `turn_started` / `turn_finished` / `assistant_requires_followup` and renames others for the browser — see [transport.md](transport.md#sse-event-catalog).
+Transports serialize these differently. The SSE adapter (`backend/app/processes/chat/sse.py`) drops internal events like `turn_started` / `turn_finished` / `assistant_requires_followup` and renames others for the browser — see [transport.md](transport.md#sse-event-catalog).
 
 ## Tool execution
 
-`Turn.execute_tools` (`agent/turn.py`). Called once per pass from the runtime:
+`Turn.execute_tools` (`backend/core/agent/turn.py`). Called once per pass from the runtime:
 
 1. `execute_tools` fans out to `_execute_one_tool` per tool run under `asyncio.gather`.
 2. Each `_execute_one_tool` calls `persistence.begin_tool_execution` — flips status to `running`, writes a `tool_status` part so the UI can show a spinner.
@@ -167,11 +167,11 @@ Transports serialize these differently. The SSE adapter (`server/sse.py`) drops 
 4. Wraps the return value in a `ToolExecutionResult(status, content, error, hint, duration_ms)`.
 5. Calls `persistence.complete_tool_execution` — updates status/result/error/hint/duration and writes a `tool_result` part.
 
-Handlers never touch the store. Everything flows through `ctx` or the return envelope — this is what keeps `tools/` free of infra dependencies.
+Handlers never touch the store. Everything flows through `ctx` or the return envelope — this is what keeps `backend/core/tools/` free of infra dependencies.
 
 ## Doom-loop detector
 
-`raise_if_doom_loop` in `agent/turn.py`. Called from `Turn.record_tool_runs` **before** tool dispatch for the current pass. If the tail `DOOM_LOOP_MATCH = 3` tool runs in `user_turn_tool_runs` have the same `tool_name` and the same canonical-JSON `input`, raises `RuntimeLoopError("Detected repeated tool loop on <tool> with identical input")`.
+`raise_if_doom_loop` in `backend/core/agent/turn.py`. Called from `Turn.record_tool_runs` **before** tool dispatch for the current pass. If the tail `DOOM_LOOP_MATCH = 3` tool runs in `user_turn_tool_runs` have the same `tool_name` and the same canonical-JSON `input`, raises `RuntimeLoopError("Detected repeated tool loop on <tool> with identical input")`.
 
 Why this shape: a model stuck in a loop typically repeats the *same* call over and over. Three identical calls in a row is a strong signal — healthy use varies SQL between retries, so three in a row catches failure modes before the iteration budget exhausts.
 
@@ -181,7 +181,7 @@ Scope is one user turn. `user_turn_tool_runs` is cleared when the next user mess
 
 ## Context-overflow recovery
 
-Providers sometimes reject a prompt our estimator was happy with — typically due to cumulative tool-result size we under-counted. `ContextOverflowError` is raised by the provider adapter (`provider/base.py`) and caught in `run_session`:
+Providers sometimes reject a prompt our estimator was happy with — typically due to cumulative tool-result size we under-counted. `ContextOverflowError` is raised by the provider adapter (`backend/core/providers/base.py`) and caught in `run_session`:
 
 1. Mark the current assistant turn `error` via `turn.mark_assistant_turn_error`.
 2. `turn.reset_active_iteration()` so the finally-block cleanup doesn't double-fire.

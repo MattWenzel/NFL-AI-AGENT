@@ -4,35 +4,31 @@ The HTTP layer is three thin bands: **routes** parse requests and translate exce
 
 ## File map
 
-- `server/app.py` — FastAPI factory, CORS, lifespan, router includes, static mount.
-- `server/startup.py` — lifespan helpers: `validate_encryption`, `configure_runtime_state`, `run_housekeeping`, `log_environment_state`.
-- `server/dependencies.py` — every `Depends(...)` factory (store, runtime, user, each service, each process-state accessor).
-- `server/process_state.py` — in-memory coordination (`AppProcessState`): rate limiters, stream gate, Codex OAuth flow registry, per-user refresh locks.
-- `server/rate_limit.py` — `RateLimiter` (per-IP sliding window) and `ConcurrencyLimiter` (per-key active-count).
-- `server/logging.py` — `setup_logging()`.
-- `server/sse.py` — `RuntimeEvent` → SSE dict serialization.
-- `server/routes/` — FastAPI routers, one per topic: `auth`, `chat`, `conversations`, `providers`, `settings`, `codex_oauth`, `csv_library`, `csv_downloads`.
-- `server/services/` — application services, one per topic: `auth`, `chat`, `conversations`, `credentials`, `codex_oauth`, `codex_credentials`, `exports`, `settings`.
-- `server/schemas/` — Pydantic wire models, one file per topic.
-- `auth/primitives.py` — `AuthenticatedUser`, `_extract_bearer`.
+- `backend/app/main.py` — FastAPI factory, CORS, lifespan, router includes, static mount.
+- `backend/app/bootstrap/` — startup, dependencies, process state, rate limiting, middleware, logging, CSRF, audit helpers.
+- `backend/app/processes/*/routes.py` — FastAPI routers by app process.
+- `backend/app/processes/*/service.py` — application services by app process.
+- `backend/app/processes/*/schemas.py` — Pydantic wire models by app process.
+- `backend/app/processes/chat/sse.py` — `RuntimeEvent` → SSE dict serialization.
+- `backend/core/auth/primitives.py` — `AuthenticatedUser`, `_extract_bearer`.
 - `run.py` — uvicorn launcher.
 
 ## App factory
 
-`server/app.py:46`. `create_app()` returns a configured `FastAPI` instance:
+`backend/app/main.py`. `create_app()` returns a configured `FastAPI` instance:
 
 - Title + version for `/docs` and `/redoc`.
 - `lifespan` context manager (below).
 - CORS middleware (`app.py:65`) — `ALLOWED_ORIGINS` env var replaces the dev defaults wholesale. Local defaults cover `localhost:8001` and Chrome's `null` origin (for `file://` testing). `allow_credentials=False` — no cookies; the frontend sends `Authorization: Bearer <token>` on every request, so credentialed CORS isn't needed.
 - Eight router mounts (`app.py:74`): auth, settings, codex_oauth, chat, conversations, providers, csv_downloads, csv_library.
 - `/health` — single-line health endpoint (`app.py:83`).
-- Static mount (`app.py:91`): `/static/*` → `web/static/`; `/` → `FileResponse(web/index.html)`.
+- Static mount (`app.py:91`): `/static/*` → `frontend/static/`; `/` → `FileResponse(frontend/index.html)`.
 
-Module-level `app = create_app()` (`app.py:104`) is what uvicorn imports. One app instance per worker process.
+Module-level `app = create_app()` is what uvicorn imports. One app instance per worker process.
 
 ## Lifespan
 
-`app.py:26`. Runs **once per worker process**. The body delegates to four helpers in `server/startup.py`:
+`app.py:26`. Runs **once per worker process**. The body delegates to four helpers in `backend/app/bootstrap/startup.py`:
 
 1. **Re-apply logging.** `setup_logging()` runs inside the worker because the child process resets the root logger when `reload=True` is in use.
 2. **`validate_encryption()`** (`startup.py`). Calls `encryption.require_configured()` — fails fast if `SETTINGS_ENCRYPTION_KEY` is missing or malformed. Failing at startup is strictly better than at the first `PUT /settings/api-keys` an hour later.
@@ -46,7 +42,7 @@ The store, runtime, and process state survive across requests for the life of th
 
 ## Services layer
 
-Routes in `server/routes/` are thin shells — parse the request, call one service method, translate service exceptions to HTTP status codes. Everything cross-subsystem lives in `server/services/`. Each service is a class instantiated per-request via a `Depends(...)` factory (see below) with whatever it needs from the store, runtime, and process state.
+Routes in `backend/app/processes/` are thin shells — parse the request, call one service method, translate service exceptions to HTTP status codes. Everything cross-subsystem lives in `backend/app/processes/`. Each service is a class instantiated per-request via a `Depends(...)` factory (see below) with whatever it needs from the store, runtime, and process state.
 
 | Service | File | What it does |
 |---------|------|--------------|
@@ -63,7 +59,7 @@ Services own **IDOR enforcement** — every one that accepts an id passes the au
 
 ## Dependency injection
 
-`server/dependencies.py`. Every request dependency lives here.
+`backend/app/bootstrap/dependencies.py`. Every request dependency lives here.
 
 **Core** (pull from `app.state`; raise `RuntimeError` if the lifespan didn't run):
 
@@ -90,7 +86,7 @@ Services own **IDOR enforcement** — every one that accepts an id passes the au
 
 ## Chat endpoints
 
-Both live in `server/routes/chat.py`. Routes delegate to `ChatService` (see services table).
+Both live in `backend/app/processes/chat.py`. Routes delegate to `ChatService` (see services table).
 
 ### `POST /chat/message` — buffered response
 
@@ -147,7 +143,7 @@ Client disconnect: `request.is_disconnected()` is checked at the top of every lo
 
 ## SSE event catalog
 
-`server/sse.py` maps `RuntimeEvent`s to wire payloads. Events not listed are suppressed (mapper returns `None`):
+`backend/app/processes/chat/sse.py` maps `RuntimeEvent`s to wire payloads. Events not listed are suppressed (mapper returns `None`):
 
 | `RuntimeEvent.type` | Wire `type` | Extra fields |
 |---------------------|-------------|--------------|
@@ -171,7 +167,7 @@ The route also emits three events outside the mapper:
 
 ## Other routes
 
-All in `server/routes/`. Every user-scoped endpoint depends on `get_current_user`; auth, health, and root do not.
+All in `backend/app/processes/`. Every user-scoped endpoint depends on `get_current_user`; auth, health, and root do not.
 
 **Auth** (`routes/auth.py`). `GET /auth/status` (optional auth), `POST /auth/register`, `POST /auth/login`, `POST /auth/logout`, `PUT /auth/password`, `DELETE /auth/me`. Rate-limited per IP (see below). Full flow in [auth.md](auth.md).
 
@@ -189,7 +185,7 @@ All in `server/routes/`. Every user-scoped endpoint depends on `get_current_user
 
 ## Rate limiting and concurrency
 
-`server/rate_limit.py`. Two primitives, both in-memory (single-process only). All state lives on `AppProcessState` in `server/process_state.py` so it's shared across requests within one worker.
+`backend/app/bootstrap/rate_limit.py`. Two primitives, both in-memory (single-process only). All state lives on `AppProcessState` in `backend/app/bootstrap/process_state.py` so it's shared across requests within one worker.
 
 **`RateLimiter`** — sliding-window counter keyed by `request.client.host`. Per-IP bucket of request timestamps; entries older than the window are pruned. Infrequent global prune reaps empty buckets. Used by auth + Codex OAuth:
 
@@ -226,7 +222,7 @@ Once connected, `codex_credentials.resolve_access_token(user_id)` handles refres
 Every user-scoped endpoint's ownership check happens inside the **service**, not in the route:
 
 ```python
-# server/services/chat.py:107
+# backend/app/processes/chat.py:107
 if (
     body.conversation_id
     and await self.store.get_session(body.conversation_id, user_id=user.id) is None
@@ -242,14 +238,14 @@ There's **no framework-level enforcement** — a new service method that accepts
 
 ## UI wiring
 
-Same FastAPI app serves the browser UI (`app.py:91`):
+Same FastAPI app serves the browser UI:
 
-- `/static/*` → `StaticFiles(directory=web/static)`.
-- `/` → `FileResponse(web/index.html)`.
+- `/static/*` → `StaticFiles(directory=frontend/static)`.
+- `/` → `FileResponse(frontend/index.html)`.
 
-Single-origin deployment. The UI's `<script src="static/js/main.js">` and `<link href="static/css/...">` tags resolve against the static mount. No separate static server, no CORS between UI and API.
+Single-origin deployment. The UI's `<script src="static/js/app/main.js">` and `<link href="static/css/...">` tags resolve against the static mount. No separate static server, no CORS between UI and API.
 
-API routes registered above the static mount take precedence — `/health`, `/chat/*`, `/auth/*`, etc. all match before the root falls through to `web/index.html`.
+API routes registered above the static mount take precedence — `/health`, `/chat/*`, `/auth/*`, etc. all match before the root falls through to `frontend/index.html`.
 
 ## Running the server
 
@@ -257,7 +253,7 @@ API routes registered above the static mount take precedence — `/health`, `/ch
 
 - `load_dotenv()` — pulls `.env` into the process environment.
 - `setup_logging(verbose=args.verbose)` — DEBUG when `--verbose`, else WARNING. `NFLVERSE_VERBOSE=1` propagates into the reloaded worker process.
-- `uvicorn.run("app.main:app", host=HOST, port=PORT, reload=True, proxy_headers=True, forwarded_allow_ips=...)`.
+- `uvicorn.run("backend.app.main:app", host=HOST, port=PORT, reload=True, proxy_headers=True, forwarded_allow_ips=...)`.
 
 Key options:
 
