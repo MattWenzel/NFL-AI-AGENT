@@ -23,11 +23,11 @@ Top-level folders are organized by product surface, then by process/capability:
 ```
 backend/server/       FastAPI shell, dependency wiring, and feature-sliced routes
 backend/features/ App-process services, schemas, DTOs, and errors
-backend/agent/     Chat runtime loop, turn state, events, prompts, compaction
-backend/providers/ LLM provider registry, shared provider types, concrete clients
-backend/tools/     Tool definitions, handlers, SQL sandbox, guide docs
-backend/storage/ Runtime SQLite store, models, migrations
-backend/credentials/ Auth/security primitives, encryption, OAuth protocol helpers
+backend/lib/agent/     Chat runtime loop, turn state, events, prompts, compaction
+backend/lib/providers/ LLM provider registry, shared provider types, concrete clients
+backend/lib/tools/     Tool definitions, handlers, SQL sandbox, guide docs
+backend/lib/storage/ Runtime SQLite store, models, migrations
+backend/lib/credentials/ Auth/security primitives, encryption, OAuth protocol helpers
 frontend/          Browser UI, grouped by app/core/process/component ownership
 ```
 
@@ -37,11 +37,11 @@ Dependencies flow from `backend/server/routes/*.py` (entry point) → `backend/f
 |-----|----------|-----|
 | `backend/server/` | FastAPI app factory, dependency wiring, middleware, routes, HTTP helpers | [transport.md](transport.md) |
 | `backend/features/` | Process services, schemas, DTOs, and errors | [transport.md](transport.md), [auth.md](auth.md) |
-| `backend/agent/` | `ChatRuntime`, event types, compaction, system prompt, guides | [runtime.md](runtime.md), [compaction.md](compaction.md), [prompts.md](prompts.md) |
-| `backend/tools/` | Tool definitions, registry/dispatch, validation, SQL sandbox, handlers | [tools.md](tools.md) |
-| `backend/credentials/` | Password hashing, bearer-token issuance, Fernet encryption, OAuth protocol helpers | [auth.md](auth.md) |
-| `backend/providers/` | `BaseLLMClient`, Anthropic + OpenAI + OpenAI Codex adapters, retry/overflow helpers | [providers.md](providers.md) |
-| `backend/storage/` | Async SQLModel store + in-house `schema_version` migration runner | [persistence.md](persistence.md) |
+| `backend/lib/agent/` | `ChatRuntime`, event types, compaction, system prompt, guides | [runtime.md](runtime.md), [compaction.md](compaction.md), [prompts.md](prompts.md) |
+| `backend/lib/tools/` | Tool definitions, registry/dispatch, validation, SQL sandbox, handlers | [tools.md](tools.md) |
+| `backend/lib/credentials/` | Password hashing, bearer-token issuance, Fernet encryption, OAuth protocol helpers | [auth.md](auth.md) |
+| `backend/lib/providers/` | `BaseLLMClient`, Anthropic + OpenAI + OpenAI Codex adapters, retry/overflow helpers | [providers.md](providers.md) |
+| `backend/lib/storage/` | Async SQLModel store + in-house `schema_version` migration runner | [persistence.md](persistence.md) |
 | `frontend/` | Browser app | [ui.md](ui.md) |
 
 ## Data flow of one user turn
@@ -76,7 +76,7 @@ Following a single message from the browser back to the browser:
  └───────────────────────────────────┘
                 │
                 ▼
- ┌── backend/agent/runtime.py ───────────────┐
+ ┌── backend/lib/agent/runtime.py ───────────────┐
  │ ChatRuntime.run_session           │        runtime.py:78
  │  ├─ acquire session lock          │
  │  ├─ write user turn               │
@@ -86,22 +86,22 @@ Following a single message from the browser back to the browser:
  │       │   ├─ TextEvent  → yield   │
  │       │   └─ ToolUseEvent → queue │
  │       ├─ if no tools: done        │
- │       ├─ raise_if_doom_loop       │       (backend/agent/turn.py)
+ │       ├─ raise_if_doom_loop       │       (backend/lib/agent/turn.py)
  │       ├─ asyncio.gather(tools)    │      → tool layer (tools.md)
  │       └─ loop                     │
  └───────────────────────────────────┘
                 │
                 │ (each tool call)
                 ▼
- ┌── backend/agent/turn.py ──────────────────┐
+ ┌── backend/lib/agent/turn.py ──────────────────┐
  │ Turn._execute_one_tool            │
  │  ├─ persist tool_run (pending)    │
- │  ├─ call execute_tool_structured  │      → backend/tools/ (below)
+ │  ├─ call execute_tool_structured  │      → backend/lib/tools/ (below)
  │  └─ persist result / error        │
  └───────────────────────────────────┘
                 │
                 ▼
- ┌── backend/tools/ ─────────────────────────┐
+ ┌── backend/lib/tools/ ─────────────────────────┐
  │ execute_tool_structured           │        registry.py:86
  │  ├─ validate_tool_input           │
  │  ├─ dispatch → handler (to_thread)│
@@ -111,7 +111,7 @@ Following a single message from the browser back to the browser:
  └───────────────────────────────────┘
                 │
                 ▼
- ┌── backend/storage/ ───────────────────────┐
+ ┌── backend/lib/storage/ ───────────────────────┐
  │ RuntimeStore writes every step    │       store.py + transcript_store.py
  │ (turns, parts, tool_runs)         │       async SQLModel over aiosqlite
  └───────────────────────────────────┘
@@ -131,9 +131,9 @@ Common "where does X happen" questions:
 | Model selects a tool | Streamed `ToolUseEvent` from the provider adapter ([providers.md](providers.md#streaming)) |
 | Tool call actually runs | `Turn._execute_one_tool` → `execute_tool_structured` ([tools.md](tools.md#data-flow-for-one-tool-call)) |
 | SQL query limits | `sandbox.py` — 500 rows, ~30s, PBP auto-attach ([tools.md](tools.md#the-sql-sandbox)) |
-| Which tools are available? | `backend/tools/definitions.py` — 7 tools ([tools.md](tools.md#the-seven-tools)) |
-| What the model sees as system prompt | `get_base_prompt()` in `backend/agent/system_prompt.py` ([prompts.md](prompts.md#the-base-prompt)) |
-| Topic-specific query templates | `backend/tools/guides/*.md`, loaded via `get_guide` tool ([prompts.md](prompts.md#guide-system)) |
+| Which tools are available? | `backend/lib/tools/definitions.py` — 7 tools ([tools.md](tools.md#the-seven-tools)) |
+| What the model sees as system prompt | `get_base_prompt()` in `backend/lib/agent/system_prompt.py` ([prompts.md](prompts.md#the-base-prompt)) |
+| Topic-specific query templates | `backend/lib/tools/guides/*.md`, loaded via `get_guide` tool ([prompts.md](prompts.md#guide-system)) |
 | Why the conversation doesn't blow past the context window | `compact_if_needed` ([compaction.md](compaction.md)) |
 | Infinite tool loops | `raise_if_doom_loop` ([runtime.md](runtime.md#doom-loop-detector)) |
 | Server crash mid-turn | `finally` cleanup + `reconcile_interrupted_runs` at startup ([runtime.md](runtime.md#cleanup-on-early-exit), [persistence.md](persistence.md#startup-reconciliation)) |
@@ -145,17 +145,17 @@ Common "where does X happen" questions:
 
 The places where swapping a component is cheap:
 
-### Provider adapter (`backend/providers/`)
+### Provider adapter (`backend/lib/providers/`)
 
-New LLM SDK? Subclass `BaseLLMClient`, translate canonical `Message` / `ToolUseEvent` / `TextEvent` both directions, register in `__init__.py`. Nothing in `backend/server/` or `backend/agent/` changes. See [providers.md](providers.md#adding-a-provider).
+New LLM SDK? Subclass `BaseLLMClient`, translate canonical `Message` / `ToolUseEvent` / `TextEvent` both directions, register in `__init__.py`. Nothing in `backend/server/` or `backend/lib/agent/` changes. See [providers.md](providers.md#adding-a-provider).
 
-### Tool handler (`backend/tools/`)
+### Tool handler (`backend/lib/tools/`)
 
 New tool? One schema in `definitions.py`, one handler function, one line in `registry.py`. Handlers are plain `(input, ctx) -> str`; no registration decorators. The drift guard catches missing entries at import time. See [tools.md](tools.md#adding-a-new-tool).
 
-### Guide (`backend/tools/guides/`)
+### Guide (`backend/lib/tools/guides/`)
 
-New topic? Drop a markdown file into `backend/tools/guides/`, add the topic name to `GUIDE_TOPICS` in `backend/tools/guide_registry.py`, and add a row to the system prompt's Guide Index via `GUIDE_INDEX_ROWS`. No further code changes. See [prompts.md](prompts.md#adding-or-changing-content).
+New topic? Drop a markdown file into `backend/lib/tools/guides/`, add the topic name to `GUIDE_TOPICS` in `backend/lib/tools/guide_registry.py`, and add a row to the system prompt's Guide Index via `GUIDE_INDEX_ROWS`. No further code changes. See [prompts.md](prompts.md#adding-or-changing-content).
 
 ### Transport
 
@@ -166,13 +166,13 @@ New entry point (MCP server, background worker, etc.)? Build a `RuntimeStore`, c
 - **Async throughout** for I/O. FastAPI + uvicorn, asyncio tools, asyncio SDK clients.
 - **Per-session lock** (asyncio mutex in `RuntimeStore`) — concurrent requests to the same conversation serialize. Cross-session parallelism is untouched.
 - **Parallel tool execution within a pass** via `asyncio.gather`.
-- **Runtime DB is async** via `aiosqlite` under SQLModel. `RuntimeStore` exposes natively async methods (sessions, turns, parts, tool runs, users, keys, exports) that run on the event loop without `to_thread`. A sync engine also exists but is only used at process boot for schema migration apply and startup reconciliation (`backend/storage/engine.py`).
-- **Tool queries stay sync.** The read-only sandbox (`backend/tools/sandbox/runner.py`) uses DuckDB against `nflverse.duckdb` and runs inside `asyncio.to_thread`, so a long query can't stall the loop and the driver's row-limit + timeout knobs stay available.
+- **Runtime DB is async** via `aiosqlite` under SQLModel. `RuntimeStore` exposes natively async methods (sessions, turns, parts, tool runs, users, keys, exports) that run on the event loop without `to_thread`. A sync engine also exists but is only used at process boot for schema migration apply and startup reconciliation (`backend/lib/storage/engine.py`).
+- **Tool queries stay sync.** The read-only sandbox (`backend/lib/tools/sandbox/runner.py`) uses DuckDB against `nflverse.duckdb` and runs inside `asyncio.to_thread`, so a long query can't stall the loop and the driver's row-limit + timeout knobs stay available.
 - **Single process.** Rate limiting is in-memory; no multi-worker plan without swapping that for Redis/slowapi.
 
 ## Persistence model
 
-One SQLite file — `data/runtime.sqlite3` — holds everything mutable. Sessions, turns, assistant parts, tool runs, compaction summaries, exports, users, API keys, auth sessions. Tables are defined as SQLModel classes in `backend/storage/models.py`; the schema evolves through in-house migration callables in `backend/storage/schema_version.py`, applied automatically on process boot via `apply_migrations()`. WAL mode, foreign keys, and a 5s busy_timeout are enabled on both the sync and async engines. See [persistence.md](persistence.md) for the schema and the lifecycle of each record.
+One SQLite file — `data/runtime.sqlite3` — holds everything mutable. Sessions, turns, assistant parts, tool runs, compaction summaries, exports, users, API keys, auth sessions. Tables are defined as SQLModel classes in `backend/lib/storage/models.py`; the schema evolves through in-house migration callables in `backend/lib/storage/schema_version.py`, applied automatically on process boot via `apply_migrations()`. WAL mode, foreign keys, and a 5s busy_timeout are enabled on both the sync and async engines. See [persistence.md](persistence.md) for the schema and the lifecycle of each record.
 
 The nflverse DuckDB file (`nflverse.duckdb`) is read-only reference data opened by the SQL sandbox on demand. It never mutates at runtime and isn't backed up with user data.
 

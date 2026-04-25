@@ -20,16 +20,16 @@ import logging
 import secrets
 from dataclasses import dataclass
 
-from backend.credentials import google_oauth
-from backend.credentials.errors import GoogleOAuthError
-from backend.credentials.types import GOOGLE, OAUTH_ONLY_SENTINEL_HASH, PASSWORD, GoogleIdentity
+from backend.lib.credentials import google_oauth
+from backend.lib.credentials.errors import GoogleOAuthError
+from backend.lib.credentials.types import GOOGLE, OAUTH_ONLY_SENTINEL_HASH, PASSWORD, GoogleIdentity
 from backend.config import (
     GOOGLE_OAUTH_CLIENT_ID,
     GOOGLE_OAUTH_CLIENT_SECRET,
     google_oauth_enabled,
     google_oauth_redirect_uri,
 )
-from backend.credentials.audit import AuditContext, audit_log
+from backend.lib.credentials.audit import AuditContext, audit_log
 from backend.features.auth.errors import AuthConflictError
 from backend.features.auth.lifecycle import IdentitySeed, create_user_account, issue_session
 from backend.features.oauth.google.types import (
@@ -37,7 +37,7 @@ from backend.features.oauth.google.types import (
     LinkOutcome,
     SignInOutcome,
 )
-from backend.storage import AuditEvent, IdentityConflictError, RuntimeStore
+from backend.lib.storage import AuditEvent, IdentityConflictError, RuntimeStore
 from backend.runtime_state import PendingGoogleOAuthFlows
 
 logger = logging.getLogger(__name__)

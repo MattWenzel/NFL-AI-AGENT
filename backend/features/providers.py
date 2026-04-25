@@ -6,8 +6,8 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel
 
-from backend.storage import RuntimeStore
-from backend.providers import list_providers, provider_is_available
+from backend.lib.storage import RuntimeStore
+from backend.lib.providers import list_providers, provider_is_available
 
 
 class ProviderResponse(BaseModel):

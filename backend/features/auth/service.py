@@ -10,9 +10,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from backend.credentials import email as email_sender
-from backend.credentials.primitives import hash_password, verify_password
-from backend.credentials.types import AuthenticatedUser
+from backend.lib.credentials import email as email_sender
+from backend.lib.credentials.primitives import hash_password, verify_password
+from backend.lib.credentials.types import AuthenticatedUser
 from backend.config import (
     EMAIL_VERIFICATION_REQUIRED,
     LOGIN_LOCKOUT_DURATION_SECONDS,
@@ -35,11 +35,11 @@ from backend.features.auth.errors import (
     AuthServiceError,
     AuthValidationError,
 )
-from backend.credentials.types import PASSWORD
-from backend.credentials.audit import AuditContext, audit_log
+from backend.lib.credentials.types import PASSWORD
+from backend.lib.credentials.audit import AuditContext, audit_log
 from backend.features.auth.lifecycle import IdentitySeed, create_user_account, issue_session
 from backend.features.auth.types import IssuedSession, RegistrationResult
-from backend.storage import AuditEvent, RuntimeStore
+from backend.lib.storage import AuditEvent, RuntimeStore
 
 logger = logging.getLogger(__name__)
 
@@ -210,7 +210,7 @@ class AuthService:
         now = datetime.now(timezone.utc).isoformat()
         async with self.store._async_session() as session:
             from sqlalchemy import update as sql_update
-            from backend.storage.models import UserRecord
+            from backend.lib.storage.models import UserRecord
 
             await session.execute(
                 sql_update(UserRecord)

@@ -7,13 +7,13 @@ from cryptography.fernet import Fernet
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from backend.agent.events import TextDeltaEvent
-from backend.credentials import encryption
-from backend.credentials.types import AuthenticatedUser
+from backend.lib.agent.events import TextDeltaEvent
+from backend.lib.credentials import encryption
+from backend.lib.credentials.types import AuthenticatedUser
 from backend.server.dependencies import get_chat_service, get_current_user
 from backend.server.process_state import AppProcessState
 from backend.features.chat.schemas import ChatResponse
-from backend.storage import RuntimeStore, SessionRecord
+from backend.lib.storage import RuntimeStore, SessionRecord
 from backend.server.routes import chat as chat_router
 from backend.server.routes.chat import router as chat_router_module
 from backend.features.chat.service import (

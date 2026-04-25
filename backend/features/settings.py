@@ -8,9 +8,9 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, Field
 
-from backend.storage import AuditEvent, RuntimeStore
-from backend.providers import ProviderInfo, get_provider, list_providers
-from backend.credentials import codex_oauth, encryption
+from backend.lib.storage import AuditEvent, RuntimeStore
+from backend.lib.providers import ProviderInfo, get_provider, list_providers
+from backend.lib.credentials import codex_oauth, encryption
 
 logger = logging.getLogger(__name__)
 

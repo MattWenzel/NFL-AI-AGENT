@@ -32,7 +32,7 @@ from backend.server.session import (
     SESSION_COOKIE_NAME,
     _extract_bearer,
 )
-from backend.storage.audit_events import AuditEvent
+from backend.lib.storage.audit_events import AuditEvent
 
 logger = logging.getLogger(__name__)
 

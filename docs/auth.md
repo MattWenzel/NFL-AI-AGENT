@@ -6,12 +6,12 @@ This doc covers the password flow, token scheme, rate limiting, Fernet-encrypted
 
 ## File map
 
-**Primitives (`backend/credentials/`):**
-- `backend/credentials/primitives.py` — password hashing (bcrypt) and opaque-token generation.
-- `backend/credentials/types.py` — `AuthenticatedUser`, OAuth token bundles, identity-provider constants.
-- `backend/credentials/encryption.py` — Fernet wrapper (`encrypt` / `decrypt`) + `require_configured()` startup check.
-- `backend/credentials/codex_oauth.py` — ChatGPT device-code OAuth protocol (`request_device_code`, `poll_device_code`, `exchange_code`, `refresh_access_token`). Talks directly to `https://auth.openai.com`.
-- `backend/credentials/audit.py` — shared `AuditContext` and `audit_log` helper used by auth and OAuth services.
+**Primitives (`backend/lib/credentials/`):**
+- `backend/lib/credentials/primitives.py` — password hashing (bcrypt) and opaque-token generation.
+- `backend/lib/credentials/types.py` — `AuthenticatedUser`, OAuth token bundles, identity-provider constants.
+- `backend/lib/credentials/encryption.py` — Fernet wrapper (`encrypt` / `decrypt`) + `require_configured()` startup check.
+- `backend/lib/credentials/codex_oauth.py` — ChatGPT device-code OAuth protocol (`request_device_code`, `poll_device_code`, `exchange_code`, `refresh_access_token`). Talks directly to `https://auth.openai.com`.
+- `backend/lib/credentials/audit.py` — shared `AuditContext` and `audit_log` helper used by auth and OAuth services.
 
 **Services (`backend/features/`):**
 - `auth/service.py` — `AuthService`: register, login, logout, change_password, delete_account.
@@ -29,7 +29,7 @@ This doc covers the password flow, token scheme, rate limiting, Fernet-encrypted
 - `settings.py` — `/settings/api-keys`, `/settings/oauth/codex/*`, and linked-identity endpoints.
 
 **Storage:**
-- `backend/storage/users.py` — `UsersMixin` + `UserIdentitiesMixin` + `LoginFailuresMixin` + `EmailVerificationMixin` + `SecurityEventsMixin`: CRUD for `users`, `auth_sessions`, `user_api_keys`, `user_identities`, `login_failures`, `email_verification`, `security_events`.
+- `backend/lib/storage/users.py` — `UsersMixin` + `UserIdentitiesMixin` + `LoginFailuresMixin` + `EmailVerificationMixin` + `SecurityEventsMixin`: CRUD for `users`, `auth_sessions`, `user_api_keys`, `user_identities`, `login_failures`, `email_verification`, `security_events`.
 - `backend/server/rate_limit.py` — sliding-window IP rate limiter.
 - `backend/server/session.py` — FastAPI request parsing for Bearer tokens plus browser session/CSRF cookie helpers.
 
@@ -103,7 +103,7 @@ The calling session dies along with the rest, so the next request from the clien
 
 ## Password hashing
 
-`backend/credentials/primitives.py:38`. bcrypt at default cost factor (12):
+`backend/lib/credentials/primitives.py:38`. bcrypt at default cost factor (12):
 
 ```python
 def hash_password(plain): return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
@@ -116,7 +116,7 @@ Cost 12 → roughly ~300ms per verify on typical hardware. Intentional: fast ver
 
 ## Bearer tokens
 
-`backend/credentials/primitives.py`. `secrets.token_urlsafe(32)` — 32 random bytes, base64-urlsafe encoded. ~256 bits of entropy. Collision-resistant; unguessable.
+`backend/lib/credentials/primitives.py`. `secrets.token_urlsafe(32)` — 32 random bytes, base64-urlsafe encoded. ~256 bits of entropy. Collision-resistant; unguessable.
 
 Stored as the primary key of `auth_sessions` alongside `user_id`, `expires_at`, `created_at`, `last_used_at`.
 
@@ -157,7 +157,7 @@ Users can bring their own Anthropic / OpenAI keys via the Settings modal. Storag
 
 ### Encryption
 
-`backend/credentials/encryption.py`. Uses `cryptography.fernet.Fernet` — AES-128-CBC + HMAC-SHA256 with a master key from `SETTINGS_ENCRYPTION_KEY`.
+`backend/lib/credentials/encryption.py`. Uses `cryptography.fernet.Fernet` — AES-128-CBC + HMAC-SHA256 with a master key from `SETTINGS_ENCRYPTION_KEY`.
 
 - `encrypt(plaintext) -> str` — ciphertext as base64 URL-safe string.
 - `decrypt(ciphertext) -> str` — raises `ValueError` on auth failure (wrong key, tampered ciphertext).
@@ -186,14 +186,14 @@ The `decrypt` error path deliberately treats this as "no key" rather than raisin
 
 ## Codex OAuth flow
 
-Some users don't have an OpenAI API key but do have a ChatGPT subscription. OpenAI's Codex CLI exposes a public client ID (`CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"`, `backend/credentials/codex_oauth.py:28`) that lets a third-party app stand up the same device-code flow Codex uses, talking to `https://auth.openai.com`.
+Some users don't have an OpenAI API key but do have a ChatGPT subscription. OpenAI's Codex CLI exposes a public client ID (`CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"`, `backend/lib/credentials/codex_oauth.py:28`) that lets a third-party app stand up the same device-code flow Codex uses, talking to `https://auth.openai.com`.
 
-### Protocol (`backend/credentials/codex_oauth.py`)
+### Protocol (`backend/lib/credentials/codex_oauth.py`)
 
-1. **`request_device_code(client_id)`** (`backend/credentials/codex_oauth.py:141`) → `POST https://auth.openai.com/api/accounts/deviceauth/usercode` → returns `DeviceCodeStart(device_auth_id, user_code, interval, verification_url)`. The user code is what the user types at `https://auth.openai.com/codex/device`.
-2. **`poll_device_code(device_auth_id, user_code, interval_seconds=5, max_wait_seconds=15*60)`** (`backend/credentials/codex_oauth.py:181`) → polls `POST /api/accounts/deviceauth/token` every 5s for up to 15 minutes. Treats 403/404 as "still waiting"; raises `DeviceCodeExpired` on timeout.
-3. **`exchange_code(auth_code, code_verifier)`** (`backend/credentials/codex_oauth.py:232`) → `POST https://auth.openai.com/oauth/token` → returns `TokenBundle(access_token, refresh_token, expires_at, email)`. `expires_at` is parsed from the JWT's `exp` claim (or `expires_in + 55 minutes` fallback).
-4. **`refresh_access_token(refresh_token)`** (`backend/credentials/codex_oauth.py:252`) → same endpoint, `grant_type=refresh_token` → returns a new bundle. **OpenAI may rotate the refresh token**, so the caller must replace the stored bundle with the return value.
+1. **`request_device_code(client_id)`** (`backend/lib/credentials/codex_oauth.py:141`) → `POST https://auth.openai.com/api/accounts/deviceauth/usercode` → returns `DeviceCodeStart(device_auth_id, user_code, interval, verification_url)`. The user code is what the user types at `https://auth.openai.com/codex/device`.
+2. **`poll_device_code(device_auth_id, user_code, interval_seconds=5, max_wait_seconds=15*60)`** (`backend/lib/credentials/codex_oauth.py:181`) → polls `POST /api/accounts/deviceauth/token` every 5s for up to 15 minutes. Treats 403/404 as "still waiting"; raises `DeviceCodeExpired` on timeout.
+3. **`exchange_code(auth_code, code_verifier)`** (`backend/lib/credentials/codex_oauth.py:232`) → `POST https://auth.openai.com/oauth/token` → returns `TokenBundle(access_token, refresh_token, expires_at, email)`. `expires_at` is parsed from the JWT's `exp` claim (or `expires_in + 55 minutes` fallback).
+4. **`refresh_access_token(refresh_token)`** (`backend/lib/credentials/codex_oauth.py:252`) → same endpoint, `grant_type=refresh_token` → returns a new bundle. **OpenAI may rotate the refresh token**, so the caller must replace the stored bundle with the return value.
 
 ### Transport-side orchestration (`oauth/codex/service.py`)
 
@@ -240,7 +240,7 @@ There's no way to promote other users to admin via the UI. To make another user 
 
 ## `AuthenticatedUser` vs `UserRecord`
 
-`AuthenticatedUser` (`backend/credentials/types.py`) is a lightweight view of the current user that routes + services depend on: `id`, `email`, `role`. `UserRecord` (the full SQLite row) carries `password_hash` — which should never accidentally serialize.
+`AuthenticatedUser` (`backend/lib/credentials/types.py`) is a lightweight view of the current user that routes + services depend on: `id`, `email`, `role`. `UserRecord` (the full SQLite row) carries `password_hash` — which should never accidentally serialize.
 
 The dependency returns `AuthenticatedUser`; if a service method needs the `password_hash` (password change, account delete), it explicitly calls `store.get_user_by_id(user.id)` to get the `UserRecord`. This is a small but important firewall: no way to leak `password_hash` through `AuthenticatedUser` in a response body.
 

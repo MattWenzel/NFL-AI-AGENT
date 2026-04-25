@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from backend.credentials.types import AuthenticatedUser
+from backend.lib.credentials.types import AuthenticatedUser
 from backend.server.csrf import verify_csrf
 from backend.server.dependencies import get_conversation_service, get_current_user
 from backend.features.conversations import ConversationInfo, ConversationTranscriptResponse, ConversationUpdate

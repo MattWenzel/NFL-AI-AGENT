@@ -4,9 +4,9 @@ The agent has a deliberately slim system prompt and a set of on-demand markdown 
 
 ## File map
 
-- `backend/agent/system_prompt.py` — base system prompt template + `get_base_prompt()`.
-- `backend/tools/guides/*.md` — seven topic-specific reference docs.
-- `backend/tools/handlers/get_guide.py` — guide loader tool.
+- `backend/lib/agent/system_prompt.py` — base system prompt template + `get_base_prompt()`.
+- `backend/lib/tools/guides/*.md` — seven topic-specific reference docs.
+- `backend/lib/tools/handlers/get_guide.py` — guide loader tool.
 
 ## The split: prompt vs. guide
 
@@ -21,7 +21,7 @@ Why: a typical "how many TDs did Mahomes throw in 2024" question doesn't need th
 
 ## The base prompt
 
-`backend/agent/system_prompt.py`. A single template with one variable: `{today}` plus the generated guide index. `get_base_prompt()` evaluates it at call time, so "today's date" in the prompt matches the server's clock on the day of the request.
+`backend/lib/agent/system_prompt.py`. A single template with one variable: `{today}` plus the generated guide index. `get_base_prompt()` evaluates it at call time, so "today's date" in the prompt matches the server's clock on the day of the request.
 
 Structure (in order):
 
@@ -49,7 +49,7 @@ The prompt is intentionally prescriptive. This is not a general-purpose system p
 
 ## Guide system
 
-Seven markdown files in `backend/tools/guides/` (`backend/tools/handlers/get_guide.py`):
+Seven markdown files in `backend/lib/tools/guides/` (`backend/lib/tools/handlers/get_guide.py`):
 
 | Topic | When to load |
 |-------|--------------|
@@ -65,7 +65,7 @@ Guides are plain markdown: column reference tables, gotchas, and copy-pasteable 
 
 ### Loading
 
-`backend/tools/handlers/get_guide.py:16`. All seven files are read into a module-level dict **at import time**:
+`backend/lib/tools/handlers/get_guide.py:16`. All seven files are read into a module-level dict **at import time**:
 
 ```python
 _GUIDES = _load_all()   # dict[topic] -> file contents
@@ -79,9 +79,9 @@ This means:
 
 ### Serving
 
-`backend/tools/handlers/get_guide.py`. Topic validation against `GUIDE_TOPICS`, then return `{"topic": ..., "content": ...}` as a JSON string. Same pattern as every other tool handler — JSON in, JSON out.
+`backend/lib/tools/handlers/get_guide.py`. Topic validation against `GUIDE_TOPICS`, then return `{"topic": ..., "content": ...}` as a JSON string. Same pattern as every other tool handler — JSON in, JSON out.
 
-The **topic enum** is owned by `GUIDE_TOPICS` in `backend/tools/guide_registry.py`, and `definitions.py` derives the `get_guide` schema enum from that shared source. Adding a topic is now a one-source change instead of a manual sync across files.
+The **topic enum** is owned by `GUIDE_TOPICS` in `backend/lib/tools/guide_registry.py`, and `definitions.py` derives the `get_guide` schema enum from that shared source. Adding a topic is now a one-source change instead of a manual sync across files.
 
 ## How guides reach the model
 
@@ -111,5 +111,5 @@ Without this instruction, models tend to fetch one guide, wait, fetch another, w
 ## Adding or changing content
 
 - **Edit a guide**: change the `.md` file, restart the server. No code changes.
-- **Add a new guide**: (1) drop `newtopic.md` into `backend/tools/guides/`, (2) add `"newtopic"` to `GUIDE_TOPICS` in `backend/tools/guide_registry.py`, (3) add a row to `GUIDE_INDEX_ROWS` there so the system prompt stays aligned. Restart.
+- **Add a new guide**: (1) drop `newtopic.md` into `backend/lib/tools/guides/`, (2) add `"newtopic"` to `GUIDE_TOPICS` in `backend/lib/tools/guide_registry.py`, (3) add a row to `GUIDE_INDEX_ROWS` there so the system prompt stays aligned. Restart.
 - **Tune the base prompt**: edit `_SYSTEM_PROMPT_TEMPLATE`. Restart the running API server so the change is picked up.

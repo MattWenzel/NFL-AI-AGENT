@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, Field
 
-from backend.storage import (
+from backend.lib.storage import (
     AssistantPartRecord,
     CompactionSummaryRecord,
     RuntimeStore,

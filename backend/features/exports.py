@@ -11,8 +11,8 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from backend.config import EXPORTS_DIR
-from backend.storage import RuntimeStore
-from backend.providers import get_default_provider, get_provider
+from backend.lib.storage import RuntimeStore
+from backend.lib.providers import get_default_provider, get_provider
 
 logger = logging.getLogger(__name__)
 

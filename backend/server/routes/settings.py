@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
-from backend.credentials.types import GOOGLE, AuthenticatedUser
+from backend.lib.credentials.types import GOOGLE, AuthenticatedUser
 from backend.server.csrf import verify_csrf
 from backend.server.dependencies import (
     get_codex_oauth_service,

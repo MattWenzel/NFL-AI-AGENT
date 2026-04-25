@@ -13,7 +13,7 @@ can't be silently dropped after a refactor.
 
 import logging
 
-from backend.agent.events import (
+from backend.lib.agent.events import (
     AssistantRequiresFollowupEvent,
     AssistantStartedEvent,
     CompactionStartedEvent,

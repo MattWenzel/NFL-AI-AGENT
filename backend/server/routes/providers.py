@@ -7,7 +7,7 @@ their own key via /settings/api-keys.
 
 from fastapi import APIRouter, Depends
 
-from backend.credentials.types import AuthenticatedUser
+from backend.lib.credentials.types import AuthenticatedUser
 from backend.server.dependencies import get_current_user, get_provider_service
 from backend.features.providers import ProviderResponse
 from backend.features.providers import ProviderService

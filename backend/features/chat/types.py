@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from backend.providers.base import BaseLLMClient
-from backend.storage import SessionRecord
+from backend.lib.providers.base import BaseLLMClient
+from backend.lib.storage import SessionRecord
 
 
 @dataclass

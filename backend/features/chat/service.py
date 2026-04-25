@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import AsyncGenerator
 
-from backend.credentials.types import AuthenticatedUser
-from backend.agent.events import (
+from backend.lib.credentials.types import AuthenticatedUser
+from backend.lib.agent.events import (
     RuntimeErrorEvent,
     RuntimeEvent,
     TextDeltaEvent,
@@ -13,16 +13,16 @@ from backend.agent.events import (
     ToolFailedEvent,
     ToolPendingEvent,
 )
-from backend.providers.base import BaseLLMClient
-from backend.providers.errors import LLMError
-from backend.agent.runtime import ChatRuntime
-from backend.providers import (
+from backend.lib.providers.base import BaseLLMClient
+from backend.lib.providers.errors import LLMError
+from backend.lib.agent.runtime import ChatRuntime
+from backend.lib.providers import (
     create_client,
     get_default_provider,
     get_provider,
     provider_is_available,
 )
-from backend.storage import RuntimeStore
+from backend.lib.storage import RuntimeStore
 from backend.features.chat.schemas import ChatRequest, ChatResponse, ToolCallPreview
 from backend.features.oauth.credentials import (
     CredentialServiceError,

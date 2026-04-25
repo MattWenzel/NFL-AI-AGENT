@@ -6,9 +6,9 @@ from datetime import datetime, timezone
 
 from fastapi import Depends, HTTPException, Request, status
 
-from backend.agent.runtime import ChatRuntime
+from backend.lib.agent.runtime import ChatRuntime
 from backend.server.session import _extract_session_token
-from backend.credentials.types import AuthenticatedUser
+from backend.lib.credentials.types import AuthenticatedUser
 from backend.config import AUTH_SESSION_TOUCH_INTERVAL_SECONDS, EXPORTS_DIR
 from backend.server.process_state import AppProcessState
 from backend.features.auth.service import AuthService
@@ -19,7 +19,7 @@ from backend.features.oauth.codex.service import CodexOAuthService
 from backend.features.oauth.google.service import GoogleOAuthService
 from backend.features.providers import ProviderService
 from backend.features.settings import SettingsService
-from backend.storage import RuntimeStore
+from backend.lib.storage import RuntimeStore
 
 
 def get_store(request: Request) -> RuntimeStore:

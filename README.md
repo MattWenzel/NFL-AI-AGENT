@@ -91,11 +91,11 @@ Zero-framework browser UI, FastAPI backend, async SQLModel + aiosqlite persisten
 ```
 backend/server/       FastAPI app shell, dependency wiring, HTTP helpers, and routes
 backend/features/     App-process services, schemas, DTOs, and errors
-backend/agent/        Chat runtime loop, turn state, events, prompts, compaction
-backend/providers/    LLM provider registry, shared provider types, concrete clients
-backend/tools/        Tool definitions, handlers, SQL sandbox, guide docs
-backend/storage/      Runtime SQLite store, models, migrations
-backend/credentials/  Auth/security primitives, encryption, OAuth protocol helpers
+backend/lib/agent/        Chat runtime loop, turn state, events, prompts, compaction
+backend/lib/providers/    LLM provider registry, shared provider types, concrete clients
+backend/lib/tools/        Tool definitions, handlers, SQL sandbox, guide docs
+backend/lib/storage/      Runtime SQLite store, models, migrations
+backend/lib/credentials/  Auth/security primitives, encryption, OAuth protocol helpers
 frontend/             Browser app (vanilla JS modules, one render() + one patchLiveText fast path)
 ```
 

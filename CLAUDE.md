@@ -8,7 +8,7 @@ NFL player stats database built from [nflverse](https://github.com/nflverse/nflv
 |----------|------|--------|------|-------|
 | `nflverse.duckdb` | ~1.2 GB | 25 + 1 view | ~5M | 1999-2025 |
 
-Single DuckDB file with **78 FK constraints** enforced at build time. Accessed read-only by the chat agent via `backend/tools/sandbox/runner.py` (raw `duckdb.connect(..., read_only=True)`); no ORM involvement.
+Single DuckDB file with **78 FK constraints** enforced at build time. Accessed read-only by the chat agent via `backend/lib/tools/sandbox/runner.py` (raw `duckdb.connect(..., read_only=True)`); no ORM involvement.
 
 **Full schema**: `../NFLVERSE/docs/CONSUMER_GUIDE.md` (short, gotcha-focused) + `../NFLVERSE/docs/DATABASE.md` (full reference). Sibling repo.
 
@@ -58,7 +58,7 @@ The chat runtime is transcript-backed: sessions, turns, assistant parts, tool ru
 
 ### Architecture
 
-Top-level split: `backend/` holds the Python server, `frontend/` holds the browser UI. Inside `backend/`, `server/` is the FastAPI HTTP boundary and process-local server lifecycle, `features/` holds app-process services and DTOs, `storage/` owns runtime persistence, and `credentials/` owns auth/security primitives. Reusable subsystems are named directly (`agent/`, `providers/`, `tools/`). The frontend still mirrors the feature-slice convention for its JS modules.
+Top-level split: `backend/` holds the Python server, `frontend/` holds the browser UI. Inside `backend/`, the layering is: `server/` is the FastAPI HTTP boundary, `features/` holds app-process services (one per HTTP feature), and `lib/` holds the framework-free libraries those features consume (`agent/`, `providers/`, `tools/`, `storage/`, `credentials/`). The frontend mirrors the feature-slice convention for its JS modules.
 
 ```
 backend/
@@ -83,11 +83,12 @@ backend/
 │   ├── oauth/                    #   credentials.py plus Codex/Google flow packages
 │   ├── providers.py              #   provider response models
 │   └── settings.py               #   per-user API key CRUD + linked identity services
-├── agent/                        # Chat runtime loop, events, prompt, compaction
-├── providers/                    # LLM provider registry, types, errors, clients
-├── tools/                        # Tool definitions, registry, handlers, SQL sandbox, guides
-├── storage/                      # Runtime SQLite store, models, migrations
-├── credentials/                  # Auth/security primitives, encryption, OAuth protocol helpers
+├── lib/                          # Framework-free libraries consumed by server/ + features/
+│   ├── agent/                    #   Chat runtime loop, events, prompt, compaction
+│   ├── providers/                #   LLM provider registry, types, errors, clients
+│   ├── tools/                    #   Tool definitions, registry, handlers, SQL sandbox, guides
+│   ├── storage/                  #   Runtime SQLite store, models, migrations
+│   └── credentials/              #   Auth primitives, encryption, OAuth protocol helpers, audit log
 ├── runtime_state.py              # Framework-free lock registries + pending OAuth flows
 └── config.py                     # DB paths, env loading, runtime settings
 
@@ -127,7 +128,7 @@ python3 -m pytest tests/          # Run tests
 # which this app reads via DB_PATH in .env.
 ```
 
-**Note**: Restart the API server (`python3 run.py`) after changing `backend/agent/system_prompt.py` or `backend/tools/*` — the running server caches imports.
+**Note**: Restart the API server (`python3 run.py`) after changing `backend/lib/agent/system_prompt.py` or `backend/lib/tools/*` — the running server caches imports.
 
 ## Auth & multi-user
 
@@ -169,7 +170,7 @@ Shipped 2026-04-23. Users can sign up / sign in with Google, and existing passwo
 - Both routes are GETs (browser navigation) and CSRF-exempt by the usual safe-method rule — the `state` parameter is the anti-CSRF for the callback. Session cookies from the rest of the app still travel (SameSite=Lax), which is how the callback can tell a link flow (user_id in pending row) from a sign-in flow.
 - `security_events` gains `oauth_signin_started`, `oauth_signin_succeeded`, `oauth_signin_failed`, `oauth_link_started`, `oauth_linked`, `oauth_unlinked`, `oauth_link_rejected`.
 
-**Files:** `backend/credentials/google_oauth.py` (OAuth primitives + ID-token verification), `backend/storage/users.py::UserIdentitiesMixin` (storage), `backend/features/oauth/google/service.py` (flow orchestration), `backend/server/routes/oauth_google.py` (endpoints), `backend/server/routes/settings.py` (link/unlink + list), and `backend/server/session.py` for shared session cookie behavior.
+**Files:** `backend/lib/credentials/google_oauth.py` (OAuth primitives + ID-token verification), `backend/lib/storage/users.py::UserIdentitiesMixin` (storage), `backend/features/oauth/google/service.py` (flow orchestration), `backend/server/routes/oauth_google.py` (endpoints), `backend/server/routes/settings.py` (link/unlink + list), and `backend/server/session.py` for shared session cookie behavior.
 
 **Env vars:**
 - `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` — set via Google Cloud Console. The "Continue with Google" button and `/auth/oauth/google/*` routes only appear when both are set.

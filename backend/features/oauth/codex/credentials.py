@@ -9,10 +9,10 @@ from __future__ import annotations
 import json
 import logging
 
-from backend.credentials import codex_oauth, encryption
-from backend.credentials.errors import CodexOAuthError
-from backend.credentials.types import TokenBundle
-from backend.storage import RuntimeStore
+from backend.lib.credentials import codex_oauth, encryption
+from backend.lib.credentials.errors import CodexOAuthError
+from backend.lib.credentials.types import TokenBundle
+from backend.lib.storage import RuntimeStore
 from backend.runtime_state import PerUserLockRegistry
 
 logger = logging.getLogger(__name__)

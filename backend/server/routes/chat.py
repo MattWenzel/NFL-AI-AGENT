@@ -19,8 +19,8 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from backend.tools import TOOLS
-from backend.credentials.types import AuthenticatedUser
+from backend.lib.tools import TOOLS
+from backend.lib.credentials.types import AuthenticatedUser
 from backend.server.csrf import verify_csrf
 from backend.server.dependencies import get_chat_service, get_current_user, get_process_state
 from backend.server.process_state import AppProcessState
@@ -34,7 +34,7 @@ from backend.features.chat.service import (
     close_client,
 )
 from backend.server.sse import event_to_sse_payload
-from backend.providers.errors import LLMError
+from backend.lib.providers.errors import LLMError
 
 logger = logging.getLogger(__name__)
 

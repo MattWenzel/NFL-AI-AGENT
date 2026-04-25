@@ -4,14 +4,14 @@ One codebase, three LLM providers — Anthropic Claude, OpenAI (Chat Completions
 
 ## File map
 
-- `backend/providers/base.py` — `BaseLLMClient` ABC + canonical types (`Message`, `TextEvent`, `ToolUseEvent`, `RetryingEvent`, `Usage`, `ToolDefinition`, `ToolChoice`, `StopReason`, `LLMError`, `ContextOverflowError`).
-- `backend/providers/__init__.py` — `ProviderInfo` registry, `create_client` factory, built-in provider registration.
-- `backend/providers/clients/anthropic.py` — `AnthropicClient` (official SDK, ephemeral-cache prompt caching).
-- `backend/providers/clients/openai.py` — `OpenAIClient` (official SDK, Chat Completions).
-- `backend/providers/clients/codex.py` — `OpenAICodexClient` (OAuth access token; hits OpenAI's internal Responses API via raw `httpx` + SSE parsing).
-- `backend/providers/retry.py` — header-aware exponential backoff (`parse_retry_after`, `compute_delay`, `with_retries`, `RetryableError`).
-- `backend/providers/overflow.py` — `is_context_overflow(msg)` regex match for "too long" errors; maps provider-specific error strings to the canonical `ContextOverflowError`.
-- `backend/providers/tool_calls.py` — shared helpers for assembling streamed tool-call fragments.
+- `backend/lib/providers/base.py` — `BaseLLMClient` ABC + canonical types (`Message`, `TextEvent`, `ToolUseEvent`, `RetryingEvent`, `Usage`, `ToolDefinition`, `ToolChoice`, `StopReason`, `LLMError`, `ContextOverflowError`).
+- `backend/lib/providers/__init__.py` — `ProviderInfo` registry, `create_client` factory, built-in provider registration.
+- `backend/lib/providers/clients/anthropic.py` — `AnthropicClient` (official SDK, ephemeral-cache prompt caching).
+- `backend/lib/providers/clients/openai.py` — `OpenAIClient` (official SDK, Chat Completions).
+- `backend/lib/providers/clients/codex.py` — `OpenAICodexClient` (OAuth access token; hits OpenAI's internal Responses API via raw `httpx` + SSE parsing).
+- `backend/lib/providers/retry.py` — header-aware exponential backoff (`parse_retry_after`, `compute_delay`, `with_retries`, `RetryableError`).
+- `backend/lib/providers/overflow.py` — `is_context_overflow(msg)` regex match for "too long" errors; maps provider-specific error strings to the canonical `ContextOverflowError`.
+- `backend/lib/providers/tool_calls.py` — shared helpers for assembling streamed tool-call fragments.
 
 ## Canonical types
 
@@ -136,7 +136,7 @@ ChatService.prepare_chat
     │     └─ codex_oauth     → codex_credentials.resolve_access_token (refresh if near expiry)
     │
     └─ create_client(provider, model, api_key=user_key)   backend/features/chat/service.py
-          └─ create_client(provider, model, api_key)                  backend/providers/__init__.py:75
+          └─ create_client(provider, model, api_key)                  backend/lib/providers/__init__.py:75
                 ├─ resolve provider (arg → env CHAT_PROVIDER → "anthropic")
                 ├─ resolve model (arg → provider default)
                 ├─ resolve key (arg → env[info.env_key])
@@ -149,7 +149,7 @@ Callers own cleanup: `close_client` (`backend/features/chat/service.py`) calls `
 
 ## Anthropic adapter
 
-`backend/providers/clients/anthropic.py`.
+`backend/lib/providers/clients/anthropic.py`.
 
 ### Message translation
 
@@ -189,7 +189,7 @@ JSON decode failures log a warning and yield an empty dict `{}`. The runtime sti
 
 ## OpenAI adapter
 
-`backend/providers/clients/openai.py`.
+`backend/lib/providers/clients/openai.py`.
 
 ### Message translation
 
@@ -226,7 +226,7 @@ Usage is emitted in a trailing chunk when `stream_options={"include_usage": True
 
 ## Codex adapter (ChatGPT OAuth)
 
-`backend/providers/clients/codex.py`. The one adapter that doesn't use an SDK — it hits OpenAI's internal Responses API via raw `httpx` + SSE parsing because that's the endpoint the OAuth access token is scoped to.
+`backend/lib/providers/clients/codex.py`. The one adapter that doesn't use an SDK — it hits OpenAI's internal Responses API via raw `httpx` + SSE parsing because that's the endpoint the OAuth access token is scoped to.
 
 ### Authentication
 
@@ -261,7 +261,7 @@ Tool assembly resolves `call_id` via the `item_to_call` mapping so out-of-order 
 
 ## Retry behavior
 
-`backend/providers/retry.py`. All three providers use the same backoff primitives; only the error classifier differs.
+`backend/lib/providers/retry.py`. All three providers use the same backoff primitives; only the error classifier differs.
 
 **Config** (`retry.py:30-34`):
 
@@ -284,7 +284,7 @@ Providers only retry **stream-open** (before the first event yields). If the str
 
 ## Context-overflow detection
 
-`backend/providers/overflow.py`. One function: `is_context_overflow(message_text: str) -> bool`. Regex list (case-insensitive) matching patterns like `"prompt is too long"`, `"context_length_exceeded"`, `"input token count … exceed"`, `"context (window|length) … exceed"`.
+`backend/lib/providers/overflow.py`. One function: `is_context_overflow(message_text: str) -> bool`. Regex list (case-insensitive) matching patterns like `"prompt is too long"`, `"context_length_exceeded"`, `"input token count … exceed"`, `"context (window|length) … exceed"`.
 
 Each provider's `_translate_error` checks `is_context_overflow(body)` and raises `ContextOverflowError` on match instead of `LLMError`. The runtime catches `ContextOverflowError` specifically (see [runtime.md](runtime.md#context-overflow-recovery)) and triggers a one-shot forced compaction retry.
 
@@ -302,10 +302,10 @@ The `_wrap_api_errors` context manager on `BaseLLMClient` wraps every call site 
 
 ## Adding a provider
 
-1. Write `backend/providers/myprovider.py` with a `BaseLLMClient` subclass implementing `create_message`, `stream_message`, `provider_name`, and `_translate_error`.
+1. Write `backend/lib/providers/myprovider.py` with a `BaseLLMClient` subclass implementing `create_message`, `stream_message`, `provider_name`, and `_translate_error`.
 2. Register it in `__init__.py` — add a `ProviderInfo` with `client_class=MyProviderClient`, the right `credential_shape`, and a `summarizer_model` if a cheap sibling exists. Wrap registration in `try/except ImportError` if the SDK is optional.
 3. Map the SDK's stop-reason strings to `StopReason` in a module-level `_STOP_MAP` constant.
 4. Translate `Message` both ways in `_convert_messages`; if the tool-result role differs (like Codex's `function_call_output` vs OpenAI's `"tool"` role), match the provider's convention there.
 5. Wire `with_retries` + a provider-specific error classifier + `is_context_overflow` into the client so the runtime gets uniform retry + overflow behavior.
 
-No changes to `backend/agent/`, `backend/tools/`, or `backend/server/` — the adapter is the seam.
+No changes to `backend/lib/agent/`, `backend/lib/tools/`, or `backend/server/` — the adapter is the seam.

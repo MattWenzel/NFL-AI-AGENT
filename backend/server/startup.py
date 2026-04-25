@@ -6,8 +6,8 @@ import logging
 import os
 from fastapi import FastAPI
 
-from backend.agent.runtime import ChatRuntime
-from backend.credentials import encryption
+from backend.lib.agent.runtime import ChatRuntime
+from backend.lib.credentials import encryption
 from backend.config import (
     ALLOWED_ORIGINS,
     APP_BASE_URL,
@@ -19,10 +19,10 @@ from backend.config import (
     format_file_size,
     google_oauth_enabled,
 )
-from backend.credentials.types import OAUTH_ONLY_SENTINEL_HASH, PASSWORD
-from backend.providers import list_providers
+from backend.lib.credentials.types import OAUTH_ONLY_SENTINEL_HASH, PASSWORD
+from backend.lib.providers import list_providers
 from backend.server.process_state import AppProcessState
-from backend.storage import IdentityConflictError, RuntimeStore
+from backend.lib.storage import IdentityConflictError, RuntimeStore
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,7 @@ async def _seed_password_identities(store: RuntimeStore) -> int:
     """
     from sqlalchemy import select
 
-    from backend.storage.models import UserRecord
+    from backend.lib.storage.models import UserRecord
 
     count = 0
     async with store._async_session() as session:

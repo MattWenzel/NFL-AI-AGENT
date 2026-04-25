@@ -25,7 +25,7 @@ def _skip_if_stats_db_locked():
 # ---------------------------------------------------------------------------
 # 1. OFFSET preserved when LIMIT is capped
 # ---------------------------------------------------------------------------
-from backend.tools.sandbox import _ensure_limit
+from backend.lib.tools.sandbox import _ensure_limit
 
 
 class TestEnsureLimit:
@@ -98,28 +98,28 @@ class TestValidateSQLEdgeCases:
     """Tests for validate_sql — comment tolerance and multi-statement handling."""
 
     def test_leading_block_comment_accepted(self):
-        from backend.tools.sandbox import validate_sql
+        from backend.lib.tools.sandbox import validate_sql
         validate_sql("/* hi */ SELECT 1")
 
     def test_leading_line_comment_accepted(self):
-        from backend.tools.sandbox import validate_sql
+        from backend.lib.tools.sandbox import validate_sql
         validate_sql("-- note\nSELECT 1")
 
     def test_string_literal_with_semicolon_accepted(self):
         """Legal query with a semicolon inside a string must not be rejected."""
-        from backend.tools.sandbox import validate_sql
+        from backend.lib.tools.sandbox import validate_sql
         validate_sql("SELECT 'a; b' AS x")
 
     def test_multi_statement_rejected_by_sqlite(self):
         """Multi-statement is caught by SQLite at execute time."""
-        from backend.tools.sandbox.runner import SQLValidationError
-        from backend.tools.sandbox import execute_safe_sql
+        from backend.lib.tools.sandbox.runner import SQLValidationError
+        from backend.lib.tools.sandbox import execute_safe_sql
         with pytest.raises(SQLValidationError, match="one statement"):
             execute_safe_sql("SELECT 1; SELECT 2")
 
     def test_ddl_still_rejected(self):
-        from backend.tools.sandbox.runner import SQLValidationError
-        from backend.tools.sandbox import validate_sql
+        from backend.lib.tools.sandbox.runner import SQLValidationError
+        from backend.lib.tools.sandbox import validate_sql
         with pytest.raises(SQLValidationError):
             validate_sql("DROP TABLE players")
 
@@ -130,7 +130,7 @@ class TestSandboxIntegration:
     def test_parameterized_limit_query_runs(self):
         """LIMIT ? placeholder must execute without SQL syntax error."""
         _skip_if_stats_db_locked()
-        from backend.tools.sandbox import execute_safe_sql
+        from backend.lib.tools.sandbox import execute_safe_sql
         result = execute_safe_sql(
             "SELECT player_gsis_id FROM players WHERE position = ? LIMIT ?",
             ("QB", 3),
@@ -140,7 +140,7 @@ class TestSandboxIntegration:
     def test_search_players_tool_works(self):
         """Regression: _search_players must not produce duplicate LIMIT."""
         _skip_if_stats_db_locked()
-        from backend.tools.handlers.player_lookup import _search_players
+        from backend.lib.tools.handlers.player_lookup import _search_players
         out = _search_players({"position": "QB", "limit": 3})
         # Result is a JSON string; must not contain a syntax error marker.
         assert "syntax error" not in out.lower()
@@ -150,7 +150,7 @@ class TestClampLimitParam:
     """Tests for _clamp_limit_param — bind-time row-cap enforcement."""
 
     def test_clamps_above_max(self):
-        from backend.tools.sandbox import _clamp_limit_param
+        from backend.lib.tools.sandbox import _clamp_limit_param
         # SQL: one placeholder before the LIMIT, LIMIT itself is `?`.
         out = _clamp_limit_param(
             "SELECT * FROM players WHERE position = ? LIMIT ?",
@@ -160,7 +160,7 @@ class TestClampLimitParam:
         assert out == ("QB", 500)
 
     def test_leaves_values_under_max(self):
-        from backend.tools.sandbox import _clamp_limit_param
+        from backend.lib.tools.sandbox import _clamp_limit_param
         out = _clamp_limit_param(
             "SELECT * FROM players WHERE position = ? LIMIT ?",
             ("QB", 5),
@@ -169,7 +169,7 @@ class TestClampLimitParam:
         assert out == ("QB", 5)
 
     def test_no_limit_clause_passthrough(self):
-        from backend.tools.sandbox import _clamp_limit_param
+        from backend.lib.tools.sandbox import _clamp_limit_param
         out = _clamp_limit_param(
             "SELECT * FROM players WHERE position = ?",
             ("QB",),
@@ -179,7 +179,7 @@ class TestClampLimitParam:
 
     def test_numeric_limit_not_clamped_here(self):
         """Numeric LIMITs are clamped in _ensure_limit, not here."""
-        from backend.tools.sandbox import _clamp_limit_param
+        from backend.lib.tools.sandbox import _clamp_limit_param
         out = _clamp_limit_param(
             "SELECT * FROM players LIMIT 999999",
             (),
@@ -190,7 +190,7 @@ class TestClampLimitParam:
     def test_live_integration_clamps_oversized_bound(self):
         """End-to-end: a caller passing LIMIT ? with 999_999 gets 500 rows max."""
         _skip_if_stats_db_locked()
-        from backend.tools.sandbox import execute_safe_sql
+        from backend.lib.tools.sandbox import execute_safe_sql
         r = execute_safe_sql(
             "SELECT player_gsis_id FROM players WHERE position = ? LIMIT ?",
             ("QB", 999_999),
@@ -201,8 +201,8 @@ class TestClampLimitParam:
 # ---------------------------------------------------------------------------
 # 2. Anthropic tool_results merged into a single user message
 # ---------------------------------------------------------------------------
-from backend.providers.clients.anthropic import AnthropicClient
-from backend.providers.types import Message, ToolUseEvent
+from backend.lib.providers.clients.anthropic import AnthropicClient
+from backend.lib.providers.types import Message, ToolUseEvent
 
 
 class TestAnthropicPromptCaching:
@@ -404,8 +404,8 @@ class TestSSEDisconnectDetection:
 # ---------------------------------------------------------------------------
 # 4. Runtime transcript replaces conversation windowing
 # ---------------------------------------------------------------------------
-from backend.storage import RuntimeStore
-from backend.agent.events import ToolCompletedEvent, ToolPendingEvent
+from backend.lib.storage import RuntimeStore
+from backend.lib.agent.events import ToolCompletedEvent, ToolPendingEvent
 
 
 class TestRuntimeTranscript:
@@ -426,7 +426,7 @@ class TestRuntimeTranscript:
         tool_run = await store.create_tool_run(session.id, assistant.id, "execute_sql", {"sql": "SELECT 1"}, status="completed")
         await store.update_tool_run(tool_run.id, result='{"rows":[{"x":1}]}')
 
-        from backend.agent.message_builder import build_model_messages
+        from backend.lib.agent.message_builder import build_model_messages
         msgs = build_model_messages(await store.get_transcript(session.id))
         assert len(msgs) == 3
         assert msgs[0].role == "user"
@@ -443,7 +443,7 @@ class TestRuntimeTranscript:
         await store.create_turn(session.id, "user", text="new question")
         await store.record_compaction(session.id, "summary text", [user1.id, assistant1.id])
 
-        from backend.agent.message_builder import build_model_messages
+        from backend.lib.agent.message_builder import build_model_messages
         msgs = build_model_messages(await store.get_transcript(session.id))
         texts = [msg.text for msg in msgs if msg.text]
         assert "old question" not in texts
@@ -469,13 +469,13 @@ class TestCsvExportRegistration:
     def test_csv_export_registers_library_row(self, tmp_path, monkeypatch):
         import asyncio
         import json
-        from backend.storage import RuntimeStore
-        from backend.agent.turn import Turn
-        from backend.tools.sandbox.runner import SQLResult
+        from backend.lib.storage import RuntimeStore
+        from backend.lib.agent.turn import Turn
+        from backend.lib.tools.sandbox.runner import SQLResult
 
         # Point exports at a tmp dir so we don't pollute the repo.
         tmp_exports = tmp_path / "exports"
-        monkeypatch.setattr("backend.tools.handlers.create_csv_export.EXPORTS_DIR", tmp_exports)
+        monkeypatch.setattr("backend.lib.tools.handlers.create_csv_export.EXPORTS_DIR", tmp_exports)
 
         # Mock the DuckDB-reading SQL path so this test doesn't depend on
         # the stats DB being available or unlocked. The test is about the
@@ -487,7 +487,7 @@ class TestCsvExportRegistration:
                 row_count=2,
                 truncated=False,
             )
-        monkeypatch.setattr("backend.tools.handlers.create_csv_export.execute_export_sql", fake_execute_export_sql)
+        monkeypatch.setattr("backend.lib.tools.handlers.create_csv_export.execute_export_sql", fake_execute_export_sql)
 
         async def _run():
             store = RuntimeStore(tmp_path / "runtime.sqlite3")
@@ -500,7 +500,7 @@ class TestCsvExportRegistration:
                 # Run the real handler via the real to_thread bridge — that's
                 # the code path we need to exercise to catch the sync→async
                 # register_export bug.
-                from backend.tools.handlers.create_csv_export import _create_csv_export
+                from backend.lib.tools.handlers.create_csv_export import _create_csv_export
                 result_str = await asyncio.to_thread(_create_csv_export, input_data, ctx)
                 result = json.loads(result_str)
                 return {
@@ -519,7 +519,7 @@ class TestCsvExportRegistration:
             turn.begin_iteration()
             await turn.open_assistant_turn()
 
-            from backend.providers.types import ToolUseEvent
+            from backend.lib.providers.types import ToolUseEvent
             await turn.record_tool_call(ToolUseEvent(
                 id="t1", name="create_csv_export",
                 input={"sql": "ignored by the mock", "filename": "regression_test_export"},
@@ -638,7 +638,7 @@ class TestRuntimeStoreValidation:
 # ---------------------------------------------------------------------------
 # 8. Negative limit clamped to 1 in _search_players (Fix 1)
 # ---------------------------------------------------------------------------
-from backend.tools.handlers.player_lookup import _search_players
+from backend.lib.tools.handlers.player_lookup import _search_players
 
 
 class TestSearchPlayersLimit:
@@ -649,10 +649,10 @@ class TestSearchPlayersLimit:
         # We only need to verify the clamped value reaches the SQL.
         # Patch execute_safe_sql to capture the params tuple.
         import unittest.mock as mock
-        from backend.tools.sandbox.runner import SQLResult
+        from backend.lib.tools.sandbox.runner import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("backend.tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("backend.lib.tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": -5})
             # Last positional arg in the params tuple is the limit
             call_params = m.call_args[0][1]
@@ -660,30 +660,30 @@ class TestSearchPlayersLimit:
 
     def test_zero_limit_clamped_to_1(self):
         import unittest.mock as mock
-        from backend.tools.sandbox.runner import SQLResult
+        from backend.lib.tools.sandbox.runner import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("backend.tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("backend.lib.tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": 0})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 1
 
     def test_normal_limit_unchanged(self):
         import unittest.mock as mock
-        from backend.tools.sandbox.runner import SQLResult
+        from backend.lib.tools.sandbox.runner import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("backend.tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("backend.lib.tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": 25})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 25
 
     def test_over_max_clamped_to_50(self):
         import unittest.mock as mock
-        from backend.tools.sandbox.runner import SQLResult
+        from backend.lib.tools.sandbox.runner import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("backend.tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("backend.lib.tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": 999})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 50
@@ -716,8 +716,8 @@ class TestChatResponseTruncated:
 # ---------------------------------------------------------------------------
 # 10. _get_joins helper returns consistent data (Fix 9)
 # ---------------------------------------------------------------------------
-from backend.tools.handlers.get_schema import _get_joins
-from backend.tools.sandbox.schema_metadata import JOIN_EDGES
+from backend.lib.tools.handlers.get_schema import _get_joins
+from backend.lib.tools.sandbox.schema_metadata import JOIN_EDGES
 
 
 class TestGetJoins:
@@ -758,7 +758,7 @@ class TestGetJoins:
         Kept as a regression guard: if a future schema change reintroduces a
         type mismatch, surface it here before it becomes an LLM-visible pitfall.
         """
-        from backend.tools.sandbox.schema_metadata import JOIN_EDGES
+        from backend.lib.tools.sandbox.schema_metadata import JOIN_EDGES
         cast_edges = [(a, b) for (a, b), (_, _, cast) in JOIN_EDGES.items() if cast]
         assert cast_edges == [], f"Unexpected CAST-required edges: {cast_edges}"
 
@@ -774,10 +774,10 @@ class TestSearchPlayersNonIntegerLimit:
     def test_string_limit_falls_back_to_default(self):
         """LLM sends 'ten' instead of 10 — should fall back to 10."""
         import unittest.mock as mock
-        from backend.tools.sandbox.runner import SQLResult
+        from backend.lib.tools.sandbox.runner import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("backend.tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("backend.lib.tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": "ten"})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 10
@@ -785,10 +785,10 @@ class TestSearchPlayersNonIntegerLimit:
     def test_none_limit_falls_back_to_default(self):
         """limit=None should fall back to 10."""
         import unittest.mock as mock
-        from backend.tools.sandbox.runner import SQLResult
+        from backend.lib.tools.sandbox.runner import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("backend.tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("backend.lib.tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": None})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 10
@@ -796,10 +796,10 @@ class TestSearchPlayersNonIntegerLimit:
     def test_float_string_limit_truncates(self):
         """'10.5' is not a valid int literal — should fall back to 10."""
         import unittest.mock as mock
-        from backend.tools.sandbox.runner import SQLResult
+        from backend.lib.tools.sandbox.runner import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("backend.tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("backend.lib.tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": "10.5"})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 10

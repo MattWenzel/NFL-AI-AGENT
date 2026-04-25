@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from backend.agent.runtime import ChatRuntime
+from backend.lib.agent.runtime import ChatRuntime
 from backend.server.process_state import AppProcessState
 
 
