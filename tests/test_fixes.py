@@ -112,13 +112,13 @@ class TestValidateSQLEdgeCases:
 
     def test_multi_statement_rejected_by_sqlite(self):
         """Multi-statement is caught by SQLite at execute time."""
-        from backend.tools.errors import SQLValidationError
+        from backend.tools.sandbox.runner import SQLValidationError
         from backend.tools.sandbox import execute_safe_sql
         with pytest.raises(SQLValidationError, match="one statement"):
             execute_safe_sql("SELECT 1; SELECT 2")
 
     def test_ddl_still_rejected(self):
-        from backend.tools.errors import SQLValidationError
+        from backend.tools.sandbox.runner import SQLValidationError
         from backend.tools.sandbox import validate_sql
         with pytest.raises(SQLValidationError):
             validate_sql("DROP TABLE players")
@@ -471,7 +471,7 @@ class TestCsvExportRegistration:
         import json
         from backend.persistence import RuntimeStore
         from backend.agent.turn import Turn
-        from backend.tools.types import SQLResult
+        from backend.tools.sandbox.runner import SQLResult
 
         # Point exports at a tmp dir so we don't pollute the repo.
         tmp_exports = tmp_path / "exports"
@@ -649,7 +649,7 @@ class TestSearchPlayersLimit:
         # We only need to verify the clamped value reaches the SQL.
         # Patch execute_safe_sql to capture the params tuple.
         import unittest.mock as mock
-        from backend.tools.types import SQLResult
+        from backend.tools.sandbox.runner import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
         with mock.patch("backend.tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
@@ -660,7 +660,7 @@ class TestSearchPlayersLimit:
 
     def test_zero_limit_clamped_to_1(self):
         import unittest.mock as mock
-        from backend.tools.types import SQLResult
+        from backend.tools.sandbox.runner import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
         with mock.patch("backend.tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
@@ -670,7 +670,7 @@ class TestSearchPlayersLimit:
 
     def test_normal_limit_unchanged(self):
         import unittest.mock as mock
-        from backend.tools.types import SQLResult
+        from backend.tools.sandbox.runner import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
         with mock.patch("backend.tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
@@ -680,7 +680,7 @@ class TestSearchPlayersLimit:
 
     def test_over_max_clamped_to_50(self):
         import unittest.mock as mock
-        from backend.tools.types import SQLResult
+        from backend.tools.sandbox.runner import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
         with mock.patch("backend.tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
@@ -774,7 +774,7 @@ class TestSearchPlayersNonIntegerLimit:
     def test_string_limit_falls_back_to_default(self):
         """LLM sends 'ten' instead of 10 — should fall back to 10."""
         import unittest.mock as mock
-        from backend.tools.types import SQLResult
+        from backend.tools.sandbox.runner import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
         with mock.patch("backend.tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
@@ -785,7 +785,7 @@ class TestSearchPlayersNonIntegerLimit:
     def test_none_limit_falls_back_to_default(self):
         """limit=None should fall back to 10."""
         import unittest.mock as mock
-        from backend.tools.types import SQLResult
+        from backend.tools.sandbox.runner import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
         with mock.patch("backend.tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
@@ -796,7 +796,7 @@ class TestSearchPlayersNonIntegerLimit:
     def test_float_string_limit_truncates(self):
         """'10.5' is not a valid int literal — should fall back to 10."""
         import unittest.mock as mock
-        from backend.tools.types import SQLResult
+        from backend.tools.sandbox.runner import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
         with mock.patch("backend.tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:

@@ -3,14 +3,26 @@
 import logging
 import re
 import threading
+from dataclasses import dataclass
 
 import duckdb
 
 from backend.config import DB_PATH
-from backend.tools.errors import SQLValidationError
-from backend.tools.types import SQLResult
 
 logger = logging.getLogger(__name__)
+
+
+class SQLValidationError(Exception):
+    """Raised when SQL fails validation checks (read-only, single-statement)."""
+
+
+@dataclass
+class SQLResult:
+    """Result of a sandboxed SQL query."""
+    columns: list[str]
+    rows: list[dict]
+    row_count: int
+    truncated: bool
 
 # Wall-clock query timeouts. DuckDB has no statement_timeout config, so we
 # enforce via threading.Timer + conn.interrupt().

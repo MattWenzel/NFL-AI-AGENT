@@ -16,10 +16,10 @@ from backend.processes.chat.schemas import ChatResponse
 from backend.persistence import RuntimeStore, SessionRecord
 from backend.api.routes import chat as chat_router
 from backend.api.routes.chat import router as chat_router_module
-from backend.processes.chat.service import ChatService
-from backend.processes.chat.errors import (
+from backend.processes.chat.service import (
     ChatConfigurationError,
     ChatNotFoundError,
+    ChatService,
     ChatServiceError,
 )
 from backend.processes.chat.types import PreparedChat

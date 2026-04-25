@@ -24,15 +24,24 @@ from backend.providers import (
 )
 from backend.persistence import RuntimeStore
 from backend.processes.chat.schemas import ChatRequest, ChatResponse, ToolCallPreview
-from backend.processes.oauth.credentials import ProviderCredentialService
-from backend.processes.chat.errors import (
-    ChatConfigurationError,
-    ChatNotFoundError,
-    ChatServiceError,
+from backend.processes.oauth.credentials import (
+    CredentialServiceError,
+    ProviderCredentialService,
 )
 from backend.processes.chat.types import PreparedChat, ToolCallLogEntry
-from backend.processes.oauth.errors import CredentialServiceError
 from backend.runtime_state import PerUserLockRegistry
+
+
+class ChatServiceError(Exception):
+    """Base class for application-service chat failures."""
+
+
+class ChatNotFoundError(ChatServiceError):
+    """The referenced conversation does not exist for the caller."""
+
+
+class ChatConfigurationError(ChatServiceError):
+    """Provider, credential, or model selection failed."""
 
 
 async def close_client(client: BaseLLMClient) -> None:

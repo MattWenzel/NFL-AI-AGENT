@@ -21,16 +21,16 @@ from backend.processes.settings import (
     IdentitySummaryResponse,
     LinkGoogleStartResponse,
 )
-from backend.processes.oauth.codex.errors import (
-    CodexOAuthUnknownFlowError,
-    CodexOAuthUpstreamError,
-)
 from backend.processes.oauth.codex.schemas import (
     CodexOAuthStartResponse,
     CodexOAuthStatusResponse,
 )
-from backend.processes.oauth.codex.service import CodexOAuthService
-from backend.processes.oauth.google.errors import (
+from backend.processes.oauth.codex.service import (
+    CodexOAuthService,
+    CodexOAuthUnknownFlowError,
+    CodexOAuthUpstreamError,
+)
+from backend.processes.oauth.google.service import (
     GoogleOAuthDisabledError,
     GoogleOAuthLastIdentityError,
     GoogleOAuthLinkConflictError,

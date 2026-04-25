@@ -24,14 +24,14 @@ from backend.security import encryption
 from backend.security.primitives import verify_password
 from backend.processes.auth import service as auth_service_module
 from backend.processes.auth.service import AuthService
-from backend.processes.oauth.google.errors import (
+from backend.processes.oauth.google.service import (
     GoogleOAuthEmailUnverifiedError,
     GoogleOAuthInvalidStateError,
     GoogleOAuthLastIdentityError,
     GoogleOAuthLinkConflictError,
+    GoogleOAuthService,
 )
-from backend.processes.oauth.google.service import GoogleOAuthService
-from backend.audit import AuditContext
+from backend.security.audit import AuditContext
 from backend.processes.oauth.google.types import LinkOutcome, SignInOutcome
 from backend.persistence import RuntimeStore
 from backend.runtime_state import PendingGoogleOAuthFlows

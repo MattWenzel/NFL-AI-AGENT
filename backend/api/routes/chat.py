@@ -26,11 +26,12 @@ from backend.api.dependencies import get_chat_service, get_current_user, get_pro
 from backend.api.process_state import AppProcessState
 from backend.api.rate_limit import ConcurrencyLimiter
 from backend.processes.chat.schemas import ChatRequest, ChatResponse
-from backend.processes.chat.service import ChatService, close_client
-from backend.processes.chat.errors import (
+from backend.processes.chat.service import (
     ChatConfigurationError,
     ChatNotFoundError,
+    ChatService,
     ChatServiceError,
+    close_client,
 )
 from backend.api.sse import event_to_sse_payload
 from backend.providers.errors import LLMError

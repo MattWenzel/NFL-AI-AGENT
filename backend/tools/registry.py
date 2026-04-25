@@ -18,7 +18,7 @@ from backend.tools.handlers.execute_sql import _execute_sql
 from backend.tools.handlers.get_guide import _load_guide
 from backend.tools.handlers.get_schema import _get_schema
 from backend.tools.handlers.player_lookup import _get_player_info, _search_players
-from backend.tools.errors import SQLValidationError
+from backend.tools.sandbox.runner import SQLValidationError
 from backend.tools.validation import inject_hint, validate_tool_input
 
 logger = logging.getLogger(__name__)

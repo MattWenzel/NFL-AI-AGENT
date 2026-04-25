@@ -36,7 +36,7 @@ from backend.processes.auth.errors import (
     AuthValidationError,
 )
 from backend.security.types import PASSWORD
-from backend.audit import AuditContext, audit_log
+from backend.security.audit import AuditContext, audit_log
 from backend.processes.auth.lifecycle import IdentitySeed, create_user_account, issue_session
 from backend.processes.auth.types import IssuedSession, RegistrationResult
 from backend.persistence import AuditEvent, RuntimeStore

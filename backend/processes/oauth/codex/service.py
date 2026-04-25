@@ -11,13 +11,24 @@ from backend.security import codex_oauth, encryption
 from backend.security.errors import CodexOAuthError, DeviceCodeExpired
 from backend.providers.types import CODEX
 from backend.processes.oauth.codex.schemas import CodexOAuthStartResponse, CodexOAuthStatusResponse
-from backend.processes.oauth.codex.errors import CodexOAuthUnknownFlowError, CodexOAuthUpstreamError
 from backend.persistence import AuditEvent, RuntimeStore
 from backend.runtime_state import PendingCodexOAuthFlows
 
 logger = logging.getLogger(__name__)
 
 MAX_RECORD_AGE_SECONDS = 60 * 20
+
+
+class CodexOAuthServiceError(Exception):
+    pass
+
+
+class CodexOAuthUnknownFlowError(CodexOAuthServiceError):
+    pass
+
+
+class CodexOAuthUpstreamError(CodexOAuthServiceError):
+    pass
 
 
 @dataclass

@@ -28,7 +28,6 @@ import json
 import logging
 
 from backend.agent.compaction import compact_if_needed
-from backend.agent.errors import RuntimeLoopError
 from backend.agent.events import (
     AssistantStartedEvent,
     CompactionStartedEvent,
@@ -43,6 +42,11 @@ from backend.providers.types import StopReason, ToolChoice, ToolUseEvent, Usage
 from backend.persistence import RuntimeStore, SessionRecord, ToolRunRecord, TurnRecord
 
 logger = logging.getLogger(__name__)
+
+
+class RuntimeLoopError(Exception):
+    """Raised when the runtime detects an unrecoverable loop condition."""
+
 
 TEXT_PERSIST_FLUSH_CHARS = 2048
 TITLE_PREVIEW_CHARS = 80

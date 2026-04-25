@@ -29,15 +29,7 @@ from backend.config import (
     google_oauth_enabled,
     google_oauth_redirect_uri,
 )
-from backend.audit import AuditContext, audit_log
-from backend.processes.oauth.google.errors import (
-    GoogleOAuthDisabledError,
-    GoogleOAuthEmailUnverifiedError,
-    GoogleOAuthInvalidStateError,
-    GoogleOAuthLastIdentityError,
-    GoogleOAuthLinkConflictError,
-    GoogleOAuthServiceError,
-)
+from backend.security.audit import AuditContext, audit_log
 from backend.processes.auth.errors import AuthConflictError
 from backend.processes.auth.lifecycle import IdentitySeed, create_user_account, issue_session
 from backend.processes.oauth.google.types import (
@@ -49,6 +41,31 @@ from backend.persistence import AuditEvent, IdentityConflictError, RuntimeStore
 from backend.runtime_state import PendingGoogleOAuthFlows
 
 logger = logging.getLogger(__name__)
+
+
+class GoogleOAuthServiceError(Exception):
+    """Base class for Google OAuth flow failures."""
+
+
+class GoogleOAuthDisabledError(GoogleOAuthServiceError):
+    pass
+
+
+class GoogleOAuthInvalidStateError(GoogleOAuthServiceError):
+    pass
+
+
+class GoogleOAuthEmailUnverifiedError(GoogleOAuthServiceError):
+    pass
+
+
+class GoogleOAuthLinkConflictError(GoogleOAuthServiceError):
+    """Raised when the Google identity is already linked to a different user."""
+
+
+class GoogleOAuthLastIdentityError(GoogleOAuthServiceError):
+    """Raised when unlinking would leave the user with no login method."""
+
 
 @dataclass
 class GoogleOAuthService:

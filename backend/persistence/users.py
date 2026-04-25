@@ -1,25 +1,43 @@
-"""Users, auth sessions, and per-user API key storage.
+"""Mixins for user accounts and auth-tier table CRUD.
 
-Mixed into `RuntimeStore` — every method is async-native via the store's
-`async_sessionmaker` (`self._async_session`).
+All composed into `RuntimeStore` via multiple inheritance:
+
+- UsersMixin              — users + user_api_keys + auth_sessions
+- UserIdentitiesMixin     — user_identities (password / google / future)
+- LoginFailuresMixin      — login_failures (per-email lockout)
+- EmailVerificationMixin  — email_verification tokens
+- SecurityEventsMixin     — security_events audit log
 """
 
 from __future__ import annotations
 
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.exc import IntegrityError
 
+from backend.persistence.errors import IdentityConflictError
 from backend.persistence.models import (
     AuthSessionRecord,
-    SessionRecord,
+    EmailVerificationRecord,
     ExportRecord,
+    LoginFailureRecord,
+    SecurityEventRecord,
+    SessionRecord,
     UserApiKeyRecord,
+    UserIdentityRecord,
     UserRecord,
+    new_id,
     utcnow,
 )
 
+
+VERIFICATION_TTL_HOURS = 24
+
+
+# ---------------- users + api keys + auth sessions ----------------
 
 class UsersMixin:
     """Async CRUD for users, user_api_keys, and auth_sessions."""
@@ -332,3 +350,305 @@ class UsersMixin:
             )
             await session.commit()
             return result.rowcount or 0
+
+
+# ---------------- user_identities (password / google / future) ----------------
+
+class UserIdentitiesMixin:
+    """Per-user auth identities.
+
+    One `users` row can have multiple identities — e.g. a password user
+    who later links Google has two rows in `user_identities`. The
+    `(provider, provider_subject)` pair is globally unique.
+    """
+
+    async def create_identity(
+        self,
+        *,
+        user_id: int,
+        provider: str,
+        provider_subject: str,
+        email: str | None = None,
+    ) -> UserIdentityRecord:
+        record = UserIdentityRecord(
+            id=new_id(),
+            user_id=user_id,
+            provider=provider,
+            provider_subject=provider_subject,
+            email=email,
+            created_at=utcnow(),
+        )
+        async with self._async_session() as session:
+            session.add(record)
+            try:
+                await session.commit()
+            except IntegrityError as exc:
+                await session.rollback()
+                raise IdentityConflictError(
+                    f"{provider} identity '{provider_subject}' already linked"
+                ) from exc
+        return record
+
+    async def get_user_by_identity(
+        self, *, provider: str, provider_subject: str
+    ) -> UserRecord | None:
+        async with self._async_session() as session:
+            result = await session.execute(
+                select(UserRecord)
+                .join(UserIdentityRecord, UserIdentityRecord.user_id == UserRecord.id)
+                .where(
+                    UserIdentityRecord.provider == provider,
+                    UserIdentityRecord.provider_subject == provider_subject,
+                )
+            )
+            return result.scalar_one_or_none()
+
+    async def get_identity(
+        self, *, user_id: int, provider: str
+    ) -> UserIdentityRecord | None:
+        async with self._async_session() as session:
+            result = await session.execute(
+                select(UserIdentityRecord).where(
+                    UserIdentityRecord.user_id == user_id,
+                    UserIdentityRecord.provider == provider,
+                )
+            )
+            return result.scalar_one_or_none()
+
+    async def list_identities_for_user(
+        self, user_id: int
+    ) -> list[UserIdentityRecord]:
+        async with self._async_session() as session:
+            result = await session.execute(
+                select(UserIdentityRecord)
+                .where(UserIdentityRecord.user_id == user_id)
+                .order_by(UserIdentityRecord.created_at)
+            )
+            return list(result.scalars().all())
+
+    async def delete_identity(self, *, user_id: int, provider: str) -> bool:
+        async with self._async_session() as session:
+            result = await session.execute(
+                delete(UserIdentityRecord).where(
+                    UserIdentityRecord.user_id == user_id,
+                    UserIdentityRecord.provider == provider,
+                )
+            )
+            await session.commit()
+            return (result.rowcount or 0) > 0
+
+    async def count_identities(self, user_id: int) -> int:
+        async with self._async_session() as session:
+            result = await session.execute(
+                select(func.count())
+                .select_from(UserIdentityRecord)
+                .where(UserIdentityRecord.user_id == user_id)
+            )
+            return int(result.scalar_one())
+
+
+# ---------------- login_failures (per-email lockout) ----------------
+
+class LoginFailuresMixin:
+    """Per-email failure counter for account lockout.
+
+    Complements the per-IP rate limiter — the IP limit stops one address
+    pounding login; this stops an IP-rotating attacker targeting one
+    account. The counter resets on successful login (via
+    `clear_login_failures`) and the service layer also resets on reads
+    past `LOGIN_LOCKOUT_WINDOW_SECONDS` after the last failure.
+    """
+
+    async def get_login_failures(self, email: str) -> LoginFailureRecord | None:
+        async with self._async_session() as session:
+            result = await session.execute(
+                select(LoginFailureRecord).where(LoginFailureRecord.email == email)
+            )
+            return result.scalar_one_or_none()
+
+    async def record_login_failure(
+        self,
+        email: str,
+        *,
+        locked_until: str | None = None,
+        reset_count: bool = False,
+    ) -> LoginFailureRecord:
+        """Increment failure counter (or reset to 1 if `reset_count=True`).
+
+        `reset_count=True` is used by the service when the last failure is older
+        than the rolling window — the counter starts fresh rather than stacking
+        onto stale attempts.
+        """
+        now = utcnow()
+        async with self._async_session() as session:
+            existing = (
+                await session.execute(
+                    select(LoginFailureRecord).where(LoginFailureRecord.email == email)
+                )
+            ).scalar_one_or_none()
+            if existing is None or reset_count:
+                new_count = 1
+            else:
+                new_count = existing.failure_count + 1
+            stmt = sqlite_insert(LoginFailureRecord).values(
+                email=email,
+                failure_count=new_count,
+                last_failure_at=now,
+                locked_until=locked_until,
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["email"],
+                set_={
+                    "failure_count": new_count,
+                    "last_failure_at": now,
+                    "locked_until": locked_until,
+                },
+            )
+            await session.execute(stmt)
+            await session.commit()
+        return LoginFailureRecord(
+            email=email,
+            failure_count=new_count,
+            last_failure_at=now,
+            locked_until=locked_until,
+        )
+
+    async def clear_login_failures(self, email: str) -> bool:
+        async with self._async_session() as session:
+            result = await session.execute(
+                delete(LoginFailureRecord).where(LoginFailureRecord.email == email)
+            )
+            await session.commit()
+            return (result.rowcount or 0) > 0
+
+
+# ---------------- email verification tokens ----------------
+
+class EmailVerificationMixin:
+    """One-shot verification tokens for signup (and future password reset).
+
+    `consume_verification` atomically verifies the token is unexpired and
+    unused, marks it used, and returns the user_id. The used_at column
+    retains consumed rows for audit visibility — call `purge_expired`
+    periodically to trim.
+    """
+
+    async def create_verification(
+        self,
+        *,
+        user_id: int,
+        purpose: str = "signup",
+        ttl_hours: int = VERIFICATION_TTL_HOURS,
+    ) -> EmailVerificationRecord:
+        token = secrets.token_urlsafe(32)
+        now = datetime.now(timezone.utc)
+        record = EmailVerificationRecord(
+            token=token,
+            user_id=user_id,
+            purpose=purpose,
+            created_at=now.isoformat(),
+            expires_at=(now + timedelta(hours=ttl_hours)).isoformat(),
+        )
+        async with self._async_session() as session:
+            session.add(record)
+            await session.commit()
+        return record
+
+    async def consume_verification(self, token: str, *, purpose: str = "signup") -> int | None:
+        """Atomically mark a token used and return its user_id.
+
+        Returns None if the token is missing, wrong purpose, already used, or
+        expired. The atomicity matters under concurrent clicks on the same
+        verification link.
+        """
+        now = utcnow()
+        async with self._async_session() as session:
+            result = await session.execute(
+                update(EmailVerificationRecord)
+                .where(
+                    EmailVerificationRecord.token == token,
+                    EmailVerificationRecord.purpose == purpose,
+                    EmailVerificationRecord.used_at.is_(None),
+                    EmailVerificationRecord.expires_at > now,
+                )
+                .values(used_at=now)
+                .returning(EmailVerificationRecord.user_id)
+            )
+            user_id = result.scalar_one_or_none()
+            await session.commit()
+            return int(user_id) if user_id is not None else None
+
+    async def get_latest_verification(
+        self, *, user_id: int, purpose: str = "signup"
+    ) -> EmailVerificationRecord | None:
+        async with self._async_session() as session:
+            result = await session.execute(
+                select(EmailVerificationRecord)
+                .where(
+                    EmailVerificationRecord.user_id == user_id,
+                    EmailVerificationRecord.purpose == purpose,
+                )
+                .order_by(EmailVerificationRecord.created_at.desc())
+                .limit(1)
+            )
+            return result.scalar_one_or_none()
+
+    async def purge_expired_verifications(self) -> int:
+        now = utcnow()
+        async with self._async_session() as session:
+            result = await session.execute(
+                delete(EmailVerificationRecord).where(
+                    EmailVerificationRecord.expires_at < now
+                )
+            )
+            await session.commit()
+            return result.rowcount or 0
+
+
+# ---------------- security_events (audit log) ----------------
+
+class SecurityEventsMixin:
+    """Audit log for sensitive actions.
+
+    `user_id` is nullable + ON DELETE SET NULL so deleting an account
+    doesn't wipe its audit trail — the row persists with a null user
+    reference. `event_type` is an open string (no FK / Enum at the DB
+    level) so a new event kind can land without a schema change; callers
+    should use the `AuditEvent` enum from `audit_events.py` for
+    typo-protection.
+    """
+
+    async def record_security_event(
+        self,
+        *,
+        event_type: str,
+        user_id: int | None = None,
+        ip: str | None = None,
+        user_agent: str | None = None,
+        metadata: dict | None = None,
+    ) -> SecurityEventRecord:
+        record = SecurityEventRecord(
+            id=new_id(),
+            user_id=user_id,
+            event_type=event_type,
+            ip=ip,
+            user_agent=user_agent,
+            event_metadata=metadata or {},
+            created_at=utcnow(),
+        )
+        async with self._async_session() as session:
+            session.add(record)
+            await session.commit()
+        return record
+
+    async def list_security_events_for_user(
+        self, user_id: int, *, limit: int = 100
+    ) -> list[SecurityEventRecord]:
+        async with self._async_session() as session:
+            result = await session.execute(
+                select(SecurityEventRecord)
+                .where(SecurityEventRecord.user_id == user_id)
+                .order_by(SecurityEventRecord.created_at.desc())
+                .limit(limit)
+            )
+            return list(result.scalars().all())

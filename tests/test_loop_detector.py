@@ -13,8 +13,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from backend.agent.errors import RuntimeLoopError
-from backend.agent.turn import DOOM_LOOP_MATCH, raise_if_doom_loop
+from backend.agent.turn import DOOM_LOOP_MATCH, RuntimeLoopError, raise_if_doom_loop
 
 
 @dataclass

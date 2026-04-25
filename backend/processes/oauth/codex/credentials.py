@@ -12,11 +12,14 @@ import logging
 from backend.security import codex_oauth, encryption
 from backend.security.errors import CodexOAuthError
 from backend.security.types import TokenBundle
-from backend.processes.oauth.codex.errors import CodexCredentialError
 from backend.persistence import RuntimeStore
 from backend.runtime_state import PerUserLockRegistry
 
 logger = logging.getLogger(__name__)
+
+
+class CodexCredentialError(Exception):
+    """Raised when a stored Codex connection exists but refresh fails."""
 
 
 async def _load_bundle(
