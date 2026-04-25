@@ -3,11 +3,12 @@
 import logging
 import re
 import threading
-from dataclasses import dataclass
 
 import duckdb
 
 from config import DB_PATH
+from tools.errors import SQLValidationError
+from tools.types import SQLResult
 
 logger = logging.getLogger(__name__)
 
@@ -42,19 +43,6 @@ _STRING_LITERAL = re.compile(r"'(?:[^'\\]|\\.)*'")
 _QUOTED_IDENT = re.compile(r'"(?:[^"\\]|\\.)*"')
 _LINE_COMMENT = re.compile(r"--[^\n]*")
 _BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
-
-
-@dataclass
-class SQLResult:
-    """Result of a sandboxed SQL query."""
-    columns: list[str]
-    rows: list[dict]
-    row_count: int
-    truncated: bool
-
-
-class SQLValidationError(Exception):
-    """Raised when SQL fails validation checks."""
 
 
 def _strip_leading_comments(sql: str) -> str:

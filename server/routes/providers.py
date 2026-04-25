@@ -7,7 +7,7 @@ their own key via /settings/api-keys.
 
 from fastapi import APIRouter, Depends
 
-from auth.primitives import AuthenticatedUser
+from auth.types import AuthenticatedUser
 from server.dependencies import get_current_user, get_settings_service
 from server.schemas.providers import ProviderResponse
 from server.services.settings import SettingsService

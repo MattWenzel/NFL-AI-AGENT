@@ -4,7 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from provider.base import BaseLLMClient, MessageResponse, StopReason, TextEvent, ToolDefinition, ToolUseEvent, Usage
+from provider.base import BaseLLMClient
+from provider.types import MessageResponse, StopReason, TextEvent, ToolDefinition, ToolUseEvent, Usage
 from agent.runtime import ChatRuntime
 from storage import RuntimeStore
 

@@ -12,13 +12,13 @@ import logging
 import time
 
 from tools.definitions import TOOL_DEFINITIONS
-from tools.create_chart import _create_chart
-from tools.create_csv_export import _create_csv_export
-from tools.execute_sql import _execute_sql
-from tools.get_guide import _load_guide
-from tools.get_schema import _get_schema
-from tools.player_lookup import _get_player_info, _search_players
-from tools.sandbox import SQLValidationError
+from tools.handlers.create_chart import _create_chart
+from tools.handlers.create_csv_export import _create_csv_export
+from tools.handlers.execute_sql import _execute_sql
+from tools.handlers.get_guide import _load_guide
+from tools.handlers.get_schema import _get_schema
+from tools.handlers.player_lookup import _get_player_info, _search_players
+from tools.errors import SQLValidationError
 from tools.validation import inject_hint, validate_tool_input
 
 logger = logging.getLogger(__name__)

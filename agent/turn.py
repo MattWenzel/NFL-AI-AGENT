@@ -26,12 +26,18 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from dataclasses import dataclass
-from typing import Literal, Protocol
 
 from agent.compaction import compact_if_needed
-from agent.events import RuntimeEvent, RuntimeLoopError
-from agent.persistence import RuntimePersistence
+from agent.errors import RuntimeLoopError
+from agent.events import (
+    AssistantStartedEvent,
+    CompactionStartedEvent,
+    RuntimeErrorEvent,
+    TextDeltaEvent,
+    ToolPendingEvent,
+    TurnFinishedEvent,
+)
+from agent.types import ToolExecutionResult, ToolExecutor
 from provider import BaseLLMClient, StopReason, ToolChoice, ToolUseEvent, Usage
 from storage import RuntimeStore, SessionRecord, ToolRunRecord, TurnRecord
 
@@ -67,25 +73,6 @@ def raise_if_doom_loop(tool_runs: list[ToolRunRecord]) -> None:
         )
 
 
-class ToolExecutor(Protocol):
-    async def __call__(
-        self, tool_name: str, tool_input: dict, *, ctx: dict | None = None
-    ) -> dict: ...
-
-
-@dataclass(frozen=True)
-class ToolExecutionResult:
-    status: Literal["completed", "error"]
-    content: str
-    error: str | None = None
-    hint: str | None = None
-    duration_ms: int | None = None
-
-    @property
-    def is_completed(self) -> bool:
-        return self.status == "completed"
-
-
 class _TextBuffer:
     """Coalesce streamed assistant text before persisting.
 
@@ -94,8 +81,8 @@ class _TextBuffer:
     non-text event or turn completion so text is never lost.
     """
 
-    def __init__(self, persistence: RuntimePersistence, session_id: str, turn_id: str):
-        self._persistence = persistence
+    def __init__(self, store: RuntimeStore, session_id: str, turn_id: str):
+        self._store = store
         self._session_id = session_id
         self._turn_id = turn_id
         self._chunks: list[str] = []
@@ -115,7 +102,7 @@ class _TextBuffer:
         text = "".join(self._chunks)
         self._chunks.clear()
         self._char_count = 0
-        await self._persistence.append_assistant_text(
+        await self._store.append_assistant_text(
             self._session_id, self._turn_id, text
         )
 
@@ -127,13 +114,11 @@ class Turn:
         self,
         *,
         store: RuntimeStore,
-        persistence: RuntimePersistence,
         session: SessionRecord,
         execute_tool: ToolExecutor,
         initial_tool_choice: ToolChoice | None = None,
     ):
         self._store = store
-        self._persistence = persistence
         self._session = session
         self._execute_tool = execute_tool
 
@@ -183,9 +168,8 @@ class Turn:
             provider_name=provider_name,
         )
 
-    def compaction_event(self, compaction_info: dict) -> RuntimeEvent:
-        return RuntimeEvent(
-            type="compaction_started",
+    def compaction_event(self, compaction_info: dict) -> CompactionStartedEvent:
+        return CompactionStartedEvent(
             session_id=self._session.id,
             turn_id=compaction_info["summary_turn_id"],
             iterations=self.iterations,
@@ -206,9 +190,8 @@ class Turn:
         self.force_overflow_compaction = True
         return True
 
-    def max_iterations_event(self, max_iterations: int) -> RuntimeEvent:
-        return RuntimeEvent(
-            type="runtime_error",
+    def max_iterations_event(self, max_iterations: int) -> RuntimeErrorEvent:
+        return RuntimeErrorEvent(
             session_id=self._session.id,
             error=f"Reached maximum tool iterations ({max_iterations})",
             iterations=max_iterations,
@@ -230,48 +213,55 @@ class Turn:
 
     # -------------------- assistant iteration lifecycle --------------------
 
-    async def open_assistant_turn(self) -> RuntimeEvent:
+    async def open_assistant_turn(self) -> AssistantStartedEvent:
         """Begin a new assistant iteration. Caller must have completed,
         errored, or reset the previous iteration before opening a new one."""
-        assistant_turn = await self._persistence.open_assistant_turn(self._session.id)
+        assistant_turn = await self._store.create_turn(
+            self._session.id, "assistant", status="running"
+        )
         self._active_assistant_turn = assistant_turn
         self._active_tool_runs = []
         self._active_text_buffer = _TextBuffer(
-            self._persistence, self._session.id, assistant_turn.id
+            self._store, self._session.id, assistant_turn.id
         )
-        return RuntimeEvent(
-            type="assistant_started",
+        return AssistantStartedEvent(
             session_id=self._session.id,
             turn_id=assistant_turn.id,
             iterations=self.iterations,
         )
 
-    async def record_text_delta(self, text: str) -> RuntimeEvent:
+    async def record_text_delta(self, text: str) -> TextDeltaEvent:
         assert self._active_assistant_turn and self._active_text_buffer, \
             "record_text_delta called without an active assistant turn"
         await self._active_text_buffer.append(text)
-        return RuntimeEvent(
-            type="text_delta",
+        return TextDeltaEvent(
             session_id=self._session.id,
             turn_id=self._active_assistant_turn.id,
             text=text,
             iterations=self.iterations,
         )
 
-    async def record_tool_call(self, event: ToolUseEvent) -> RuntimeEvent:
+    async def record_tool_call(self, event: ToolUseEvent) -> ToolPendingEvent:
         assert self._active_assistant_turn and self._active_text_buffer, \
             "record_tool_call called without an active assistant turn"
         await self._active_text_buffer.flush()
-        tool_run = await self._persistence.record_tool_call(
+        tool_run = await self._store.create_tool_run(
             self._session.id,
             self._active_assistant_turn.id,
-            tool_name=event.name,
-            input_data=event.input,
-            tool_call_json=json.dumps(event.input, separators=(",", ":"), sort_keys=True),
+            event.name,
+            event.input,
+            status="pending",
+        )
+        await self._store.add_part(
+            self._session.id,
+            self._active_assistant_turn.id,
+            "tool_call",
+            json.dumps(event.input, separators=(",", ":"), sort_keys=True),
+            name=event.name,
+            tool_run_id=tool_run.id,
         )
         self._active_tool_runs.append(tool_run)
-        return RuntimeEvent(
-            type="tool_pending",
+        return ToolPendingEvent(
             session_id=self._session.id,
             turn_id=self._active_assistant_turn.id,
             tool_run_id=tool_run.id,
@@ -285,7 +275,7 @@ class Turn:
         *,
         usage: Usage,
         stop_reason: StopReason | None,
-    ) -> RuntimeEvent | None:
+    ) -> TurnFinishedEvent | None:
         """Mark the active iteration completed.
 
         Returns a `turn_finished` event if this closes the user message
@@ -296,7 +286,7 @@ class Turn:
         assert self._active_assistant_turn and self._active_text_buffer, \
             "complete_assistant_turn called without an active assistant turn"
         await self._active_text_buffer.flush()
-        await self._persistence.update_turn(
+        await self._store.update_turn(
             self._active_assistant_turn.id,
             status="completed",
             input_tokens=usage.input_tokens,
@@ -310,8 +300,7 @@ class Turn:
                 "mid-turn without emitting a tool call. Ask a more focused "
                 "question, or reply 'continue' to resume."
             )
-        return RuntimeEvent(
-            type="turn_finished",
+        return TurnFinishedEvent(
             session_id=self._session.id,
             turn_id=self._active_assistant_turn.id,
             iterations=self.iterations,
@@ -327,7 +316,7 @@ class Turn:
         if self._active_assistant_turn is None or self._active_text_buffer is None:
             return
         await self._active_text_buffer.flush()
-        await self._persistence.update_turn(
+        await self._store.update_turn(
             self._active_assistant_turn.id,
             status="error",
             error=error,
@@ -344,18 +333,20 @@ class Turn:
         if self._active_assistant_turn is None or self._active_text_buffer is None:
             return
         await self._active_text_buffer.flush()
-        current = await self._persistence.get_turn(self._active_assistant_turn.id)
+        current = await self._store.get_turn(self._active_assistant_turn.id)
         if current is not None and current.status == "running":
-            await self._persistence.interrupt_turn(
+            await self._store.update_turn(
                 self._active_assistant_turn.id,
-                "Assistant turn interrupted before completion",
+                status="interrupted",
+                error="Assistant turn interrupted before completion",
             )
         for tool_run in self._active_tool_runs:
-            current_tool_run = await self._persistence.get_tool_run(tool_run.id)
+            current_tool_run = await self._store.get_tool_run(tool_run.id)
             if current_tool_run is not None and current_tool_run.status in {"pending", "running"}:
-                await self._persistence.interrupt_tool_run(
+                await self._store.update_tool_run(
                     tool_run.id,
-                    "Tool execution interrupted before completion",
+                    status="interrupted",
+                    error="Tool execution interrupted before completion",
                 )
 
     def reset_active_iteration(self) -> None:
@@ -391,11 +382,14 @@ class Turn:
         assistant_turn_id = self._active_assistant_turn.id
         session_id = self._session.id
 
-        await self._persistence.begin_tool_execution(
+        await self._store.update_tool_run(tool_run.id, status="running")
+        await self._store.add_part(
             session_id,
             assistant_turn_id,
-            tool_run.id,
-            tool_run.tool_name,
+            "tool_status",
+            "running",
+            name=tool_run.tool_name,
+            tool_run_id=tool_run.id,
         )
         # The handler runs in asyncio.to_thread (a worker thread) but
         # `store.register_export` is an async coroutine. Bridge via
@@ -427,15 +421,20 @@ class Turn:
             hint=raw_result.get("hint"),
             duration_ms=raw_result.get("duration_ms"),
         )
-        await self._persistence.complete_tool_execution(
-            session_id,
-            assistant_turn_id,
+        await self._store.update_tool_run(
             tool_run.id,
-            tool_run.tool_name,
-            result_content=result.content,
             status=result.status,
+            result=result.content,
             error=result.error,
             hint=result.hint,
             duration_ms=result.duration_ms,
+        )
+        await self._store.add_part(
+            session_id,
+            assistant_turn_id,
+            "tool_result",
+            result.content,
+            name=tool_run.tool_name,
+            tool_run_id=tool_run.id,
         )
         return result

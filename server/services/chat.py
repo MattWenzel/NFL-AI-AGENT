@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import AsyncGenerator
 
-from auth.primitives import AuthenticatedUser
-from agent.events import RuntimeEvent
+from auth.types import AuthenticatedUser
+from agent.events import (
+    RuntimeErrorEvent,
+    RuntimeEvent,
+    TextDeltaEvent,
+    ToolCompletedEvent,
+    ToolFailedEvent,
+    ToolPendingEvent,
+)
 from agent.runtime import ChatRuntime
 from provider import (
     BaseLLMClient,
@@ -16,64 +22,17 @@ from provider import (
     get_provider,
     provider_is_available,
 )
-from storage import RuntimeStore, SessionRecord
+from storage import RuntimeStore
 from server.schemas.chat import ChatRequest, ChatResponse, ToolCallPreview
 from server.process_state import PerUserLockRegistry
-from server.services.credentials import CredentialServiceError, ProviderCredentialService
-
-
-class ChatServiceError(Exception):
-    """Base class for application-service chat failures."""
-
-
-class ChatNotFoundError(ChatServiceError):
-    """The referenced conversation does not exist for the caller."""
-
-
-class ChatConfigurationError(ChatServiceError):
-    """Provider/credential/model selection failed in an application-specific way."""
-
-
-@dataclass
-class PreparedChat:
-    client: BaseLLMClient
-    provider_name: str
-    session: SessionRecord
-
-
-@dataclass
-class ToolCallLogEntry:
-    tool_run_id: str
-    tool: str
-    input: dict
-    result_preview: str = ""
-
-
-def create_client_for_request(
-    provider: str | None = None,
-    model: str | None = None,
-    *,
-    api_key: str | None = None,
-) -> BaseLLMClient:
-    provider_name = provider or get_default_provider()
-    try:
-        info = get_provider(provider_name)
-    except KeyError as exc:
-        raise ChatConfigurationError(str(exc)) from exc
-
-    if not api_key and not provider_is_available(info):
-        if info.credential_shape == "codex_oauth":
-            raise ChatConfigurationError(
-                f"{info.display_name} not connected — click Connect ChatGPT in Settings."
-            )
-        raise ChatConfigurationError(
-            f"No API key for {info.display_name} — add one in Settings."
-        )
-
-    try:
-        return create_client(provider=provider_name, model=model, api_key=api_key)
-    except LLMError as exc:
-        raise ChatConfigurationError(str(exc)) from exc
+from server.services.credentials import ProviderCredentialService
+from server.services.errors import (
+    ChatConfigurationError,
+    ChatNotFoundError,
+    ChatServiceError,
+    CredentialServiceError,
+)
+from server.services.types import PreparedChat, ToolCallLogEntry
 
 
 async def close_client(client: BaseLLMClient) -> None:
@@ -111,13 +70,32 @@ class ChatService:
 
         provider_name = body.provider or get_default_provider()
         try:
+            info = get_provider(provider_name)
+        except KeyError as exc:
+            raise ChatConfigurationError(str(exc)) from exc
+
+        try:
             user_key = await self.credentials.get_api_key(
                 user_id=user.id,
                 provider_name=provider_name,
             )
         except CredentialServiceError as exc:
             raise ChatConfigurationError(str(exc)) from exc
-        client = create_client_for_request(body.provider, body.model, api_key=user_key)
+
+        if not user_key and not provider_is_available(info):
+            if info.credential_shape == "codex_oauth":
+                raise ChatConfigurationError(
+                    f"{info.display_name} not connected — click Connect ChatGPT in Settings."
+                )
+            raise ChatConfigurationError(
+                f"No API key for {info.display_name} — add one in Settings."
+            )
+
+        try:
+            client = create_client(provider=provider_name, model=body.model, api_key=user_key)
+        except LLMError as exc:
+            raise ChatConfigurationError(str(exc)) from exc
+
         try:
             session = await self.runtime.prepare_session(
                 client,
@@ -170,9 +148,9 @@ class ChatService:
 
         try:
             async for event in self.stream_events(prepared, body, tools=tools):
-                if event.type == "text_delta" and event.text:
+                if isinstance(event, TextDeltaEvent) and event.text:
                     response_text += event.text
-                elif event.type == "tool_pending":
+                elif isinstance(event, ToolPendingEvent):
                     tool_calls_log.append(
                         ToolCallLogEntry(
                             tool_run_id=event.tool_run_id,
@@ -180,7 +158,7 @@ class ChatService:
                             input=event.input,
                         )
                     )
-                elif event.type in {"tool_completed", "tool_failed"} and tool_calls_log:
+                elif isinstance(event, (ToolCompletedEvent, ToolFailedEvent)) and tool_calls_log:
                     preview = (
                         event.result[:500]
                         if event.result and len(event.result) > 500
@@ -190,7 +168,7 @@ class ChatService:
                         if item.tool_run_id == event.tool_run_id and not item.result_preview:
                             item.result_preview = preview
                             break
-                elif event.type == "runtime_error":
+                elif isinstance(event, RuntimeErrorEvent):
                     runtime_error = event.error or "Runtime error"
                     hit_limit = bool(runtime_error.startswith("Reached maximum tool iterations"))
             if runtime_error and not hit_limit:

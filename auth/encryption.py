@@ -14,27 +14,7 @@ import os
 
 from cryptography.fernet import Fernet, InvalidToken
 
-ENV_KEY = "SETTINGS_ENCRYPTION_KEY"
-
-_GENERATE_HINT = (
-    "Generate one with: python3 -c "
-    "\"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
-)
-
-
-class EncryptionKeyMissing(RuntimeError):
-    def __init__(self) -> None:
-        super().__init__(
-            f"{ENV_KEY} is not set. {_GENERATE_HINT}"
-        )
-
-
-class EncryptionKeyInvalid(RuntimeError):
-    def __init__(self, cause: Exception) -> None:
-        super().__init__(
-            f"{ENV_KEY} is set but not a valid Fernet key ({cause}). {_GENERATE_HINT}"
-        )
-
+from auth.errors import ENV_KEY, EncryptionKeyInvalid, EncryptionKeyMissing
 
 _fernet: Fernet | None = None
 

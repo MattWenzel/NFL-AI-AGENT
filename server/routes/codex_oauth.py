@@ -4,16 +4,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
-from auth.primitives import AuthenticatedUser
+from auth.types import AuthenticatedUser
 from server.csrf import verify_csrf
-from server.dependencies import get_codex_oauth_service, get_codex_start_limiter, get_current_user
-from server.process_state import RequestRateLimiter
+from server.dependencies import get_codex_oauth_service, get_current_user, get_process_state
+from server.process_state import AppProcessState
 from server.schemas.codex_oauth import CodexOAuthStartResponse, CodexOAuthStatusResponse
-from server.services.codex_oauth import (
-    CodexOAuthService,
-    CodexOAuthUpstreamError,
-    CodexOAuthUnknownFlowError,
-)
+from server.services.codex_oauth import CodexOAuthService
+from server.services.errors import CodexOAuthUnknownFlowError, CodexOAuthUpstreamError
 
 router = APIRouter(prefix="/settings/oauth/codex", tags=["settings"], dependencies=[Depends(verify_csrf)])
 
@@ -23,9 +20,9 @@ async def start_codex_oauth(
     request: Request,
     user: AuthenticatedUser = Depends(get_current_user),
     service: CodexOAuthService = Depends(get_codex_oauth_service),
-    start_limiter: RequestRateLimiter = Depends(get_codex_start_limiter),
+    process_state: AppProcessState = Depends(get_process_state),
 ) -> CodexOAuthStartResponse:
-    start_limiter.check(request)
+    process_state.codex_start_limiter.check(request)
     try:
         return await service.start(user_id=user.id)
     except CodexOAuthUpstreamError as exc:

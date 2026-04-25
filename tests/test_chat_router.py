@@ -7,56 +7,23 @@ from cryptography.fernet import Fernet
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from agent.events import RuntimeEvent
+from agent.events import TextDeltaEvent
 from auth import encryption
-from auth.primitives import AuthenticatedUser
+from auth.types import AuthenticatedUser
 from server.dependencies import get_chat_service, get_current_user
+from server.process_state import AppProcessState
 from server.schemas.chat import ChatResponse
 from storage import RuntimeStore, SessionRecord
 from server.routes import chat as chat_router
 from server.routes.chat import router as chat_router_module
-from server.services.chat import (
-    ChatService,
+from server.services.chat import ChatService
+from server.services.errors import (
     ChatConfigurationError,
     ChatNotFoundError,
     ChatServiceError,
-    PreparedChat,
 )
+from server.services.types import PreparedChat
 from tests.app_factory import build_test_app, managed_test_client
-
-
-class _ClosableClient:
-    def __init__(self):
-        self.model = "stub-model"
-        self.closed = False
-
-    async def aclose(self) -> None:
-        self.closed = True
-
-
-class _RuntimeWithError:
-    """Stub runtime: prepare_session returns a fixed SessionRecord, run_session
-    yields a single runtime_error event. Lets us exercise /chat/message's
-    error-path cleanup without touching the real store or LLM client."""
-
-    def prepare_session(self, client, provider_name, conversation_id=None, *, user_id=None):
-        return SessionRecord(
-            id="session-1",
-            created_at="2026-01-01T00:00:00+00:00",
-            updated_at="2026-01-01T00:00:00+00:00",
-            provider=provider_name,
-            model=client.model,
-            title=None,
-            context_window=1000,
-            user_id=user_id,
-        )
-
-    async def run_session(self, *args, **kwargs):
-        yield RuntimeEvent(
-            type="runtime_error",
-            session_id="session-1",
-            error="Detected repeated tool loop on search_players with identical input",
-        )
 
 
 def _make_service():
@@ -187,7 +154,7 @@ async def test_chat_message_forwards_tool_choice_to_service(monkeypatch):
 
 
 class _CountingStreamGate:
-    """Test double for ChatStreamGate that tallies acquire/release calls."""
+    """Test double for ConcurrencyLimiter that tallies acquire/release calls."""
 
     def __init__(self, *, reject: bool = False):
         self.active = 0
@@ -260,7 +227,7 @@ async def test_chat_stream_acquires_no_resources_before_generator_is_iterated(mo
         _StubRequest(),
         chat_router.ChatRequest(message="hi"),
         service=service,
-        stream_gate=gate,
+        process_state=AppProcessState(chat_stream_limiter=gate),
         user=AuthenticatedUser(id=1, email="t@e.com"),
     )
 
@@ -301,7 +268,7 @@ async def test_chat_stream_releases_slot_and_client_on_normal_completion(monkeyp
         _StubRequest(),
         chat_router.ChatRequest(message="hi"),
         service=service,
-        stream_gate=gate,
+        process_state=AppProcessState(chat_stream_limiter=gate),
         user=AuthenticatedUser(id=1, email="t@e.com"),
     )
 
@@ -332,7 +299,7 @@ async def test_chat_stream_emits_not_found_error_as_sse_and_releases_slot(monkey
         _StubRequest(),
         chat_router.ChatRequest(message="hi", conversation_id="missing"),
         service=service,
-        stream_gate=gate,
+        process_state=AppProcessState(chat_stream_limiter=gate),
         user=AuthenticatedUser(id=1, email="t@e.com"),
     )
 
@@ -370,7 +337,7 @@ async def test_chat_stream_emits_configuration_error_as_sse_and_releases_slot(mo
         _StubRequest(),
         chat_router.ChatRequest(message="hi"),
         service=service,
-        stream_gate=gate,
+        process_state=AppProcessState(chat_stream_limiter=gate),
         user=AuthenticatedUser(id=1, email="t@e.com"),
     )
 
@@ -402,7 +369,7 @@ async def test_chat_stream_emits_rate_limit_as_sse_without_holding_resources(mon
         _StubRequest(),
         chat_router.ChatRequest(message="hi"),
         service=service,
-        stream_gate=gate,
+        process_state=AppProcessState(chat_stream_limiter=gate),
         user=AuthenticatedUser(id=1, email="t@e.com"),
     )
 
@@ -442,10 +409,11 @@ async def test_chat_stream_cleans_up_runtime_source_and_client_on_early_close(mo
                 # Hand control back once so the outer generator yields the
                 # conversation_id event, then block until cancelled. That
                 # models a runtime mid-turn when the client disconnects.
-                yield RuntimeEvent(
-                    type="text_delta",
+                yield TextDeltaEvent(
                     session_id=prepared.session.id,
+                    turn_id="turn-stream",
                     text="hello",
+                    iterations=1,
                 )
                 import asyncio as _asyncio
                 await _asyncio.Event().wait()
@@ -461,7 +429,7 @@ async def test_chat_stream_cleans_up_runtime_source_and_client_on_early_close(mo
         _StubRequest(),
         chat_router.ChatRequest(message="hi"),
         service=service,
-        stream_gate=gate,
+        process_state=AppProcessState(chat_stream_limiter=gate),
         user=AuthenticatedUser(id=1, email="t@e.com"),
     )
 

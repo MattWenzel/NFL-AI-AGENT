@@ -15,11 +15,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 
 from auth.primitives import (
-    AuthenticatedUser,
     CSRF_COOKIE_NAME,
     SESSION_COOKIE_NAME,
     _extract_session_token,
 )
+from auth.types import AuthenticatedUser
 from config import EMAIL_VERIFICATION_REQUIRED
 from server.csrf import generate_csrf_token, verify_csrf
 from server.dependencies import (
@@ -42,16 +42,15 @@ from server.schemas.auth import (
     ResendVerificationRequest,
     VerifyEmailRequest,
 )
-from server.services.auth import (
-    AuditContext,
-    AuthCredentialsError,
+from server.services.auth import AuthService
+from server.services.errors import (
     AuthConflictError,
+    AuthCredentialsError,
     AuthEmailUnverifiedError,
     AuthLockedError,
-    AuthService,
     AuthValidationError,
-    IssuedSession,
 )
+from server.services.types import AuditContext, IssuedSession
 
 logger = logging.getLogger(__name__)
 

@@ -20,7 +20,7 @@ from typing import Any, Mapping
 from sqlalchemy import Column, ForeignKey, Index, Integer, UniqueConstraint, desc
 from sqlmodel import Field, SQLModel
 
-from storage.types import TolerantJSONList, ToolInputJSON
+from storage.column_types import TolerantJSONList, ToolInputJSON
 
 def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()

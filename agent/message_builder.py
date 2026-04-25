@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from provider.base import Message, ToolUseEvent
+from provider.types import Message, ToolUseEvent
 from storage import SessionTranscript
 from storage.models import wrap_summaries_for_prompt
 

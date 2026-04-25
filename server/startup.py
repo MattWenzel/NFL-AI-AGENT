@@ -19,6 +19,7 @@ from config import (
     format_file_size,
     google_oauth_enabled,
 )
+from auth.types import OAUTH_ONLY_SENTINEL_HASH, PASSWORD
 from provider import list_providers
 from server.process_state import AppProcessState
 from storage import IdentityConflictError, RuntimeStore
@@ -90,15 +91,15 @@ async def _seed_password_identities(store: RuntimeStore) -> int:
         rows = await session.execute(select(UserRecord))
         users = list(rows.scalars().all())
     for user in users:
-        if user.password_hash == "!":
+        if user.password_hash == OAUTH_ONLY_SENTINEL_HASH:
             continue  # OAuth-only account — no password identity expected
-        existing = await store.get_identity(user_id=user.id, provider="password")
+        existing = await store.get_identity(user_id=user.id, provider=PASSWORD)
         if existing is not None:
             continue
         try:
             await store.create_identity(
                 user_id=user.id,
-                provider="password",
+                provider=PASSWORD,
                 provider_subject=user.email,
                 email=user.email,
             )

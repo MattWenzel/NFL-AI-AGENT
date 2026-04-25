@@ -6,12 +6,13 @@ import asyncio
 import logging
 import re
 import secrets
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from auth import email as email_sender
-from auth.primitives import AuthenticatedUser, generate_token, hash_password, verify_password
+from auth.primitives import generate_token, hash_password, verify_password
+from auth.types import AuthenticatedUser
 from config import (
     AUTH_TOKEN_TTL_DAYS,
     EMAIL_VERIFICATION_REQUIRED,
@@ -27,37 +28,20 @@ from server.schemas.auth import (
     AuthUser,
     RegistrationPendingResponse,
 )
-from storage import RuntimeStore
+from server.services.errors import (
+    AuthConflictError,
+    AuthCredentialsError,
+    AuthEmailUnverifiedError,
+    AuthLockedError,
+    AuthServiceError,
+    AuthValidationError,
+)
+from auth.types import OAUTH_ONLY_SENTINEL_HASH, PASSWORD
+from server.services.audit import audit_log
+from server.services.types import AuditContext, IssuedSession, RegistrationResult
+from storage import AuditEvent, RuntimeStore
 
 logger = logging.getLogger(__name__)
-
-
-class AuthServiceError(Exception):
-    pass
-
-
-class AuthConflictError(AuthServiceError):
-    pass
-
-
-class AuthValidationError(AuthServiceError):
-    pass
-
-
-class AuthCredentialsError(AuthServiceError):
-    pass
-
-
-class AuthLockedError(AuthServiceError):
-    """Raised when an account is temporarily locked after too many failures."""
-
-    def __init__(self, retry_after_seconds: int, message: str = "Account temporarily locked"):
-        super().__init__(message)
-        self.retry_after_seconds = retry_after_seconds
-
-
-class AuthEmailUnverifiedError(AuthServiceError):
-    """Raised when EMAIL_VERIFICATION_REQUIRED=1 and the account is unverified."""
 
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -67,38 +51,10 @@ def _to_auth_user(user: AuthenticatedUser | object) -> AuthUser:
     return AuthUser(id=user.id, email=user.email, role=user.role)
 
 
-@dataclass(frozen=True)
-class AuditContext:
-    """Request-scoped audit metadata passed from routes to the service.
-
-    Services stay free of FastAPI imports; routes pull `ip`/`user_agent`
-    off `Request` and hand them to the service via this dataclass.
-    """
-    ip: str | None = None
-    user_agent: str | None = None
-
-
-@dataclass
-class IssuedSession:
-    token: str
-    expires_at: datetime
-
-
-@dataclass
-class RegistrationResult:
-    """One of: (a) a fully-issued session for the just-registered user, or
-    (b) a "verification pending" signal telling the caller to send a
-    verification email and not set session cookies."""
-    user: object
-    session: IssuedSession | None = None
-    verification_token: str | None = None
-
-
 @dataclass
 class AuthService:
     store: RuntimeStore
     exports_dir: Path
-    event_logger: logging.Logger = field(default_factory=lambda: logging.getLogger("security_events"))
 
     def validate_email(self, email: str) -> str:
         normalized = email.strip().lower()
@@ -140,11 +96,11 @@ class AuthService:
                 email_sender.send_verification_email(to=normalized, token=record.token)
             except email_sender.EmailError:
                 logger.exception("Verification email send failed for %s", normalized)
-            await self._audit("registration_pending", user.id, audit, {"email": normalized})
+            await audit_log(self.store, AuditEvent.REGISTRATION_PENDING, user.id, audit, {"email": normalized})
             return RegistrationResult(user=user, verification_token=record.token)
 
         session = await self._issue_session(user.id)
-        await self._audit("login_success", user.id, audit, {"via": "registration"})
+        await audit_log(self.store, AuditEvent.LOGIN_SUCCESS, user.id, audit, {"via": "registration"})
         return RegistrationResult(user=user, session=session)
 
     async def login(
@@ -175,14 +131,14 @@ class AuthService:
             raise AuthCredentialsError("Invalid email or password")
 
         if EMAIL_VERIFICATION_REQUIRED and user.email_verified_at is None:
-            await self._audit("login_blocked_unverified", user.id, audit, {})
+            await audit_log(self.store, AuditEvent.LOGIN_BLOCKED_UNVERIFIED, user.id, audit, {})
             raise AuthEmailUnverifiedError(
                 "Please verify your email before signing in. Check your inbox for the verification link."
             )
 
         await self.store.clear_login_failures(normalized)
         session = await self._issue_session(user.id)
-        await self._audit("login_success", user.id, audit, {})
+        await audit_log(self.store, AuditEvent.LOGIN_SUCCESS, user.id, audit, {})
         return user, session
 
     async def logout(
@@ -195,7 +151,7 @@ class AuthService:
         if bearer_token:
             await self.store.delete_auth_session(bearer_token)
         if user_id is not None:
-            await self._audit("logout", user_id, audit, {})
+            await audit_log(self.store, AuditEvent.LOGOUT, user_id, audit, {})
 
     async def change_password(
         self,
@@ -211,7 +167,7 @@ class AuthService:
             raise AuthCredentialsError("Current password is incorrect")
         await self.store.update_user_password(user.id, hash_password(new_password))
         await self.store.invalidate_other_auth_sessions(user.id, keep_token=keep_token)
-        await self._audit("password_changed", user.id, audit, {})
+        await audit_log(self.store, AuditEvent.PASSWORD_CHANGED, user.id, audit, {})
 
     async def delete_account(
         self,
@@ -226,7 +182,7 @@ class AuthService:
         # Audit the deletion BEFORE the row is gone so the user_id reference
         # points at a live user in the log; SET NULL on cascade keeps the row
         # afterward with user_id=null for historical context.
-        await self._audit("account_deleted", user.id, audit, {"email": record.email})
+        await audit_log(self.store, AuditEvent.ACCOUNT_DELETED, user.id, audit, {"email": record.email})
         filenames = await self.store.delete_user(user.id)
         for filename in filenames:
             try:
@@ -257,7 +213,7 @@ class AuthService:
             await session.commit()
         user = await self.store.get_user_by_id(user_id)
         issued = await self._issue_session(user_id)
-        await self._audit("email_verified", user_id, audit, {})
+        await audit_log(self.store, AuditEvent.EMAIL_VERIFIED, user_id, audit, {})
         return user, issued
 
     async def resend_verification(
@@ -270,8 +226,8 @@ class AuthService:
         normalized = email.strip().lower()
         user = await self.store.get_user_by_email(normalized)
         if user is None or user.email_verified_at is not None:
-            await self._audit(
-                "verification_resent_ignored", user.id if user else None, audit, {"email": normalized}
+            await audit_log(self.store, 
+                AuditEvent.VERIFICATION_RESENT_IGNORED, user.id if user else None, audit, {"email": normalized}
             )
             return
         record = await self.store.create_verification(user_id=user.id, purpose="signup")
@@ -279,7 +235,7 @@ class AuthService:
             email_sender.send_verification_email(to=normalized, token=record.token)
         except email_sender.EmailError:
             logger.exception("Resend verification failed for %s", normalized)
-        await self._audit("verification_resent", user.id, audit, {})
+        await audit_log(self.store, AuditEvent.VERIFICATION_RESENT, user.id, audit, {})
 
     # ---------------- internals ----------------
 
@@ -304,11 +260,11 @@ class AuthService:
         # Seed a `password` identity row only for real passwords, not the
         # OAuth sentinel "!". Keeps `count_identities` honest so the unlink
         # guard in Google OAuth service knows whether a password is set.
-        if password_hash != "!":
+        if password_hash != OAUTH_ONLY_SENTINEL_HASH:
             try:
                 await self.store.create_identity(
                     user_id=user.id,
-                    provider="password",
+                    provider=PASSWORD,
                     provider_subject=email,
                     email=email,
                 )
@@ -374,36 +330,9 @@ class AuthService:
         # us spot password-spray attacks across multiple unknown emails.
         user = await self.store.get_user_by_email(email)
         meta = {"email": email, "failure_count": projected_count, "locked": locked_until is not None}
-        event_type = "login_locked" if locked_until else "login_failure"
-        await self._audit(event_type, user.id if user else None, audit, meta)
+        event_type = AuditEvent.LOGIN_LOCKED if locked_until else AuditEvent.LOGIN_FAILURE
+        await audit_log(self.store, event_type, user.id if user else None, audit, meta)
 
-    async def _audit(
-        self,
-        event_type: str,
-        user_id: int | None,
-        audit: AuditContext,
-        metadata: dict,
-    ) -> None:
-        try:
-            await self.store.record_security_event(
-                event_type=event_type,
-                user_id=user_id,
-                ip=audit.ip,
-                user_agent=audit.user_agent,
-                metadata=metadata,
-            )
-        except Exception:  # noqa: BLE001 — audit failures shouldn't block the main flow
-            logger.exception("Failed to record %s audit event", event_type)
-        # Structured log line alongside the DB row for real-time visibility.
-        self.event_logger.info(
-            "security_event",
-            extra={
-                "event_type": event_type,
-                "user_id": user_id,
-                "ip": audit.ip,
-                "metadata": metadata,
-            },
-        )
 
 
 def _progressive_delay(failure_count: int) -> float:

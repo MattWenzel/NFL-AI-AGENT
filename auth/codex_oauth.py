@@ -15,10 +15,12 @@ import base64
 import json
 import logging
 import time
-from dataclasses import dataclass
 from urllib.parse import urlencode
 
 import httpx
+
+from auth.errors import CodexOAuthError, DeviceCodeExpired
+from auth.types import DeviceCodeAuthorized, DeviceCodeStart, TokenBundle
 
 logger = logging.getLogger(__name__)
 
@@ -34,42 +36,6 @@ DEVICE_REDIRECT_URI = f"{ISSUER}/deviceauth/callback"
 # this many seconds of life left so in-flight requests don't race the
 # expiration boundary.
 REFRESH_SKEW_SECONDS = 30
-
-
-# ---------------- data shapes ----------------
-
-
-@dataclass
-class DeviceCodeStart:
-    device_auth_id: str
-    user_code: str
-    interval: int
-    verification_url: str
-
-
-@dataclass
-class DeviceCodeAuthorized:
-    """Result of a successful device-code poll — the server returns the code
-    *and* the PKCE verifier it generated on the user's behalf."""
-    authorization_code: str
-    code_verifier: str
-    code_challenge: str
-
-
-@dataclass
-class TokenBundle:
-    access_token: str
-    refresh_token: str
-    expires_at: int  # epoch ms
-    email: str | None = None
-
-
-class CodexOAuthError(Exception):
-    """User-facing error raised from any OAuth helper."""
-
-
-class DeviceCodeExpired(CodexOAuthError):
-    """The 15-minute device-code window elapsed without sign-in."""
 
 
 # ---------------- low-level JWT decode ----------------

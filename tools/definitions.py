@@ -1,6 +1,6 @@
 """Declarative tool schemas (Anthropic tool_use format) + typed exports."""
 
-from provider.base import ToolDefinition
+from provider.types import ToolDefinition
 from tools.guide_registry import GUIDE_TOPICS
 
 TOOL_DEFINITIONS = [

@@ -10,19 +10,18 @@ import json
 import logging
 
 from auth import codex_oauth, encryption
+from auth.errors import CodexOAuthError
+from auth.types import TokenBundle
 from server.process_state import PerUserLockRegistry
+from server.services.errors import CodexCredentialError
 from storage import RuntimeStore
 
 logger = logging.getLogger(__name__)
 
 
-class CodexCredentialError(Exception):
-    """Raised when a stored Codex connection exists but refresh fails."""
-
-
 async def _load_bundle(
     store: RuntimeStore, user_id: int, provider_name: str
-) -> codex_oauth.TokenBundle | None:
+) -> TokenBundle | None:
     rec = await store.get_api_key(user_id=user_id, provider=provider_name)
     if rec is None:
         return None
@@ -58,7 +57,7 @@ async def resolve_access_token(
             return bundle.access_token
         try:
             bundle = await codex_oauth.refresh_access_token(bundle.refresh_token)
-        except codex_oauth.CodexOAuthError as exc:
+        except CodexOAuthError as exc:
             logger.warning("Codex token refresh failed for user=%d: %s", user_id, exc)
             raise CodexCredentialError("ChatGPT session expired — reconnect in Settings.") from exc
         await store.upsert_api_key(

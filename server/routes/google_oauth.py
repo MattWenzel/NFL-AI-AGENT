@@ -28,14 +28,14 @@ from server.routes.auth import (
     _client_ip,
     _set_auth_cookies,
 )
-from server.services.google_oauth import (
+from server.services.errors import (
     GoogleOAuthDisabledError,
     GoogleOAuthEmailUnverifiedError,
     GoogleOAuthInvalidStateError,
-    GoogleOAuthService,
     GoogleOAuthServiceError,
-    SignInOutcome,
 )
+from server.services.google_oauth import GoogleOAuthService
+from server.services.types import SignInOutcome
 
 logger = logging.getLogger(__name__)
 

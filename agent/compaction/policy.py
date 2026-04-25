@@ -25,9 +25,8 @@ from storage import (
     TurnRecord,
 )
 from provider import BaseLLMClient, LLMError, get_provider
-from agent.token_counting import count_text_tokens
-
-from agent.summarizer import summarize_for_compaction
+from agent.compaction.summarizer import summarize_for_compaction
+from agent.compaction.token_counting import count_text_tokens
 
 logger = logging.getLogger(__name__)
 

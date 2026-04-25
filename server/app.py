@@ -5,12 +5,12 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.middleware.base import BaseHTTPMiddleware
 
+from server.middleware import SecurityHeadersMiddleware
 from server.routes import auth, chat, codex_oauth, conversations, csv_downloads, csv_library, google_oauth, providers, settings
 from config import ALLOW_NULL_ORIGIN, ALLOWED_ORIGINS
 from server.startup import configure_runtime_state, log_environment_state, run_housekeeping, validate_encryption
@@ -22,52 +22,6 @@ APP_ROOT = Path(__file__).resolve().parent.parent
 WEB_ROOT = APP_ROOT / "web"
 
 logger = logging.getLogger(__name__)
-
-
-# Content-Security-Policy. `cdn.jsdelivr.net` is permitted in `script-src`
-# because index.html loads marked.js and chart.js from there; vendoring them
-# locally and tightening this to 'self' is a worthwhile follow-up but out of
-# scope for the initial hardening pass. `style-src 'unsafe-inline'` is
-# required because several widgets build HTML via innerHTML with inline
-# `style="…"` attributes — moving those to CSS classes would tighten this
-# further. `connect-src 'self'` covers fetch + EventSource (SSE); no
-# cross-origin backends exist in this app.
-_CSP = (
-    "default-src 'self'; "
-    "script-src 'self' https://cdn.jsdelivr.net; "
-    "style-src 'self' 'unsafe-inline'; "
-    "img-src 'self' data:; "
-    "connect-src 'self'; "
-    "frame-ancestors 'none'; "
-    "base-uri 'self'; "
-    "form-action 'self'; "
-    "object-src 'none'"
-)
-
-
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    """Set standard defensive response headers on every reply.
-
-    HSTS is only emitted when the request arrives over HTTPS — behind Fly's
-    TLS terminator `request.url.scheme` reads as "https" via the forwarded
-    scheme, so prod gets HSTS while `http://localhost` dev runs don't
-    (which would otherwise pin localhost to https in the browser).
-    """
-
-    async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        response.headers.setdefault("Content-Security-Policy", _CSP)
-        response.headers.setdefault("X-Content-Type-Options", "nosniff")
-        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-        response.headers.setdefault(
-            "Permissions-Policy", "geolocation=(), camera=(), microphone=()"
-        )
-        if request.url.scheme == "https":
-            response.headers.setdefault(
-                "Strict-Transport-Security",
-                "max-age=31536000; includeSubDomains",
-            )
-        return response
 
 
 @asynccontextmanager

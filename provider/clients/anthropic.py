@@ -10,15 +10,16 @@ from typing import AsyncIterator
 
 import anthropic
 
-from provider.base import (
-    BaseLLMClient, ContextOverflowError, LLMError, Message, MessageResponse,
-    RetryingEvent, TextEvent, ToolUseEvent, StopReason, ToolChoice, Usage,
-    ToolDefinition,
-)
+from provider.base import BaseLLMClient
+from provider.errors import ContextOverflowError, LLMError, RetryableError
 from provider.overflow import is_context_overflow
 from provider.retry import (
-    MAX_ATTEMPTS, RetryableError, compute_delay, parse_retry_after,
+    MAX_ATTEMPTS, compute_delay, parse_retry_after,
     parse_retry_after_ms, with_retries,
+)
+from provider.types import (
+    ANTHROPIC, Message, MessageResponse, RetryingEvent, StopReason, TextEvent,
+    ToolChoice, ToolDefinition, ToolUseEvent, Usage,
 )
 from provider.tool_calls import build_tool_use_event
 
@@ -83,7 +84,7 @@ class AnthropicClient(BaseLLMClient):
 
     @property
     def provider_name(self) -> str:
-        return "anthropic"
+        return ANTHROPIC
 
     def _translate_error(self, exc: Exception) -> LLMError:
         if isinstance(exc, anthropic.AuthenticationError):

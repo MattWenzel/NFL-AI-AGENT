@@ -21,13 +21,15 @@ import hashlib
 import logging
 import secrets
 import time
-from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlencode
 
 import httpx
 from joserfc import jwt
 from joserfc.jwk import KeySet
+
+from auth.errors import GoogleOAuthError
+from auth.types import GoogleIdentity
 
 logger = logging.getLogger(__name__)
 
@@ -39,22 +41,6 @@ DEFAULT_SCOPES = "openid email profile"
 
 _JWKS_TTL_SECONDS = 3600
 _jwks_cache: tuple[float, KeySet] | None = None
-
-
-class GoogleOAuthError(Exception):
-    """Raised for any failure in the OAuth exchange or ID-token verification.
-
-    The message is safe to show a developer; user-facing errors should be
-    generic ("Sign-in failed — try again") so we don't leak protocol detail.
-    """
-
-
-@dataclass(frozen=True)
-class GoogleIdentity:
-    sub: str
-    email: str
-    email_verified: bool
-    name: str | None
 
 
 def pkce_pair() -> tuple[str, str]:

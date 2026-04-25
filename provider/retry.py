@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import TypeVar
 
+from provider.errors import RetryableError
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
@@ -32,20 +34,6 @@ BASE_DELAY = 2.0
 MAX_DELAY = 30.0          # cap on computed backoff when no header given
 HEADER_MAX_DELAY = 120.0  # cap on header-instructed waits (sane upper bound)
 JITTER_FRAC = 0.25        # ±25% jitter on computed delay
-
-
-class RetryableError(Exception):
-    """Marker returned by a classifier to say "retry this exception".
-
-    Carries the original exception plus an optional retry_after_seconds
-    extracted from response headers. The classifier doesn't raise this
-    — it returns it (or None) from a pure function.
-    """
-
-    def __init__(self, original: Exception, retry_after_seconds: float | None = None):
-        super().__init__(str(original))
-        self.original = original
-        self.retry_after_seconds = retry_after_seconds
 
 
 def parse_retry_after(value: str | None) -> float | None:

@@ -23,17 +23,16 @@ from auth import google_oauth as google_oauth_module
 from auth import encryption
 from auth.primitives import verify_password
 from server.services import auth as auth_service_module
-from server.services.auth import AuditContext, AuthService
-from server.services.google_oauth import (
+from server.services.auth import AuthService
+from server.services.errors import (
     GoogleOAuthEmailUnverifiedError,
     GoogleOAuthInvalidStateError,
     GoogleOAuthLastIdentityError,
     GoogleOAuthLinkConflictError,
-    GoogleOAuthService,
-    LinkOutcome,
-    SignInOutcome,
 )
-from server.process_state import InMemoryPendingGoogleOAuthFlows
+from server.services.google_oauth import GoogleOAuthService
+from server.services.types import AuditContext, LinkOutcome, SignInOutcome
+from server.process_state import PendingGoogleOAuthFlows
 from storage import RuntimeStore
 
 
@@ -79,7 +78,7 @@ def store(tmp_path):
 
 @pytest.fixture
 def pending_flows():
-    return InMemoryPendingGoogleOAuthFlows()
+    return PendingGoogleOAuthFlows()
 
 
 @pytest.fixture

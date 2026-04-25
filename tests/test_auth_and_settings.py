@@ -54,6 +54,18 @@ def _clear_invite_code(monkeypatch):
     monkeypatch.setattr(auth_service_module, "REGISTRATION_INVITE_CODE", None)
 
 
+@pytest.fixture(autouse=True)
+def _disable_google_oauth(monkeypatch):
+    """Local .env commonly has GOOGLE_OAUTH_CLIENT_ID/SECRET set, which flips
+    google_oauth_enabled() to True and breaks the auth-status test that
+    expects the default-off state. Null the module-level values so the default
+    for this file is "OAuth disabled"; tests that exercise the OAuth path
+    re-set them explicitly."""
+    import config as _config
+    monkeypatch.setattr(_config, "GOOGLE_OAUTH_CLIENT_ID", None)
+    monkeypatch.setattr(_config, "GOOGLE_OAUTH_CLIENT_SECRET", None)
+
+
 @pytest.fixture
 def store(tmp_path):
     return RuntimeStore(tmp_path / "r.sqlite3")

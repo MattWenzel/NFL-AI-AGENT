@@ -11,7 +11,7 @@ from pathlib import Path
 import duckdb
 
 from config import DB_PATH
-from tools.schema_metadata import (
+from tools.sandbox.schema_metadata import (
     JOIN_EDGES,
     TABLE_ALIASES,
     TABLE_TO_ALIAS,

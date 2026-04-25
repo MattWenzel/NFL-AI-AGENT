@@ -1,6 +1,6 @@
 """Provider-agnostic context-overflow detection from API error bodies.
 
-Our pre-call token estimate (`agent.token_counting.count_text_tokens`)
+Our pre-call token estimate (`agent.compaction.token_counting.count_text_tokens`)
 is good enough to decide *when* to compact, but it doesn't account for
 the provider's exact tokenizer, tool-definition encoding, or per-message
 overhead. When it under-shoots, the provider returns a 4xx like

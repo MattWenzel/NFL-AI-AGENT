@@ -20,17 +20,17 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from tools import TOOLS
-from auth.primitives import AuthenticatedUser
+from auth.types import AuthenticatedUser
 from server.csrf import verify_csrf
-from server.dependencies import get_chat_service, get_chat_stream_gate, get_current_user
-from server.process_state import ChatStreamGate
+from server.dependencies import get_chat_service, get_current_user, get_process_state
+from server.process_state import AppProcessState
+from server.rate_limit import ConcurrencyLimiter
 from server.schemas.chat import ChatRequest, ChatResponse
-from server.services.chat import (
-    ChatService,
+from server.services.chat import ChatService, close_client
+from server.services.errors import (
     ChatConfigurationError,
     ChatNotFoundError,
     ChatServiceError,
-    close_client,
 )
 from server.sse import event_to_sse_payload
 from provider import LLMError
@@ -47,7 +47,7 @@ SSE_HEARTBEAT_SECONDS = 15
 MAX_CONCURRENT_STREAMS_PER_USER = 3
 
 
-async def _acquire_stream_slot(stream_gate: ChatStreamGate, user_id: int) -> None:
+async def _acquire_stream_slot(stream_gate: ConcurrencyLimiter, user_id: int) -> None:
     await stream_gate.acquire(
         user_id,
         detail=(
@@ -58,7 +58,7 @@ async def _acquire_stream_slot(stream_gate: ChatStreamGate, user_id: int) -> Non
     )
 
 
-async def _release_stream_slot(stream_gate: ChatStreamGate, user_id: int) -> None:
+async def _release_stream_slot(stream_gate: ConcurrencyLimiter, user_id: int) -> None:
     await stream_gate.release(user_id)
 
 
@@ -98,7 +98,7 @@ async def chat_stream(
     request: Request,
     body: ChatRequest,
     service: ChatService = Depends(get_chat_service),
-    stream_gate: ChatStreamGate = Depends(get_chat_stream_gate),
+    process_state: AppProcessState = Depends(get_process_state),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     """Send a message and stream the response via SSE.
@@ -117,6 +117,8 @@ async def chat_stream(
     response is returned — the frontend already handles `{"type": "error"}`
     payloads via the same code path as runtime errors.
     """
+
+    stream_gate = process_state.chat_stream_limiter
 
     async def event_generator():
         slot_acquired = False

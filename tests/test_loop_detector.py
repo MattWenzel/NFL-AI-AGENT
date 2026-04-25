@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from agent.events import RuntimeLoopError
+from agent.errors import RuntimeLoopError
 from agent.turn import DOOM_LOOP_MATCH, raise_if_doom_loop
 
 

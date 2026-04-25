@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from auth.primitives import AuthenticatedUser
+from auth.types import GOOGLE, AuthenticatedUser
 from server.csrf import verify_csrf
 from server.dependencies import (
     get_current_user,
@@ -20,18 +20,16 @@ from server.schemas.settings import (
     IdentitySummaryResponse,
     LinkGoogleStartResponse,
 )
-from server.services.google_oauth import (
+from server.services.errors import (
     GoogleOAuthDisabledError,
     GoogleOAuthLastIdentityError,
     GoogleOAuthLinkConflictError,
-    GoogleOAuthService,
     GoogleOAuthServiceError,
-)
-from server.services.settings import (
-    SettingsService,
     SettingsNotFoundError,
     SettingsServiceError,
 )
+from server.services.google_oauth import GoogleOAuthService
+from server.services.settings import SettingsService
 
 # CSRF applies to mutating routes on this router; the GET /api-keys listing
 # is safe. Wiring at router level avoids per-route Depends sprawl.
@@ -120,7 +118,7 @@ async def unlink_identity(
     user: AuthenticatedUser = Depends(get_current_user),
     service: GoogleOAuthService = Depends(get_google_oauth_service),
 ):
-    if provider not in {"google"}:
+    if provider not in {GOOGLE}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown provider")
     try:
         await service.unlink(user_id=user.id, provider=provider, audit=_audit_from(request))

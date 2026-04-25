@@ -8,32 +8,22 @@ import uuid
 from dataclasses import dataclass
 
 from auth import codex_oauth, encryption
-from server.process_state import PendingCodexOAuthFlowStore
+from auth.errors import CodexOAuthError, DeviceCodeExpired
+from provider.types import CODEX
+from server.process_state import PendingCodexOAuthFlows
 from server.schemas.codex_oauth import CodexOAuthStartResponse, CodexOAuthStatusResponse
-from storage import RuntimeStore
+from server.services.errors import CodexOAuthUnknownFlowError, CodexOAuthUpstreamError
+from storage import AuditEvent, RuntimeStore
 
 logger = logging.getLogger(__name__)
 
-CODEX_PROVIDER = "openai-codex"
 MAX_RECORD_AGE_SECONDS = 60 * 20
-
-
-class CodexOAuthServiceError(Exception):
-    pass
-
-
-class CodexOAuthUnknownFlowError(CodexOAuthServiceError):
-    pass
-
-
-class CodexOAuthUpstreamError(CodexOAuthServiceError):
-    pass
 
 
 @dataclass
 class CodexOAuthService:
     store: RuntimeStore
-    pending_flows: PendingCodexOAuthFlowStore
+    pending_flows: PendingCodexOAuthFlows
 
     async def run_device_flow(self, pending_id: str) -> None:
         rec = self.pending_flows.get(pending_id)
@@ -45,23 +35,23 @@ class CodexOAuthService:
             ciphertext = encryption.encrypt(codex_oauth.bundle_to_json(bundle))
             await self.store.upsert_api_key(
                 user_id=rec.user_id,
-                provider=CODEX_PROVIDER,
+                provider=CODEX,
                 encrypted_key=ciphertext,
             )
             await self.store.record_security_event(
-                event_type="oauth_linked",
+                event_type=AuditEvent.OAUTH_LINKED,
                 user_id=rec.user_id,
                 metadata={"provider": "codex", "identity_email": bundle.email},
             )
             async with rec.lock:
                 rec.status = "complete"
                 rec.email = bundle.email
-        except codex_oauth.DeviceCodeExpired:
+        except DeviceCodeExpired:
             async with rec.lock:
                 rec.status = "expired"
         except asyncio.CancelledError:
             raise
-        except (codex_oauth.CodexOAuthError, ValueError):
+        except (CodexOAuthError, ValueError):
             logger.exception("Codex OAuth failed for user=%d", rec.user_id)
             async with rec.lock:
                 rec.status = "error"
@@ -71,7 +61,7 @@ class CodexOAuthService:
         self.pending_flows.evict_terminal_older_than(MAX_RECORD_AGE_SECONDS)
         try:
             start = await codex_oauth.request_device_code()
-        except codex_oauth.CodexOAuthError as exc:
+        except CodexOAuthError as exc:
             raise CodexOAuthUpstreamError(str(exc)) from exc
         pending_id = uuid.uuid4().hex
         rec = self.pending_flows.create(

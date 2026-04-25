@@ -6,16 +6,12 @@ from dataclasses import dataclass
 
 from auth import encryption
 from server.services.codex_credentials import (
-    CodexCredentialError,
     resolve_access_token as resolve_codex_access_token,
 )
 from provider import get_provider
 from server.process_state import PerUserLockRegistry
+from server.services.errors import CodexCredentialError, CredentialServiceError
 from storage import RuntimeStore
-
-
-class CredentialServiceError(Exception):
-    """Credential lookup or refresh failed."""
 
 
 @dataclass

@@ -4,7 +4,6 @@ import asyncio
 
 import pytest
 
-from agent.persistence import RuntimePersistence
 from server.services.conversations import ConversationService
 from storage import RuntimeStore
 
@@ -31,20 +30,13 @@ async def _create_user_and_session(store: RuntimeStore):
 @pytest.mark.asyncio
 async def test_session_patch_updates_do_not_clobber_other_fields(store: RuntimeStore):
     user, session = await _create_user_and_session(store)
-    session.title = "Initial title"
-    await store.update_session(session.id, title=session.title)
-    stale_session = await store.get_session(session.id, user_id=user.id)
-
-    persistence = RuntimePersistence(store)
+    await store.update_session(session.id, title="Initial title")
     await store.set_session_pinned(session.id, True, user_id=user.id)
 
-    await persistence.update_session_metadata(
-        stale_session,
-        provider_name="openai",
-        model="gpt-test",
-        title_preview_chars=80,
-        user_text="ignored because the title is already set",
-    )
+    # Mirrors the provider/model patch runtime.run_session issues per user turn —
+    # guards against the regression where a partial update clobbers unrelated
+    # fields like title or pinned_at.
+    await store.update_session(session.id, provider="openai", model="gpt-test")
 
     updated = await store.get_session(session.id, user_id=user.id)
     assert updated is not None

@@ -8,6 +8,7 @@ from server.schemas.conversations import (
     ConversationInfo,
     ConversationTranscriptResponse,
 )
+from server.services.errors import ConversationNotFoundError
 from storage import RuntimeStore, SessionListEntry, SessionTranscript
 
 
@@ -40,14 +41,6 @@ def _transcript_response(
         tool_runs=tool_runs,
         summaries=list(transcript.summaries),
     )
-
-
-class ConversationServiceError(Exception):
-    pass
-
-
-class ConversationNotFoundError(ConversationServiceError):
-    pass
 
 
 @dataclass

@@ -4,10 +4,12 @@ import os
 import logging
 from dataclasses import dataclass, field
 
-from provider.base import (
-    BaseLLMClient, ContextOverflowError, CredentialShape, LLMError, Message,
-    MessageResponse, RetryingEvent, TextEvent, ToolUseEvent, StopReason,
-    ToolChoice, Usage, ToolDefinition,
+from provider.base import BaseLLMClient
+from provider.errors import ContextOverflowError, LLMError
+from provider.types import (
+    ANTHROPIC, CODEX, OPENAI, CredentialShape, Message, MessageResponse,
+    RetryingEvent, StopReason, TextEvent, ToolChoice, ToolDefinition,
+    ToolUseEvent, Usage,
 )
 
 logger = logging.getLogger(__name__)
@@ -68,8 +70,8 @@ def list_providers() -> list[ProviderInfo]:
 
 
 def get_default_provider() -> str:
-    """Get the default provider name from env or fallback to 'anthropic'."""
-    return os.environ.get("CHAT_PROVIDER", "anthropic")
+    """Get the default provider name from env or fallback to Anthropic."""
+    return os.environ.get("CHAT_PROVIDER", ANTHROPIC)
 
 
 def create_client(
@@ -119,10 +121,10 @@ def ensure_builtin_providers_registered() -> None:
     if _BUILTINS_REGISTERED:
         return
 
-    from provider.anthropic import AnthropicClient  # noqa: E402
+    from provider.clients.anthropic import AnthropicClient  # noqa: E402
 
     register_provider(ProviderInfo(
-        name="anthropic",
+        name=ANTHROPIC,
         display_name="Anthropic",
         env_key="ANTHROPIC_API_KEY",
         default_model="claude-sonnet-4-6",
@@ -142,9 +144,9 @@ def ensure_builtin_providers_registered() -> None:
     ))
 
     try:
-        from provider.openai import OpenAIClient  # noqa: E402
+        from provider.clients.openai import OpenAIClient  # noqa: E402
         register_provider(ProviderInfo(
-            name="openai",
+            name=OPENAI,
             display_name="OpenAI",
             env_key="OPENAI_API_KEY",
             default_model="gpt-5",
@@ -168,10 +170,10 @@ def ensure_builtin_providers_registered() -> None:
     except ImportError:
         logger.debug("OpenAI SDK not installed — openai provider unavailable")
 
-    from provider.codex import OpenAICodexClient  # noqa: E402
+    from provider.clients.codex import OpenAICodexClient  # noqa: E402
 
     register_provider(ProviderInfo(
-        name="openai-codex",
+        name=CODEX,
         display_name="OpenAI Codex (ChatGPT)",
         env_key="",
         default_model="gpt-5.3-codex",

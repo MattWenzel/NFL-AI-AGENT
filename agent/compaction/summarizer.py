@@ -21,8 +21,9 @@ from storage import (
     ToolRunRecord,
     TurnRecord,
 )
-from provider.base import BaseLLMClient, Message, MessageResponse, TextEvent
-from agent.token_counting import count_text_tokens
+from provider.base import BaseLLMClient
+from provider.types import Message, MessageResponse, TextEvent
+from agent.compaction.token_counting import count_text_tokens
 
 logger = logging.getLogger(__name__)
 

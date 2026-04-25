@@ -10,17 +10,10 @@ from auth import codex_oauth, encryption
 from provider import ProviderInfo, get_provider, list_providers, provider_is_available
 from server.schemas.providers import ProviderResponse
 from server.schemas.settings import ApiKeyStatus
-from storage import RuntimeStore
+from server.services.errors import SettingsNotFoundError, SettingsServiceError
+from storage import AuditEvent, RuntimeStore
 
 logger = logging.getLogger(__name__)
-
-
-class SettingsServiceError(Exception):
-    pass
-
-
-class SettingsNotFoundError(SettingsServiceError):
-    pass
 
 
 @dataclass
@@ -85,9 +78,9 @@ class SettingsService:
                 # its clear event so OAuth and API-key audits can be counted
                 # separately and Google OAuth will fit the same schema.
                 event_type = (
-                    "oauth_unlinked"
+                    AuditEvent.OAUTH_UNLINKED
                     if info.credential_shape == "codex_oauth"
-                    else "api_key_cleared"
+                    else AuditEvent.API_KEY_CLEARED
                 )
                 await self.store.record_security_event(
                     event_type=event_type,
@@ -103,7 +96,7 @@ class SettingsService:
             encrypted_key=encryption.encrypt(raw),
         )
         await self.store.record_security_event(
-            event_type="api_key_set",
+            event_type=AuditEvent.API_KEY_SET,
             user_id=user_id,
             ip=audit_ip,
             user_agent=audit_user_agent,

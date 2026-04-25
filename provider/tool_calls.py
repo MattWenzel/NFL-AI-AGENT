@@ -6,7 +6,7 @@ import json
 import logging
 from collections.abc import Mapping
 
-from provider.base import ToolUseEvent
+from provider.types import ToolUseEvent
 
 
 def build_tool_use_event(

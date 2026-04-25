@@ -5,10 +5,11 @@ import re
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
-from auth.primitives import AuthenticatedUser
+from auth.types import AuthenticatedUser
 from config import EXPORTS_DIR
 from server.dependencies import get_current_user, get_export_service
-from server.services.exports import ExportService, ExportNotFoundError
+from server.services.errors import ExportNotFoundError
+from server.services.exports import ExportService
 
 router = APIRouter(tags=["exports"])
 

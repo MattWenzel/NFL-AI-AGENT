@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from auth.primitives import AuthenticatedUser
+from auth.types import AuthenticatedUser
 from server.csrf import verify_csrf
 from server.dependencies import get_current_user, get_export_service
 from server.schemas.exports import (
@@ -12,11 +12,8 @@ from server.schemas.exports import (
     NewSessionFromExportRequest,
     NewSessionFromExportResponse,
 )
-from server.services.exports import (
-    ExportService,
-    ExportNotFoundError,
-    ExportServiceError,
-)
+from server.services.errors import ExportNotFoundError, ExportServiceError
+from server.services.exports import ExportService
 
 router = APIRouter(prefix="/chat/exports", tags=["csv-library"], dependencies=[Depends(verify_csrf)])
 

@@ -6,7 +6,8 @@ point.
 
 Concerns that used to live here are now in sibling modules:
 
-- `RuntimeEvent`, `RuntimeLoopError`             → `events.py`
+- `RuntimeEvent` variants                        → `events.py`
+- `RuntimeLoopError`                             → `errors.py`
 - Token estimation + compaction                  → `compaction.py`
 - Turn lifecycle + doom-loop policy + tool exec  → `turn.py`
 
@@ -18,9 +19,17 @@ from __future__ import annotations
 import logging
 from typing import AsyncGenerator
 
-from agent.events import RuntimeEvent, RuntimeLoopError
+from agent.errors import RuntimeLoopError
+from agent.events import (
+    AssistantRequiresFollowupEvent,
+    RetryingEvent as RuntimeRetryingEvent,
+    RuntimeErrorEvent,
+    RuntimeEvent,
+    ToolCompletedEvent,
+    ToolFailedEvent,
+    TurnStartedEvent,
+)
 from agent.message_builder import build_model_messages
-from agent.persistence import RuntimePersistence
 from agent.system_prompt import get_base_prompt
 from agent.turn import TITLE_PREVIEW_CHARS, Turn
 from provider import (
@@ -47,7 +56,6 @@ class ChatRuntime:
 
     def __init__(self, store: RuntimeStore):
         self.store = store
-        self.persistence = RuntimePersistence(store)
 
     async def prepare_session(
         self,
@@ -86,20 +94,19 @@ class ChatRuntime:
         """
         lock = self.store.lock(session.id)
         async with lock:
-            user_turn = await self.persistence.create_user_turn(session.id, user_text)
-            await self.persistence.update_session_metadata(
-                session,
-                provider_name=provider_name,
-                model=client.model,
-                title_preview_chars=TITLE_PREVIEW_CHARS,
-                user_text=user_text,
+            user_turn = await self.store.create_turn(
+                session.id, "user", text=user_text, status="completed"
             )
-            yield RuntimeEvent(
-                type="turn_started", session_id=session.id, turn_id=user_turn.id
-            )
+            session_changes: dict[str, object] = {
+                "provider": provider_name,
+                "model": client.model,
+            }
+            if not session.title:
+                session_changes["title"] = user_text[:TITLE_PREVIEW_CHARS]
+            await self.store.update_session(session.id, **session_changes)
+            yield TurnStartedEvent(session_id=session.id, turn_id=user_turn.id)
             turn = Turn(
                 store=self.store,
-                persistence=self.persistence,
                 session=session,
                 execute_tool=execute_tool_structured,
                 initial_tool_choice=tool_choice,
@@ -131,8 +138,7 @@ class ChatRuntime:
                                 # Provider hit a transient error before any
                                 # content streamed; surface it so the UI
                                 # shows progress instead of a silent stall.
-                                yield RuntimeEvent(
-                                    type="retrying",
+                                yield RuntimeRetryingEvent(
                                     session_id=session.id,
                                     turn_id=turn.active_assistant_turn_id,
                                     error=event.error_message,
@@ -158,8 +164,8 @@ class ChatRuntime:
                         results = await turn.execute_tools()
 
                         for tool_run, result in zip(turn.active_tool_runs, results):
-                            yield RuntimeEvent(
-                                type="tool_completed" if result.is_completed else "tool_failed",
+                            cls = ToolCompletedEvent if result.is_completed else ToolFailedEvent
+                            yield cls(
                                 session_id=session.id,
                                 turn_id=turn.active_assistant_turn_id,
                                 tool_run_id=tool_run.id,
@@ -168,8 +174,7 @@ class ChatRuntime:
                                 error=result.error,
                                 iterations=iterations,
                             )
-                        yield RuntimeEvent(
-                            type="assistant_requires_followup",
+                        yield AssistantRequiresFollowupEvent(
                             session_id=session.id,
                             turn_id=turn.active_assistant_turn_id,
                             iterations=iterations,
@@ -188,8 +193,7 @@ class ChatRuntime:
                         )
                         turn.reset_active_iteration()
                         if not turn.handle_overflow():
-                            yield RuntimeEvent(
-                                type="runtime_error",
+                            yield RuntimeErrorEvent(
                                 session_id=session.id,
                                 error=str(exc),
                                 iterations=iterations,
@@ -203,8 +207,7 @@ class ChatRuntime:
                             usage=client.last_usage,
                         )
                         turn.reset_active_iteration()
-                        yield RuntimeEvent(
-                            type="runtime_error",
+                        yield RuntimeErrorEvent(
                             session_id=session.id,
                             turn_id=failed_turn_id,
                             error=str(exc),

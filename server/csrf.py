@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from fastapi import HTTPException, Request, status
 
 from auth.primitives import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, SESSION_COOKIE_NAME, _extract_bearer
+from storage.audit_events import AuditEvent
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,7 @@ def _fail(request: Request, *, reason: str) -> None:
         if store is not None:
             loop.create_task(
                 store.record_security_event(
-                    event_type="csrf_rejected",
+                    event_type=AuditEvent.CSRF_REJECTED,
                     ip=_client_ip(request),
                     user_agent=request.headers.get("User-Agent"),
                     metadata={"reason": reason, "path": request.url.path, "method": request.method},

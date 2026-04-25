@@ -8,9 +8,9 @@ from email.utils import format_datetime
 
 import pytest
 
+from provider.errors import RetryableError
 from provider.retry import (
     MAX_ATTEMPTS,
-    RetryableError,
     compute_delay,
     parse_retry_after,
     parse_retry_after_ms,

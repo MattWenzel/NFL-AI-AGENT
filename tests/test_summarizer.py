@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from provider.base import (
-    BaseLLMClient,
-    LLMError,
+from provider.base import BaseLLMClient
+from provider.errors import LLMError
+from provider.types import (
     MessageResponse,
     StopReason,
     TextEvent,
@@ -17,12 +17,12 @@ from provider.base import (
 )
 from storage import RuntimeStore, ToolRunRecord, TurnRecord
 
-from agent.summarizer import (
+from agent.compaction import compact_if_needed
+from agent.compaction.summarizer import (
     SUMMARIZER_INPUT_BUDGET_TOKENS,
     _build_summarizer_input,
     summarize_for_compaction,
 )
-from agent.compaction import compact_if_needed
 
 
 class RecordingStubClient(BaseLLMClient):

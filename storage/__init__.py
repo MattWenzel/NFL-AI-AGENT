@@ -23,12 +23,14 @@ from storage.models import (
     UserIdentityRecord,
     UserRecord,
 )
+from storage.audit_events import AuditEvent
+from storage.errors import IdentityConflictError
 from storage.store import RuntimeStore
-from storage.user_identities import IdentityConflictError
 
 __all__ = [
     "RuntimeStore",
     "AssistantPartRecord",
+    "AuditEvent",
     "AuthSessionRecord",
     "CompactionSummaryRecord",
     "EmailVerificationRecord",

@@ -22,11 +22,19 @@ from typing import AsyncIterator
 
 import httpx
 
-from auth.codex_oauth import CodexOAuthError, decode_account_id
-from provider.base import (
-    BaseLLMClient,
-    ContextOverflowError,
-    LLMError,
+from auth.codex_oauth import decode_account_id
+from auth.errors import CodexOAuthError
+from provider.base import BaseLLMClient
+from provider.errors import ContextOverflowError, LLMError, RetryableError
+from provider.overflow import is_context_overflow
+from provider.retry import (
+    MAX_ATTEMPTS,
+    compute_delay,
+    parse_retry_after,
+    parse_retry_after_ms,
+)
+from provider.types import (
+    CODEX,
     Message,
     MessageResponse,
     RetryingEvent,
@@ -36,14 +44,6 @@ from provider.base import (
     ToolDefinition,
     ToolUseEvent,
     Usage,
-)
-from provider.overflow import is_context_overflow
-from provider.retry import (
-    MAX_ATTEMPTS,
-    RetryableError,
-    compute_delay,
-    parse_retry_after,
-    parse_retry_after_ms,
 )
 from provider.tool_calls import build_tool_use_event
 
@@ -96,7 +96,7 @@ class OpenAICodexClient(BaseLLMClient):
 
     @property
     def provider_name(self) -> str:
-        return "openai-codex"
+        return CODEX
 
     async def aclose(self) -> None:
         await self._http.aclose()

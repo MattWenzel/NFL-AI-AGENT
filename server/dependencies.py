@@ -7,15 +7,10 @@ from datetime import datetime, timezone
 from fastapi import Depends, HTTPException, Request, status
 
 from agent.runtime import ChatRuntime
-from auth.primitives import AuthenticatedUser, _extract_session_token
+from auth.primitives import _extract_session_token
+from auth.types import AuthenticatedUser
 from config import AUTH_SESSION_TOUCH_INTERVAL_SECONDS, EXPORTS_DIR
-from server.process_state import (
-    AppProcessState,
-    ChatStreamGate,
-    PendingCodexOAuthFlowStore,
-    PerUserLockRegistry,
-    RequestRateLimiter,
-)
+from server.process_state import AppProcessState
 from server.services.auth import AuthService
 from server.services.chat import ChatService
 from server.services.codex_oauth import CodexOAuthService
@@ -96,31 +91,15 @@ def get_process_state(request: Request) -> AppProcessState:
     return state
 
 
-def get_chat_stream_gate(request: Request) -> ChatStreamGate:
-    return get_process_state(request).chat_stream_limiter
-
-
-def get_codex_start_limiter(request: Request) -> RequestRateLimiter:
-    return get_process_state(request).codex_start_limiter
-
-
-def get_codex_pending_flows(request: Request) -> PendingCodexOAuthFlowStore:
-    return get_process_state(request).codex_pending_flows
-
-
-def get_codex_refresh_locks(request: Request) -> PerUserLockRegistry:
-    return get_process_state(request).codex_refresh_locks
-
-
 def get_chat_service(
     runtime: ChatRuntime = Depends(get_runtime),
     store: RuntimeStore = Depends(get_store),
-    refresh_locks: PerUserLockRegistry = Depends(get_codex_refresh_locks),
+    process_state: AppProcessState = Depends(get_process_state),
 ) -> ChatService:
     return ChatService(
         runtime,
         store,
-        refresh_locks=refresh_locks,
+        refresh_locks=process_state.codex_refresh_locks,
     )
 
 
@@ -132,9 +111,9 @@ def get_conversation_service(
 
 def get_codex_oauth_service(
     store: RuntimeStore = Depends(get_store),
-    pending_flows: PendingCodexOAuthFlowStore = Depends(get_codex_pending_flows),
+    process_state: AppProcessState = Depends(get_process_state),
 ) -> CodexOAuthService:
-    return CodexOAuthService(store, pending_flows)
+    return CodexOAuthService(store, process_state.codex_pending_flows)
 
 
 def get_export_service(

@@ -14,19 +14,12 @@ from server.schemas.exports import (
     ExportInfo,
     NewSessionFromExportResponse,
 )
+from server.services.errors import ExportNotFoundError, ExportServiceError
 from storage import RuntimeStore
 
 logger = logging.getLogger(__name__)
 
 PREVIEW_ROW_LIMIT = 50
-
-
-class ExportServiceError(Exception):
-    pass
-
-
-class ExportNotFoundError(ExportServiceError):
-    pass
 
 
 @dataclass

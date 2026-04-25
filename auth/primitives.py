@@ -11,27 +11,11 @@ from __future__ import annotations
 
 import logging
 import secrets
-from dataclasses import dataclass
 
 import bcrypt
 from fastapi import Request
 
-from storage import UserRecord
-
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class AuthenticatedUser:
-    """Lightweight view of the current user for router code. Shields routers from
-    the full UserRecord (which carries password_hash — don't leak it by accident)."""
-    id: int
-    email: str
-    role: str = "user"
-
-    @classmethod
-    def from_record(cls, record: UserRecord) -> "AuthenticatedUser":
-        return cls(id=record.id, email=record.email, role=record.role)
 
 
 def hash_password(plain: str) -> str:

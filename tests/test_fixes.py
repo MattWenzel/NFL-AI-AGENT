@@ -112,12 +112,14 @@ class TestValidateSQLEdgeCases:
 
     def test_multi_statement_rejected_by_sqlite(self):
         """Multi-statement is caught by SQLite at execute time."""
-        from tools.sandbox import execute_safe_sql, SQLValidationError
+        from tools.errors import SQLValidationError
+        from tools.sandbox import execute_safe_sql
         with pytest.raises(SQLValidationError, match="one statement"):
             execute_safe_sql("SELECT 1; SELECT 2")
 
     def test_ddl_still_rejected(self):
-        from tools.sandbox import validate_sql, SQLValidationError
+        from tools.errors import SQLValidationError
+        from tools.sandbox import validate_sql
         with pytest.raises(SQLValidationError):
             validate_sql("DROP TABLE players")
 
@@ -138,7 +140,7 @@ class TestSandboxIntegration:
     def test_search_players_tool_works(self):
         """Regression: _search_players must not produce duplicate LIMIT."""
         _skip_if_stats_db_locked()
-        from tools.player_lookup import _search_players
+        from tools.handlers.player_lookup import _search_players
         out = _search_players({"position": "QB", "limit": 3})
         # Result is a JSON string; must not contain a syntax error marker.
         assert "syntax error" not in out.lower()
@@ -199,8 +201,8 @@ class TestClampLimitParam:
 # ---------------------------------------------------------------------------
 # 2. Anthropic tool_results merged into a single user message
 # ---------------------------------------------------------------------------
-from provider.anthropic import AnthropicClient
-from provider.base import Message, ToolUseEvent
+from provider.clients.anthropic import AnthropicClient
+from provider.types import Message, ToolUseEvent
 
 
 class TestAnthropicPromptCaching:
@@ -403,7 +405,7 @@ class TestSSEDisconnectDetection:
 # 4. Runtime transcript replaces conversation windowing
 # ---------------------------------------------------------------------------
 from storage import RuntimeStore
-from agent.runtime import RuntimeEvent
+from agent.events import ToolCompletedEvent, ToolPendingEvent
 
 
 class TestRuntimeTranscript:
@@ -460,7 +462,7 @@ class TestCsvExportRegistration:
     `store.register_export` is an async coroutine; the tool handler runs in
     `asyncio.to_thread`. Without `run_coroutine_threadsafe`, the lambda just
     returns a coroutine object, the DB row never gets written, and the CSV
-    stays orphaned on disk. This test exercises the full ChatRuntime → Turn →
+    stays orphaned on disk. This test exercises the full Turn →
     _execute_one_tool path and asserts the library row lands.
     """
 
@@ -468,13 +470,12 @@ class TestCsvExportRegistration:
         import asyncio
         import json
         from storage import RuntimeStore
-        from agent.runtime import ChatRuntime
         from agent.turn import Turn
-        from tools.sandbox import SQLResult
+        from tools.types import SQLResult
 
         # Point exports at a tmp dir so we don't pollute the repo.
         tmp_exports = tmp_path / "exports"
-        monkeypatch.setattr("tools.create_csv_export.EXPORTS_DIR", tmp_exports)
+        monkeypatch.setattr("tools.handlers.create_csv_export.EXPORTS_DIR", tmp_exports)
 
         # Mock the DuckDB-reading SQL path so this test doesn't depend on
         # the stats DB being available or unlocked. The test is about the
@@ -486,7 +487,7 @@ class TestCsvExportRegistration:
                 row_count=2,
                 truncated=False,
             )
-        monkeypatch.setattr("tools.create_csv_export.execute_export_sql", fake_execute_export_sql)
+        monkeypatch.setattr("tools.handlers.create_csv_export.execute_export_sql", fake_execute_export_sql)
 
         async def _run():
             store = RuntimeStore(tmp_path / "runtime.sqlite3")
@@ -499,7 +500,7 @@ class TestCsvExportRegistration:
                 # Run the real handler via the real to_thread bridge — that's
                 # the code path we need to exercise to catch the sync→async
                 # register_export bug.
-                from tools.create_csv_export import _create_csv_export
+                from tools.handlers.create_csv_export import _create_csv_export
                 result_str = await asyncio.to_thread(_create_csv_export, input_data, ctx)
                 result = json.loads(result_str)
                 return {
@@ -512,14 +513,13 @@ class TestCsvExportRegistration:
 
             turn = Turn(
                 store=store,
-                persistence=ChatRuntime(store).persistence,
                 session=session,
                 execute_tool=execute_tool,
             )
             turn.begin_iteration()
             await turn.open_assistant_turn()
 
-            from provider.base import ToolUseEvent
+            from provider.types import ToolUseEvent
             await turn.record_tool_call(ToolUseEvent(
                 id="t1", name="create_csv_export",
                 input={"sql": "ignored by the mock", "filename": "regression_test_export"},
@@ -550,21 +550,21 @@ class TestToolResultPairing:
         """Results should attach to the corresponding pending tool record."""
         tool_calls_log = []
         events = [
-            RuntimeEvent(type="tool_pending", session_id="s", tool_run_id="a", name="sql_query", input={"sql": "SELECT 1"}),
-            RuntimeEvent(type="tool_pending", session_id="s", tool_run_id="b", name="get_schema", input={"table": "players"}),
-            RuntimeEvent(type="tool_completed", session_id="s", tool_run_id="a", name="sql_query", result="result_A"),
-            RuntimeEvent(type="tool_completed", session_id="s", tool_run_id="b", name="get_schema", result="result_B"),
+            ToolPendingEvent(session_id="s", turn_id="t", tool_run_id="a", name="sql_query", input={"sql": "SELECT 1"}, iterations=1),
+            ToolPendingEvent(session_id="s", turn_id="t", tool_run_id="b", name="get_schema", input={"table": "players"}, iterations=1),
+            ToolCompletedEvent(session_id="s", turn_id="t", tool_run_id="a", name="sql_query", result="result_A", iterations=1),
+            ToolCompletedEvent(session_id="s", turn_id="t", tool_run_id="b", name="get_schema", result="result_B", iterations=1),
         ]
 
         for event in events:
-            if event.type == "tool_pending":
+            if isinstance(event, ToolPendingEvent):
                 tool_calls_log.append({
                     "tool_run_id": event.tool_run_id,
                     "tool": event.name,
                     "input": event.input,
                     "result_preview": "",
                 })
-            elif event.type == "tool_completed":
+            elif isinstance(event, ToolCompletedEvent):
                 for item in reversed(tool_calls_log):
                     if item["tool_run_id"] == event.tool_run_id and not item["result_preview"]:
                         item["result_preview"] = event.result
@@ -579,21 +579,21 @@ class TestToolResultPairing:
     def test_out_of_order_results_still_pair_correctly(self):
         tool_calls_log = []
         events = [
-            RuntimeEvent(type="tool_pending", session_id="s", tool_run_id="x", name="A", input={}),
-            RuntimeEvent(type="tool_pending", session_id="s", tool_run_id="y", name="A", input={"k": 2}),
-            RuntimeEvent(type="tool_completed", session_id="s", tool_run_id="y", name="A", result="second"),
-            RuntimeEvent(type="tool_completed", session_id="s", tool_run_id="x", name="A", result="first"),
+            ToolPendingEvent(session_id="s", turn_id="t", tool_run_id="x", name="A", input={}, iterations=1),
+            ToolPendingEvent(session_id="s", turn_id="t", tool_run_id="y", name="A", input={"k": 2}, iterations=1),
+            ToolCompletedEvent(session_id="s", turn_id="t", tool_run_id="y", name="A", result="second", iterations=1),
+            ToolCompletedEvent(session_id="s", turn_id="t", tool_run_id="x", name="A", result="first", iterations=1),
         ]
 
         for event in events:
-            if event.type == "tool_pending":
+            if isinstance(event, ToolPendingEvent):
                 tool_calls_log.append({
                     "tool_run_id": event.tool_run_id,
                     "tool": event.name,
                     "input": event.input,
                     "result_preview": "",
                 })
-            elif event.type == "tool_completed":
+            elif isinstance(event, ToolCompletedEvent):
                 for item in reversed(tool_calls_log):
                     if item["tool_run_id"] == event.tool_run_id and not item["result_preview"]:
                         item["result_preview"] = event.result
@@ -638,7 +638,7 @@ class TestRuntimeStoreValidation:
 # ---------------------------------------------------------------------------
 # 8. Negative limit clamped to 1 in _search_players (Fix 1)
 # ---------------------------------------------------------------------------
-from tools.player_lookup import _search_players
+from tools.handlers.player_lookup import _search_players
 
 
 class TestSearchPlayersLimit:
@@ -649,10 +649,10 @@ class TestSearchPlayersLimit:
         # We only need to verify the clamped value reaches the SQL.
         # Patch execute_safe_sql to capture the params tuple.
         import unittest.mock as mock
-        from tools.sandbox import SQLResult
+        from tools.types import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("tools.player_lookup.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": -5})
             # Last positional arg in the params tuple is the limit
             call_params = m.call_args[0][1]
@@ -660,30 +660,30 @@ class TestSearchPlayersLimit:
 
     def test_zero_limit_clamped_to_1(self):
         import unittest.mock as mock
-        from tools.sandbox import SQLResult
+        from tools.types import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("tools.player_lookup.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": 0})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 1
 
     def test_normal_limit_unchanged(self):
         import unittest.mock as mock
-        from tools.sandbox import SQLResult
+        from tools.types import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("tools.player_lookup.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": 25})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 25
 
     def test_over_max_clamped_to_50(self):
         import unittest.mock as mock
-        from tools.sandbox import SQLResult
+        from tools.types import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("tools.player_lookup.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": 999})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 50
@@ -716,8 +716,8 @@ class TestChatResponseTruncated:
 # ---------------------------------------------------------------------------
 # 10. _get_joins helper returns consistent data (Fix 9)
 # ---------------------------------------------------------------------------
-from tools.get_schema import _get_joins
-from tools.schema_metadata import JOIN_EDGES
+from tools.handlers.get_schema import _get_joins
+from tools.sandbox.schema_metadata import JOIN_EDGES
 
 
 class TestGetJoins:
@@ -758,7 +758,7 @@ class TestGetJoins:
         Kept as a regression guard: if a future schema change reintroduces a
         type mismatch, surface it here before it becomes an LLM-visible pitfall.
         """
-        from tools.schema_metadata import JOIN_EDGES
+        from tools.sandbox.schema_metadata import JOIN_EDGES
         cast_edges = [(a, b) for (a, b), (_, _, cast) in JOIN_EDGES.items() if cast]
         assert cast_edges == [], f"Unexpected CAST-required edges: {cast_edges}"
 
@@ -774,10 +774,10 @@ class TestSearchPlayersNonIntegerLimit:
     def test_string_limit_falls_back_to_default(self):
         """LLM sends 'ten' instead of 10 — should fall back to 10."""
         import unittest.mock as mock
-        from tools.sandbox import SQLResult
+        from tools.types import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("tools.player_lookup.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": "ten"})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 10
@@ -785,10 +785,10 @@ class TestSearchPlayersNonIntegerLimit:
     def test_none_limit_falls_back_to_default(self):
         """limit=None should fall back to 10."""
         import unittest.mock as mock
-        from tools.sandbox import SQLResult
+        from tools.types import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("tools.player_lookup.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": None})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 10
@@ -796,10 +796,10 @@ class TestSearchPlayersNonIntegerLimit:
     def test_float_string_limit_truncates(self):
         """'10.5' is not a valid int literal — should fall back to 10."""
         import unittest.mock as mock
-        from tools.sandbox import SQLResult
+        from tools.types import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("tools.player_lookup.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": "10.5"})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 10

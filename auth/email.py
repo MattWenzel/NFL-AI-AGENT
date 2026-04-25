@@ -13,13 +13,10 @@ from __future__ import annotations
 import logging
 from urllib.parse import urlencode
 
+from auth.errors import EmailError
 from config import APP_BASE_URL, EMAIL_FROM_ADDRESS, RESEND_API_KEY
 
 logger = logging.getLogger(__name__)
-
-
-class EmailError(Exception):
-    """Raised on a non-retryable send failure the caller should surface."""
 
 
 _resend_configured = False

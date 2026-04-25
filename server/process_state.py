@@ -5,13 +5,12 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
-from typing import Protocol
 
 from server.rate_limit import ConcurrencyLimiter, RateLimiter
 
 
-class InMemoryPerUserLockRegistry:
-    """Per-user lock registry behind an explicit interface."""
+class PerUserLockRegistry:
+    """Per-user asyncio.Lock registry."""
 
     def __init__(self):
         self._locks: dict[int, asyncio.Lock] = {}
@@ -40,7 +39,7 @@ class PendingCodexOAuthFlow:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
-class InMemoryPendingCodexOAuthFlows:
+class PendingCodexOAuthFlows:
     """Tracks in-flight device-code OAuth flows."""
 
     def __init__(self):
@@ -94,25 +93,6 @@ class InMemoryPendingCodexOAuthFlows:
         self._flows.clear()
 
 
-class PerUserLockRegistry(Protocol):
-    def for_user(self, user_id: int) -> asyncio.Lock: ...
-
-
-class PendingCodexOAuthFlowStore(Protocol):
-    def create(
-        self,
-        pending_id: str,
-        *,
-        user_id: int,
-        device_auth_id: str,
-        user_code: str,
-    ) -> PendingCodexOAuthFlow: ...
-    def get(self, pending_id: str) -> PendingCodexOAuthFlow | None: ...
-    def pop(self, pending_id: str) -> PendingCodexOAuthFlow | None: ...
-    def evict_terminal_older_than(self, max_age_seconds: float) -> None: ...
-    async def cancel_all(self) -> None: ...
-
-
 @dataclass
 class PendingGoogleOAuthFlow:
     """State carried across Google's consent-screen redirect.
@@ -131,7 +111,7 @@ class PendingGoogleOAuthFlow:
     user_id: int | None = None  # None → sign-in/sign-up flow; int → link flow
 
 
-class InMemoryPendingGoogleOAuthFlows:
+class PendingGoogleOAuthFlows:
     """Process-local pending-flow registry for Google OAuth sign-ins.
 
     Keyed by the OAuth `state` parameter. 10-minute TTL — if the user takes
@@ -178,28 +158,6 @@ class InMemoryPendingGoogleOAuthFlows:
         self._flows.clear()
 
 
-class PendingGoogleOAuthFlowStore(Protocol):
-    def create(
-        self,
-        state: str,
-        *,
-        code_verifier: str,
-        nonce: str,
-        user_id: int | None = None,
-    ) -> PendingGoogleOAuthFlow: ...
-    def pop(self, state: str) -> PendingGoogleOAuthFlow | None: ...
-    def reset(self) -> None: ...
-
-
-class ChatStreamGate(Protocol):
-    async def acquire(self, key: str | int, *, detail: str) -> None: ...
-    async def release(self, key: str | int) -> None: ...
-
-
-class RequestRateLimiter(Protocol):
-    def check(self, request: object) -> None: ...
-
-
 @dataclass
 class AppProcessState:
     """Process-local coordination state composed at app startup."""
@@ -216,17 +174,17 @@ class AppProcessState:
     codex_start_limiter: RateLimiter = field(
         default_factory=lambda: RateLimiter(max_attempts=5, window_seconds=60 * 60)
     )
-    chat_stream_limiter: ChatStreamGate = field(
+    chat_stream_limiter: ConcurrencyLimiter = field(
         default_factory=lambda: ConcurrencyLimiter(max_active=3)
     )
-    codex_pending_flows: PendingCodexOAuthFlowStore = field(
-        default_factory=InMemoryPendingCodexOAuthFlows
+    codex_pending_flows: PendingCodexOAuthFlows = field(
+        default_factory=PendingCodexOAuthFlows
     )
     codex_refresh_locks: PerUserLockRegistry = field(
-        default_factory=InMemoryPerUserLockRegistry
+        default_factory=PerUserLockRegistry
     )
-    google_oauth_flows: PendingGoogleOAuthFlowStore = field(
-        default_factory=InMemoryPendingGoogleOAuthFlows
+    google_oauth_flows: PendingGoogleOAuthFlows = field(
+        default_factory=PendingGoogleOAuthFlows
     )
 
     async def aclose(self) -> None:
