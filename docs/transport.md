@@ -4,22 +4,22 @@ The HTTP layer is three thin bands: **routes** parse requests and translate exce
 
 ## File map
 
-- `backend/api/app.py` — FastAPI factory, CORS, lifespan, router includes, static mount.
-- `backend/api/routes/*.py` — FastAPI routers by app process.
-- `backend/api/dependencies.py` — FastAPI dependency factories.
-- `backend/api/csrf.py`, `backend/api/session.py`, `backend/api/request_context.py` — HTTP boundary helpers.
-- `backend/api/sse.py` — `RuntimeEvent` → SSE dict serialization.
-- `backend/processes/*/service.py` — application services by app process.
-- `backend/processes/*/schemas.py` — Pydantic wire models by app process.
-- `backend/api/` — startup, API-owned process state, rate limiting, and logging.
+- `backend/server/app.py` — FastAPI factory, CORS, lifespan, router includes, static mount.
+- `backend/server/routes/*.py` — FastAPI routers by app process.
+- `backend/server/dependencies.py` — FastAPI dependency factories.
+- `backend/server/csrf.py`, `backend/server/session.py`, `backend/server/request_context.py` — HTTP boundary helpers.
+- `backend/server/sse.py` — `RuntimeEvent` → SSE dict serialization.
+- `backend/features/*/service.py` — application services by app process.
+- `backend/features/*/schemas.py` — Pydantic wire models by app process.
+- `backend/server/` — startup, API-owned process state, rate limiting, and logging.
 - `backend/runtime_state.py` — framework-free lock registries and pending OAuth flow registries.
-- `backend/security/primitives.py` — password hashing and token generation.
-- `backend/security/types.py` — auth/OAuth value objects.
+- `backend/credentials/primitives.py` — password hashing and token generation.
+- `backend/credentials/types.py` — auth/OAuth value objects.
 - `run.py` — uvicorn launcher.
 
 ## App factory
 
-`backend/api/app.py`. `create_app()` returns a configured `FastAPI` instance:
+`backend/server/app.py`. `create_app()` returns a configured `FastAPI` instance:
 
 - Title + version for `/docs` and `/redoc`.
 - `lifespan` context manager (below).
@@ -32,7 +32,7 @@ Module-level `app = create_app()` is what uvicorn imports. One app instance per 
 
 ## Lifespan
 
-`app.py:26`. Runs **once per worker process**. The body delegates to four helpers in `backend/api/startup.py`:
+`app.py:26`. Runs **once per worker process**. The body delegates to four helpers in `backend/server/startup.py`:
 
 1. **Re-apply logging.** `setup_logging()` runs inside the worker because the child process resets the root logger when `reload=True` is in use.
 2. **`validate_encryption()`** (`startup.py`). Calls `encryption.require_configured()` — fails fast if `SETTINGS_ENCRYPTION_KEY` is missing or malformed. Failing at startup is strictly better than at the first `PUT /settings/api-keys` an hour later.
@@ -46,24 +46,24 @@ The store, runtime, and process state survive across requests for the life of th
 
 ## Services layer
 
-Routes in `backend/api/routes/` are thin shells — parse the request, call one service method, translate service exceptions to HTTP status codes. Everything cross-subsystem lives in `backend/processes/`. Each service is a class instantiated per-request via a `Depends(...)` factory (see below) with whatever it needs from the store, runtime, and process state.
+Routes in `backend/server/routes/` are thin shells — parse the request, call one service method, translate service exceptions to HTTP status codes. Everything cross-subsystem lives in `backend/features/`. Each service is a class instantiated per-request via a `Depends(...)` factory (see below) with whatever it needs from the store, runtime, and process state.
 
 | Service | File | What it does |
 |---------|------|--------------|
-| `ChatService` | `backend/processes/chat/service.py` | `prepare_chat` (IDOR, decrypt credential, build client, prepare session), `run_message` (buffered response), `stream_events` (SSE event source). |
-| `ConversationService` | `backend/processes/conversations.py` | List / get-transcript / update-title-or-pin / delete for the authenticated user's conversations. |
-| `AuthService` | `backend/processes/auth/service.py` | Register, login, logout, password change, delete account. Password hashing + token issuance live here; routes only translate exceptions. |
-| `ProviderCredentialService` | `backend/processes/oauth/credentials.py` | Resolves the per-user API key for one provider. Dispatches Codex OAuth to the Codex credential helper; plain API keys are decrypted directly. |
-| `CodexOAuthService` | `backend/processes/oauth/codex/service.py` | Device-code flow: `start`, `status`, `cancel`. Spawns a background task that polls OpenAI's device endpoint and stores the encrypted bundle on success. |
-| `ExportService` | `backend/processes/exports.py` | List / preview / rename / delete CSV exports + seed a new conversation from one. IDOR at each entry point. |
-| `ProviderService` | `backend/processes/providers.py` | Provider availability (server config ∪ user keys). |
-| `SettingsService` | `backend/processes/settings.py` | Per-provider API-key status and set/clear key operations. |
+| `ChatService` | `backend/features/chat/service.py` | `prepare_chat` (IDOR, decrypt credential, build client, prepare session), `run_message` (buffered response), `stream_events` (SSE event source). |
+| `ConversationService` | `backend/features/conversations.py` | List / get-transcript / update-title-or-pin / delete for the authenticated user's conversations. |
+| `AuthService` | `backend/features/auth/service.py` | Register, login, logout, password change, delete account. Password hashing + token issuance live here; routes only translate exceptions. |
+| `ProviderCredentialService` | `backend/features/oauth/credentials.py` | Resolves the per-user API key for one provider. Dispatches Codex OAuth to the Codex credential helper; plain API keys are decrypted directly. |
+| `CodexOAuthService` | `backend/features/oauth/codex/service.py` | Device-code flow: `start`, `status`, `cancel`. Spawns a background task that polls OpenAI's device endpoint and stores the encrypted bundle on success. |
+| `ExportService` | `backend/features/exports.py` | List / preview / rename / delete CSV exports + seed a new conversation from one. IDOR at each entry point. |
+| `ProviderService` | `backend/features/providers.py` | Provider availability (server config ∪ user keys). |
+| `SettingsService` | `backend/features/settings.py` | Per-provider API-key status and set/clear key operations. |
 
 Services own **IDOR enforcement** — every one that accepts an id passes the authenticated user's id through to the store so unowned records return `None` and surface as 404. Routes rely on this; they don't re-check.
 
 ## Dependency injection
 
-`backend/api/dependencies.py`. Every request dependency lives here.
+`backend/server/dependencies.py`. Every request dependency lives here.
 
 **Core** (pull from `app.state`; raise `RuntimeError` if the lifespan didn't run):
 
@@ -87,7 +87,7 @@ Routes that need rate limits or process-local coordination depend on
 
 ## Chat endpoints
 
-Routes live in `backend/api/routes/chat.py` and delegate to `ChatService` in `backend/processes/chat/service.py`.
+Routes live in `backend/server/routes/chat.py` and delegate to `ChatService` in `backend/features/chat/service.py`.
 
 ### `POST /chat/message` — buffered response
 
@@ -146,7 +146,7 @@ Client disconnect: `request.is_disconnected()` is checked at the top of every lo
 
 ## SSE event catalog
 
-`backend/api/sse.py` maps `RuntimeEvent`s to wire payloads. Events not listed are suppressed (mapper returns `None`):
+`backend/server/sse.py` maps `RuntimeEvent`s to wire payloads. Events not listed are suppressed (mapper returns `None`):
 
 | `RuntimeEvent.type` | Wire `type` | Extra fields |
 |---------------------|-------------|--------------|
@@ -170,7 +170,7 @@ The route also emits three events outside the mapper:
 
 ## Other routes
 
-Routes are in `backend/api/routes/`. Every user-scoped endpoint depends on `get_current_user`; auth, health, and root do not.
+Routes are in `backend/server/routes/`. Every user-scoped endpoint depends on `get_current_user`; auth, health, and root do not.
 
 **Auth** (`routes/auth.py`). `GET /auth/status` (optional auth), `POST /auth/register`, `POST /auth/login`, `POST /auth/logout`, `PUT /auth/password`, `DELETE /auth/me`. Rate-limited per IP (see below). Full flow in [auth.md](auth.md).
 
@@ -188,7 +188,7 @@ Routes are in `backend/api/routes/`. Every user-scoped endpoint depends on `get_
 
 ## Rate limiting and concurrency
 
-`backend/api/rate_limit.py`. Two primitives, both in-memory (single-process only). API-facing limiter state lives on `AppProcessState` in `backend/api/process_state.py` so it's shared across requests within one worker. Framework-free lock and pending-flow registries live in `backend/runtime_state.py`.
+`backend/server/rate_limit.py`. Two primitives, both in-memory (single-process only). API-facing limiter state lives on `AppProcessState` in `backend/server/process_state.py` so it's shared across requests within one worker. Framework-free lock and pending-flow registries live in `backend/runtime_state.py`.
 
 **`RateLimiter`** — sliding-window counter keyed by `request.client.host`. Per-IP bucket of request timestamps; entries older than the window are pruned. Infrequent global prune reaps empty buckets. Used by auth + Codex OAuth:
 
@@ -225,7 +225,7 @@ Once connected, `codex_credentials.resolve_access_token(user_id)` handles refres
 Every user-scoped endpoint's ownership check happens inside the **service**, not in the route:
 
 ```python
-# backend/processes/chat/service.py
+# backend/features/chat/service.py
 if (
     body.conversation_id
     and await self.store.get_session(body.conversation_id, user_id=user.id) is None
@@ -256,7 +256,7 @@ API routes registered above the static mount take precedence — `/health`, `/ch
 
 - `load_dotenv()` — pulls `.env` into the process environment.
 - `setup_logging(verbose=args.verbose)` — DEBUG when `--verbose`, else WARNING. `NFLVERSE_VERBOSE=1` propagates into the reloaded worker process.
-- `uvicorn.run("backend.api.app:app", host=HOST, port=PORT, reload=True, proxy_headers=True, forwarded_allow_ips=...)`.
+- `uvicorn.run("backend.server.app:app", host=HOST, port=PORT, reload=True, proxy_headers=True, forwarded_allow_ips=...)`.
 
 Key options:
 

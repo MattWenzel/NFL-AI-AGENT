@@ -153,7 +153,7 @@ One dataclass, one discriminator field (`backend/agent/events.py`). Relevant fie
 | `assistant_requires_followup` | after tools, before next pass | `turn_id`, `iterations` |
 | `runtime_error` | overflow retry exhausted, `RuntimeLoopError`, or max iterations | `error`, `iterations` |
 
-Transports serialize these differently. The SSE adapter (`backend/api/sse.py`) drops internal events like `turn_started` / `turn_finished` / `assistant_requires_followup` and renames others for the browser — see [transport.md](transport.md#sse-event-catalog).
+Transports serialize these differently. The SSE adapter (`backend/server/sse.py`) drops internal events like `turn_started` / `turn_finished` / `assistant_requires_followup` and renames others for the browser — see [transport.md](transport.md#sse-event-catalog).
 
 ## Tool execution
 

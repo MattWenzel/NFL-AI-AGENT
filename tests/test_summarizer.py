@@ -15,7 +15,7 @@ from backend.providers.types import (
     TextEvent,
     Usage,
 )
-from backend.persistence import RuntimeStore, ToolRunRecord, TurnRecord
+from backend.storage import RuntimeStore, ToolRunRecord, TurnRecord
 
 from backend.agent.compaction import compact_if_needed
 from backend.agent.compaction.summarizer import (

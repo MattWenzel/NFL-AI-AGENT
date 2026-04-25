@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.agent.runtime import ChatRuntime
-from backend.api.process_state import AppProcessState
+from backend.server.process_state import AppProcessState
 
 
 def build_test_app(*, runtime_store=None) -> FastAPI:

@@ -7,7 +7,7 @@ uses), not the public Chat Completions endpoint — so the request body,
 streaming event names, and tool-call shape all differ.
 
 Token refresh happens one layer up (in
-`backend/processes/oauth/codex/credentials.py::resolve_access_token`),
+`backend/features/oauth/codex/credentials.py::resolve_access_token`),
 so the client here only ever sees a live access token string passed as
 `api_key`.
 """
@@ -24,8 +24,8 @@ from typing import AsyncIterator
 
 import httpx
 
-from backend.security.codex_oauth import decode_account_id
-from backend.security.errors import CodexOAuthError
+from backend.credentials.codex_oauth import decode_account_id
+from backend.credentials.errors import CodexOAuthError
 from backend.providers.base import BaseLLMClient
 from backend.providers.errors import ContextOverflowError, LLMError, RetryableError
 from backend.providers.overflow import is_context_overflow

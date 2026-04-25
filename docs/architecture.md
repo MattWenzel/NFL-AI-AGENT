@@ -21,27 +21,27 @@ One user message drives one call to `ChatRuntime.run_session`, which drives the 
 Top-level folders are organized by product surface, then by process/capability:
 
 ```
-backend/api/       FastAPI shell, dependency wiring, and process-sliced routes
-backend/processes/ App-process services, schemas, DTOs, and errors
+backend/server/       FastAPI shell, dependency wiring, and process-sliced routes
+backend/features/ App-process services, schemas, DTOs, and errors
 backend/agent/     Chat runtime loop, turn state, events, prompts, compaction
 backend/providers/ LLM provider registry, shared provider types, concrete clients
 backend/tools/     Tool definitions, handlers, SQL sandbox, guide docs
-backend/persistence/ Runtime SQLite store, models, migrations
-backend/security/ Auth/security primitives, encryption, OAuth protocol helpers
+backend/storage/ Runtime SQLite store, models, migrations
+backend/credentials/ Auth/security primitives, encryption, OAuth protocol helpers
 frontend/          Browser UI, grouped by app/core/process/component ownership
 ```
 
-Dependencies flow from `backend/api/routes/*.py` (entry point) → `backend/processes/*/service.py` (orchestration) → `backend/*` (reusable capabilities). Services are where cross-subsystem wiring lives — decrypting a user credential, building a client, preparing a session, refreshing a Codex bundle — so routes and the agent stay focused on their own concerns.
+Dependencies flow from `backend/server/routes/*.py` (entry point) → `backend/features/*/service.py` (orchestration) → `backend/*` (reusable capabilities). Services are where cross-subsystem wiring lives — decrypting a user credential, building a client, preparing a session, refreshing a Codex bundle — so routes and the agent stay focused on their own concerns.
 
 | Dir | Contents | Doc |
 |-----|----------|-----|
-| `backend/api/` | FastAPI app factory, dependency wiring, middleware, routes, HTTP helpers | [transport.md](transport.md) |
-| `backend/processes/` | Process services, schemas, DTOs, and errors | [transport.md](transport.md), [auth.md](auth.md) |
+| `backend/server/` | FastAPI app factory, dependency wiring, middleware, routes, HTTP helpers | [transport.md](transport.md) |
+| `backend/features/` | Process services, schemas, DTOs, and errors | [transport.md](transport.md), [auth.md](auth.md) |
 | `backend/agent/` | `ChatRuntime`, event types, compaction, system prompt, guides | [runtime.md](runtime.md), [compaction.md](compaction.md), [prompts.md](prompts.md) |
 | `backend/tools/` | Tool definitions, registry/dispatch, validation, SQL sandbox, handlers | [tools.md](tools.md) |
-| `backend/security/` | Password hashing, bearer-token issuance, Fernet encryption, OAuth protocol helpers | [auth.md](auth.md) |
+| `backend/credentials/` | Password hashing, bearer-token issuance, Fernet encryption, OAuth protocol helpers | [auth.md](auth.md) |
 | `backend/providers/` | `BaseLLMClient`, Anthropic + OpenAI + OpenAI Codex adapters, retry/overflow helpers | [providers.md](providers.md) |
-| `backend/persistence/` | Async SQLModel store + in-house `schema_version` migration runner | [persistence.md](persistence.md) |
+| `backend/storage/` | Async SQLModel store + in-house `schema_version` migration runner | [persistence.md](persistence.md) |
 | `frontend/` | Browser app | [ui.md](ui.md) |
 
 ## Data flow of one user turn
@@ -56,7 +56,7 @@ Following a single message from the browser back to the browser:
  └───────────────────────────────────┘
                 │
                 ▼
- ┌── backend/api/routes/chat.py ─────────┐
+ ┌── backend/server/routes/chat.py ─────────┐
  │ POST /chat/stream                 │        chat.py:95
  │  ├─ get_current_user (401 guard)  │
  │  ├─ acquire per-user stream slot  │
@@ -67,7 +67,7 @@ Following a single message from the browser back to the browser:
  └───────────────────────────────────┘
                 │
                 ▼
- ┌── backend/processes/chat/service.py ┐
+ ┌── backend/features/chat/service.py ┐
  │ ChatService.prepare_chat          │        chat.py:101
  │  ├─ IDOR check                    │
  │  ├─ resolve + decrypt API key     │
@@ -111,7 +111,7 @@ Following a single message from the browser back to the browser:
  └───────────────────────────────────┘
                 │
                 ▼
- ┌── backend/persistence/ ───────────────────────┐
+ ┌── backend/storage/ ───────────────────────┐
  │ RuntimeStore writes every step    │       store.py + transcript_store.py
  │ (turns, parts, tool_runs)         │       async SQLModel over aiosqlite
  └───────────────────────────────────┘
@@ -125,8 +125,8 @@ Common "where does X happen" questions:
 
 | Question | Where |
 |----------|-------|
-| User message arrives → HTTP | `backend/api/routes/chat.py` ([transport.md](transport.md)) |
-| Who owns this conversation? | IDOR guard in `ChatService.prepare_chat`, `backend/processes/chat/service.py` ([transport.md](transport.md#idor-protection)) |
+| User message arrives → HTTP | `backend/server/routes/chat.py` ([transport.md](transport.md)) |
+| Who owns this conversation? | IDOR guard in `ChatService.prepare_chat`, `backend/features/chat/service.py` ([transport.md](transport.md#idor-protection)) |
 | Which API key to use? | `ProviderCredentialService.get_api_key` → `encryption.decrypt` ([auth.md](auth.md#api-keys)) |
 | Model selects a tool | Streamed `ToolUseEvent` from the provider adapter ([providers.md](providers.md#streaming)) |
 | Tool call actually runs | `Turn._execute_one_tool` → `execute_tool_structured` ([tools.md](tools.md#data-flow-for-one-tool-call)) |
@@ -147,7 +147,7 @@ The places where swapping a component is cheap:
 
 ### Provider adapter (`backend/providers/`)
 
-New LLM SDK? Subclass `BaseLLMClient`, translate canonical `Message` / `ToolUseEvent` / `TextEvent` both directions, register in `__init__.py`. Nothing in `backend/api/` or `backend/agent/` changes. See [providers.md](providers.md#adding-a-provider).
+New LLM SDK? Subclass `BaseLLMClient`, translate canonical `Message` / `ToolUseEvent` / `TextEvent` both directions, register in `__init__.py`. Nothing in `backend/server/` or `backend/agent/` changes. See [providers.md](providers.md#adding-a-provider).
 
 ### Tool handler (`backend/tools/`)
 
@@ -166,13 +166,13 @@ New entry point (MCP server, background worker, etc.)? Build a `RuntimeStore`, c
 - **Async throughout** for I/O. FastAPI + uvicorn, asyncio tools, asyncio SDK clients.
 - **Per-session lock** (asyncio mutex in `RuntimeStore`) — concurrent requests to the same conversation serialize. Cross-session parallelism is untouched.
 - **Parallel tool execution within a pass** via `asyncio.gather`.
-- **Runtime DB is async** via `aiosqlite` under SQLModel. `RuntimeStore` exposes natively async methods (sessions, turns, parts, tool runs, users, keys, exports) that run on the event loop without `to_thread`. A sync engine also exists but is only used at process boot for schema migration apply and startup reconciliation (`backend/persistence/engine.py`).
+- **Runtime DB is async** via `aiosqlite` under SQLModel. `RuntimeStore` exposes natively async methods (sessions, turns, parts, tool runs, users, keys, exports) that run on the event loop without `to_thread`. A sync engine also exists but is only used at process boot for schema migration apply and startup reconciliation (`backend/storage/engine.py`).
 - **Tool queries stay sync.** The read-only sandbox (`backend/tools/sandbox/runner.py`) uses DuckDB against `nflverse.duckdb` and runs inside `asyncio.to_thread`, so a long query can't stall the loop and the driver's row-limit + timeout knobs stay available.
 - **Single process.** Rate limiting is in-memory; no multi-worker plan without swapping that for Redis/slowapi.
 
 ## Persistence model
 
-One SQLite file — `data/runtime.sqlite3` — holds everything mutable. Sessions, turns, assistant parts, tool runs, compaction summaries, exports, users, API keys, auth sessions. Tables are defined as SQLModel classes in `backend/persistence/models.py`; the schema evolves through in-house migration callables in `backend/persistence/schema_version.py`, applied automatically on process boot via `apply_migrations()`. WAL mode, foreign keys, and a 5s busy_timeout are enabled on both the sync and async engines. See [persistence.md](persistence.md) for the schema and the lifecycle of each record.
+One SQLite file — `data/runtime.sqlite3` — holds everything mutable. Sessions, turns, assistant parts, tool runs, compaction summaries, exports, users, API keys, auth sessions. Tables are defined as SQLModel classes in `backend/storage/models.py`; the schema evolves through in-house migration callables in `backend/storage/schema_version.py`, applied automatically on process boot via `apply_migrations()`. WAL mode, foreign keys, and a 5s busy_timeout are enabled on both the sync and async engines. See [persistence.md](persistence.md) for the schema and the lifecycle of each record.
 
 The nflverse DuckDB file (`nflverse.duckdb`) is read-only reference data opened by the SQL sandbox on demand. It never mutates at runtime and isn't backed up with user data.
 

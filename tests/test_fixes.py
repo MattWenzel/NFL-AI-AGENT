@@ -394,7 +394,7 @@ class TestSSEDisconnectDetection:
     def test_disconnect_check_in_source(self):
         """The event_generator should check request.is_disconnected()."""
         import inspect
-        from backend.api.routes.chat import chat_stream
+        from backend.server.routes.chat import chat_stream
 
         source = inspect.getsource(chat_stream)
         assert "is_disconnected" in source
@@ -404,7 +404,7 @@ class TestSSEDisconnectDetection:
 # ---------------------------------------------------------------------------
 # 4. Runtime transcript replaces conversation windowing
 # ---------------------------------------------------------------------------
-from backend.persistence import RuntimeStore
+from backend.storage import RuntimeStore
 from backend.agent.events import ToolCompletedEvent, ToolPendingEvent
 
 
@@ -469,7 +469,7 @@ class TestCsvExportRegistration:
     def test_csv_export_registers_library_row(self, tmp_path, monkeypatch):
         import asyncio
         import json
-        from backend.persistence import RuntimeStore
+        from backend.storage import RuntimeStore
         from backend.agent.turn import Turn
         from backend.tools.sandbox.runner import SQLResult
 
@@ -692,7 +692,7 @@ class TestSearchPlayersLimit:
 # ---------------------------------------------------------------------------
 # 9. ChatResponse.truncated field (Fix 4)
 # ---------------------------------------------------------------------------
-from backend.api.routes.chat import ChatResponse
+from backend.server.routes.chat import ChatResponse
 
 
 class TestChatResponseTruncated:

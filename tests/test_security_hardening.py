@@ -19,13 +19,13 @@ import pytest
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
-from backend.security import encryption
-from backend.api.app import create_app
-from backend.processes.auth import service as auth_service_module
-from backend.persistence import RuntimeStore
+from backend.credentials import encryption
+from backend.server.app import create_app
+from backend.features.auth import service as auth_service_module
+from backend.storage import RuntimeStore
 from tests.app_factory import build_test_app, managed_test_client
-from backend.api.routes.auth import router as auth_router
-from backend.api.routes.settings import router as settings_router
+from backend.server.routes.auth import router as auth_router
+from backend.server.routes.settings import router as settings_router
 
 
 @pytest.fixture(autouse=True)
@@ -162,7 +162,7 @@ class TestCSRF:
 
 class TestLogRedaction:
     def test_filter_masks_anthropic_key(self, caplog):
-        from backend.api.logging import SecretRedactingFilter
+        from backend.server.logging import SecretRedactingFilter
 
         handler = logging.StreamHandler()
         handler.addFilter(SecretRedactingFilter())
@@ -178,7 +178,7 @@ class TestLogRedaction:
         assert "[REDACTED]" in caplog.text
 
     def test_filter_masks_bearer_token(self, caplog):
-        from backend.api.logging import SecretRedactingFilter
+        from backend.server.logging import SecretRedactingFilter
 
         log = logging.getLogger("test.redact.b")
         log.setLevel(logging.INFO)
@@ -189,7 +189,7 @@ class TestLogRedaction:
         assert "[REDACTED]" in caplog.text
 
     def test_filter_masks_jwt(self, caplog):
-        from backend.api.logging import SecretRedactingFilter
+        from backend.server.logging import SecretRedactingFilter
 
         log = logging.getLogger("test.redact.c")
         log.setLevel(logging.INFO)
@@ -201,7 +201,7 @@ class TestLogRedaction:
         assert "eyJ" not in caplog.text
 
     def test_filter_handles_tuple_args(self, caplog):
-        from backend.api.logging import SecretRedactingFilter
+        from backend.server.logging import SecretRedactingFilter
 
         log = logging.getLogger("test.redact.d")
         log.setLevel(logging.INFO)

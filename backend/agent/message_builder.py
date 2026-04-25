@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 
 from backend.providers.types import Message, ToolUseEvent
-from backend.persistence import SessionTranscript
-from backend.persistence.models import wrap_summaries_for_prompt
+from backend.storage import SessionTranscript
+from backend.storage.models import wrap_summaries_for_prompt
 
 
 def build_model_messages(transcript: SessionTranscript) -> list[Message]:

@@ -49,7 +49,7 @@ AUTH_SESSION_TOUCH_INTERVAL_SECONDS = int(
 REGISTRATION_INVITE_CODE: str | None = os.environ.get("REGISTRATION_INVITE_CODE") or None
 
 # Per-email login lockout. Layered on top of the per-IP rate limiter in
-# backend/api/rate_limit.py — the IP limit stops one address pounding login,
+# backend/server/rate_limit.py — the IP limit stops one address pounding login,
 # the per-email lockout stops an IP-rotating attacker targeting one account.
 LOGIN_LOCKOUT_MAX_FAILURES = int(os.environ.get("LOGIN_LOCKOUT_MAX_FAILURES", "10"))
 LOGIN_LOCKOUT_WINDOW_SECONDS = int(os.environ.get("LOGIN_LOCKOUT_WINDOW_SECONDS", "900"))
@@ -79,7 +79,7 @@ def google_oauth_redirect_uri() -> str:
     return f"{APP_BASE_URL}/auth/oauth/google/callback"
 
 # CORS. Comma-separated origins; if unset we fall back to the localhost
-# defaults baked into backend/api/app.py. When deploying behind a real domain,
+# defaults baked into backend/server/app.py. When deploying behind a real domain,
 # set this to the prod origin(s).
 _origins_env = os.environ.get("ALLOWED_ORIGINS", "").strip()
 ALLOWED_ORIGINS: list[str] | None = (

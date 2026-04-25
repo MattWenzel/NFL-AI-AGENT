@@ -39,7 +39,7 @@ from backend.agent.events import (
 from backend.agent.types import ToolExecutionResult, ToolExecutor
 from backend.providers.base import BaseLLMClient
 from backend.providers.types import StopReason, ToolChoice, ToolUseEvent, Usage
-from backend.persistence import RuntimeStore, SessionRecord, ToolRunRecord, TurnRecord
+from backend.storage import RuntimeStore, SessionRecord, ToolRunRecord, TurnRecord
 
 logger = logging.getLogger(__name__)
 

@@ -7,7 +7,7 @@ import pytest
 from backend.providers.base import BaseLLMClient
 from backend.providers.types import MessageResponse, StopReason, TextEvent, ToolDefinition, ToolUseEvent, Usage
 from backend.agent.runtime import ChatRuntime
-from backend.persistence import RuntimeStore
+from backend.storage import RuntimeStore
 
 
 class StubClient(BaseLLMClient):

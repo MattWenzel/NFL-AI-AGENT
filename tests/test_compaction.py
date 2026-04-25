@@ -18,7 +18,7 @@ from backend.agent.compaction.policy import (
     estimate_active_tokens,
 )
 from backend.agent.compaction.token_counting import count_text_tokens
-from backend.persistence import RuntimeStore
+from backend.storage import RuntimeStore
 
 
 def test_retention_policy_floors_when_no_window():

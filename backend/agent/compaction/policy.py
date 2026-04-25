@@ -17,7 +17,7 @@ import json
 import logging
 from dataclasses import dataclass
 
-from backend.persistence import (
+from backend.storage import (
     AssistantPartRecord,
     RuntimeStore,
     SessionRecord,

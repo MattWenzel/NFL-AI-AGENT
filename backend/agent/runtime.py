@@ -42,7 +42,7 @@ from backend.agent.message_builder import build_model_messages
 from backend.agent.system_prompt import get_base_prompt
 from backend.agent.turn import RuntimeLoopError, TITLE_PREVIEW_CHARS, Turn
 from backend.providers import get_provider
-from backend.persistence import RuntimeStore, SessionRecord
+from backend.storage import RuntimeStore, SessionRecord
 from backend.tools import execute_tool_structured
 
 logger = logging.getLogger(__name__)

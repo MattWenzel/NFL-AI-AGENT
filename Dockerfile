@@ -29,4 +29,4 @@ EXPOSE 8080
 # --proxy-headers + --forwarded-allow-ips="*" trusts X-Forwarded-For from
 # the Fly edge; without it, the per-IP rate limiter sees every request as
 # coming from Fly's internal proxy IP.
-CMD ["/bin/sh", "-c", "mkdir -p /data/runtime /data/nflverse /data/exports && exec uvicorn backend.api.app:app --host 0.0.0.0 --port 8080 --proxy-headers --forwarded-allow-ips '*'"]
+CMD ["/bin/sh", "-c", "mkdir -p /data/runtime /data/nflverse /data/exports && exec uvicorn backend.server.app:app --host 0.0.0.0 --port 8080 --proxy-headers --forwarded-allow-ips '*'"]
