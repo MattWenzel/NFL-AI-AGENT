@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from fastapi import Depends, HTTPException, Request, status
 
 from backend.agent.runtime import ChatRuntime
-from backend.api.session_tokens import _extract_session_token
+from backend.api.session import _extract_session_token
 from backend.security.types import AuthenticatedUser
 from backend.config import AUTH_SESSION_TOUCH_INTERVAL_SECONDS, EXPORTS_DIR
 from backend.api.process_state import AppProcessState

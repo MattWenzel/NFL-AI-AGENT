@@ -156,11 +156,12 @@ async def test_chat_message_forwards_tool_choice_to_service(monkeypatch):
 class _CountingStreamGate:
     """Test double for ConcurrencyLimiter that tallies acquire/release calls."""
 
-    def __init__(self, *, reject: bool = False):
+    def __init__(self, *, reject: bool = False, max_active: int = 3):
         self.active = 0
         self.acquires = 0
         self.releases = 0
         self.reject = reject
+        self.max_active = max_active
 
     async def acquire(self, key, *, detail: str) -> None:
         if self.reject:

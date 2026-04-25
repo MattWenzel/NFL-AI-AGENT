@@ -27,7 +27,7 @@ CODEX = "openai-codex"
 
 # How a provider's credential is sourced. "api_key" is a raw string a user
 # pastes into Settings; "codex_oauth" is an OAuth token bundle obtained via
-# the device-code flow (see backend/api/routes/oauth_codex.py). The Settings UI
+# the device-code flow (see backend/api/routes/settings.py). The Settings UI
 # uses this to decide which input to render.
 CredentialShape = Literal["api_key", "codex_oauth"]
 

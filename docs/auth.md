@@ -23,13 +23,12 @@ This doc covers the password flow, token scheme, rate limiting, Fernet-encrypted
 
 **Routes (`backend/api/routes/`):**
 - `auth.py` — `/auth/*` HTTP endpoints.
-- `settings.py` — `/settings/api-keys` CRUD.
-- `oauth_codex.py` — `/settings/oauth/codex/*` device-flow endpoints.
+- `settings.py` — `/settings/api-keys`, `/settings/oauth/codex/*`, and linked-identity endpoints.
 
 **Storage:**
 - `backend/persistence/users/users.py` — `UsersMixin`: `users`, `auth_sessions`, `user_api_keys` tables + their CRUD.
 - `backend/api/rate_limit.py` — sliding-window IP rate limiter.
-- `backend/api/session_tokens.py` — FastAPI request parsing for Bearer tokens and browser session cookies.
+- `backend/api/session.py` — FastAPI request parsing for Bearer tokens plus browser session/CSRF cookie helpers.
 
 ## Endpoints
 
@@ -60,8 +59,8 @@ All password endpoints delegate to `AuthService` in `backend/processes/auth/serv
 1. Rate-limit check (registered in the route).
 2. If `REGISTRATION_INVITE_CODE` is set, require a matching `invite_code` in the body. `secrets.compare_digest` avoids timing leaks on the code comparison.
 3. Normalize email (lowercase, strip).
-4. `_create_user_from_verified_identity` (`auth/service.py`) — uniqueness check (409 on conflict), first-user → admin logic, insert row. If it's the first user, `store.backfill_orphan_ownership(user.id)` sweeps any `NULL user_id` rows to the new admin (single-tenant → multi-user migration).
-5. `_issue_session` (`auth/service.py`) — generate a token, write `auth_sessions` with `expires_at = now + AUTH_TOKEN_TTL_DAYS`.
+4. `create_user_account` (`backend/processes/auth/lifecycle.py`) — uniqueness check (409 on conflict), first-user → admin logic, insert row, optionally seed a `password` identity row. If it's the first user, `store.backfill_orphan_ownership(user.id)` sweeps any `NULL user_id` rows to the new admin (single-tenant → multi-user migration).
+5. `issue_session` (`backend/processes/auth/lifecycle.py`) — generate a token, write `auth_sessions` with `expires_at = now + AUTH_TOKEN_TTL_DAYS`.
 6. Return `{token, user: {id, email, role}}`.
 
 Pydantic (`RegisterRequest` in `backend/processes/auth/schemas.py`) enforces password minimum length before the handler runs.
@@ -122,7 +121,7 @@ Stored as the primary key of `auth_sessions` alongside `user_id`, `expires_at`, 
 
 `_resolve_user` (`backend/api/dependencies.py:37`):
 
-1. `_extract_session_token(request)` (`backend/api/session_tokens.py`) — parse `Authorization` / `authorization` Bearer first, then fall back to the `session` cookie.
+1. `_extract_session_token(request)` (`backend/api/session.py`) — parse `Authorization` / `authorization` Bearer first, then fall back to the `session` cookie.
 2. `store.get_auth_session(token)` — 401 if unknown.
 3. Check expiry via lex-compare of ISO 8601 strings. Both sides are UTC same-format, so string compare is correct.
 4. Look up the user. If the user was deleted but the session wasn't (shouldn't happen given `ON DELETE CASCADE`, but belt-and-suspenders) → delete the orphan session and 401.
@@ -223,7 +222,7 @@ The per-user lock serializes refreshes when multiple concurrent requests all hit
 
 ## First-user admin & orphan backfill
 
-`AuthService._create_user_from_verified_identity` (`auth/service.py`):
+`create_user_account` (`backend/processes/auth/lifecycle.py`):
 
 ```python
 is_first_user = await store.count_users() == 0
@@ -256,8 +255,8 @@ If the app ever needs true horizontal scale, moving to JWT + a denylist cache (R
 
 The Codex OAuth flow is already live; a parallel Google-login path is sketched but not shipped. `CLAUDE.md` has the full six-step plan. The code is deliberately shaped to slot Google in without touching the password path:
 
-- `_create_user_from_verified_identity` (`auth/service.py`) takes an already-verified identity. The OAuth callback will call this with `password_hash=None` and `verified=True`.
-- `_issue_session` is the same for both paths.
+- `create_user_account` (`backend/processes/auth/lifecycle.py`) takes an already-verified identity (`IdentitySeed` with `password_hash=None` and `verified=True`). Both the password registration path and the OAuth callback go through it.
+- `issue_session` is the same for both paths.
 
 The new pieces Google will bring:
 

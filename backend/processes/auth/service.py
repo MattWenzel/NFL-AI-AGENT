@@ -11,10 +11,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from backend.security import email as email_sender
-from backend.security.primitives import generate_token, hash_password, verify_password
+from backend.security.primitives import hash_password, verify_password
 from backend.security.types import AuthenticatedUser
 from backend.config import (
-    AUTH_TOKEN_TTL_DAYS,
     EMAIL_VERIFICATION_REQUIRED,
     LOGIN_LOCKOUT_DURATION_SECONDS,
     LOGIN_LOCKOUT_MAX_FAILURES,
@@ -36,8 +35,9 @@ from backend.processes.auth.errors import (
     AuthServiceError,
     AuthValidationError,
 )
-from backend.security.types import OAUTH_ONLY_SENTINEL_HASH, PASSWORD
+from backend.security.types import PASSWORD
 from backend.audit import AuditContext, audit_log
+from backend.processes.auth.lifecycle import IdentitySeed, create_user_account, issue_session
 from backend.processes.auth.types import IssuedSession, RegistrationResult
 from backend.persistence import AuditEvent, RuntimeStore
 
@@ -85,10 +85,17 @@ class AuthService:
             if not provided or not secrets.compare_digest(provided, REGISTRATION_INVITE_CODE):
                 raise AuthValidationError("Invalid invite code")
         normalized = self.validate_email(email)
-        user = await self._create_user_from_verified_identity(
+        user = await create_user_account(
+            self.store,
             email=normalized,
             password_hash=hash_password(password),
             verified=False,
+            identity=IdentitySeed(
+                provider=PASSWORD,
+                provider_subject=normalized,
+                email=normalized,
+                required=False,
+            ),
         )
         if EMAIL_VERIFICATION_REQUIRED:
             record = await self.store.create_verification(user_id=user.id, purpose="signup")
@@ -99,7 +106,7 @@ class AuthService:
             await audit_log(self.store, AuditEvent.REGISTRATION_PENDING, user.id, audit, {"email": normalized})
             return RegistrationResult(user=user, verification_token=record.token)
 
-        session = await self._issue_session(user.id)
+        session = await issue_session(self.store, user.id)
         await audit_log(self.store, AuditEvent.LOGIN_SUCCESS, user.id, audit, {"via": "registration"})
         return RegistrationResult(user=user, session=session)
 
@@ -137,7 +144,7 @@ class AuthService:
             )
 
         await self.store.clear_login_failures(normalized)
-        session = await self._issue_session(user.id)
+        session = await issue_session(self.store, user.id)
         await audit_log(self.store, AuditEvent.LOGIN_SUCCESS, user.id, audit, {})
         return user, session
 
@@ -212,7 +219,7 @@ class AuthService:
             )
             await session.commit()
         user = await self.store.get_user_by_id(user_id)
-        issued = await self._issue_session(user_id)
+        issued = await issue_session(self.store, user_id)
         await audit_log(self.store, AuditEvent.EMAIL_VERIFIED, user_id, audit, {})
         return user, issued
 
@@ -238,51 +245,6 @@ class AuthService:
         await audit_log(self.store, AuditEvent.VERIFICATION_RESENT, user.id, audit, {})
 
     # ---------------- internals ----------------
-
-    async def _create_user_from_verified_identity(
-        self,
-        *,
-        email: str,
-        password_hash: str,
-        verified: bool,
-    ):
-        if await self.store.get_user_by_email(email) is not None:
-            raise AuthConflictError("An account with this email already exists.")
-        is_first_user = await self.store.count_users() == 0
-        role = "admin" if is_first_user else "user"
-        verified_at = datetime.now(timezone.utc).isoformat() if verified else None
-        user = await self.store.create_user(
-            email=email,
-            password_hash=password_hash,
-            role=role,
-            email_verified_at=verified_at,
-        )
-        # Seed a `password` identity row only for real passwords, not the
-        # OAuth sentinel "!". Keeps `count_identities` honest so the unlink
-        # guard in Google OAuth service knows whether a password is set.
-        if password_hash != OAUTH_ONLY_SENTINEL_HASH:
-            try:
-                await self.store.create_identity(
-                    user_id=user.id,
-                    provider=PASSWORD,
-                    provider_subject=email,
-                    email=email,
-                )
-            except Exception:  # noqa: BLE001 — non-fatal; identity seeding is advisory
-                logger.exception("Failed to seed password identity for user %d", user.id)
-        if is_first_user:
-            await self.store.backfill_orphan_ownership(user.id)
-        return user
-
-    async def _issue_session(self, user_id: int) -> IssuedSession:
-        token = generate_token()
-        expires_at = datetime.now(timezone.utc) + timedelta(days=AUTH_TOKEN_TTL_DAYS)
-        await self.store.create_auth_session(
-            token=token,
-            user_id=user_id,
-            expires_at=expires_at.isoformat(),
-        )
-        return IssuedSession(token=token, expires_at=expires_at)
 
     async def _check_lockout(self, email: str) -> None:
         failures = await self.store.get_login_failures(email)

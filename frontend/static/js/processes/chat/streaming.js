@@ -1,8 +1,6 @@
-import { API_BASE, state } from "../../core/state.js";
+import { API_BASE, requestRender, state } from "../../core/state.js";
 import { loadTranscript, refreshConversations, refreshCsvs } from "../../core/api.js";
-import { handleUnauthorized } from "../auth/service.js";
-import { requestRender } from "../../core/render-dispatch.js";
-import { autoResize, renderMarkdown } from "../../core/utils.js";
+import { autoResize, handleUnauthorizedResponse, renderMarkdown } from "../../core/utils.js";
 
 function readCsrfCookie() {
   const match = (document.cookie || "").match(/(?:^|;\s*)csrf_token=([^;]+)/);
@@ -52,7 +50,7 @@ export async function sendMessage() {
       }),
     });
     if (resp.status === 401) {
-      if (typeof handleUnauthorized === "function") await handleUnauthorized();
+      await handleUnauthorizedResponse();
       throw new Error("Session expired — please sign in again.");
     }
     if (!resp.ok) {

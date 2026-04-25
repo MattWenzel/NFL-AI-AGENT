@@ -23,7 +23,7 @@ from backend.api.dependencies import (
     get_process_state,
 )
 from backend.api.request_context import audit_from_request
-from backend.api.session_cookies import set_auth_cookies
+from backend.api.session import set_auth_cookies
 from backend.api.process_state import AppProcessState
 from backend.processes.oauth.google.errors import (
     GoogleOAuthDisabledError,

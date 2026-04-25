@@ -14,7 +14,12 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 
-from backend.api.session_tokens import _extract_session_token
+from backend.api.session import (
+    _extract_session_token,
+    clear_auth_cookies,
+    rotate_csrf_cookie,
+    set_auth_cookies,
+)
 from backend.security.types import AuthenticatedUser
 from backend.config import EMAIL_VERIFICATION_REQUIRED
 from backend.api.csrf import verify_csrf
@@ -25,7 +30,6 @@ from backend.api.dependencies import (
     get_process_state,
 )
 from backend.api.request_context import audit_from_request
-from backend.api.session_cookies import clear_auth_cookies, rotate_csrf_cookie, set_auth_cookies
 from backend.api.process_state import AppProcessState
 from backend.processes.auth.schemas import (
     AuthOkResponse,

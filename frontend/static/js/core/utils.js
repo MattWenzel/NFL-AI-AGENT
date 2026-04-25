@@ -1,7 +1,17 @@
 import { API_BASE } from "./state.js";
-import { handleUnauthorized } from "../processes/auth/service.js";
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+let unauthorizedHandler = null;
+
+export function setUnauthorizedHandler(fn) {
+  unauthorizedHandler = typeof fn === "function" ? fn : null;
+}
+
+export async function handleUnauthorizedResponse() {
+  if (typeof unauthorizedHandler === "function") {
+    await unauthorizedHandler();
+  }
+}
 
 function readCookie(name) {
   // document.cookie is a flat "a=1; b=2" string. Parsing once per call is
@@ -40,7 +50,7 @@ export async function fetchJSON(path, init) {
   const resp = await fetch(`${API_BASE}${path}`, options);
   if (resp.status === 401 && !skipAuthRedirect) {
     // Cookie expired or was revoked — bounce to the sign-in screen.
-    if (typeof handleUnauthorized === "function") await handleUnauthorized();
+    await handleUnauthorizedResponse();
     throw new Error("Session expired — please sign in again.");
   }
   if (!resp.ok) {
@@ -135,8 +145,8 @@ export function autoResize() {
 
 export async function downloadCSV(url, filename) {
   const resp = await fetch(url, { credentials: "same-origin" });
-  if (resp.status === 401 && typeof handleUnauthorized === "function") {
-        await handleUnauthorized();
+  if (resp.status === 401) {
+    await handleUnauthorizedResponse();
     throw new Error("Session expired — please sign in again.");
   }
   if (!resp.ok) throw new Error(`Download failed (${resp.status})`);

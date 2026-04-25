@@ -19,19 +19,16 @@ from __future__ import annotations
 import logging
 import secrets
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
 
 from backend.security import google_oauth
 from backend.security.errors import GoogleOAuthError
 from backend.security.types import GOOGLE, OAUTH_ONLY_SENTINEL_HASH, PASSWORD, GoogleIdentity
 from backend.config import (
-    AUTH_TOKEN_TTL_DAYS,
     GOOGLE_OAUTH_CLIENT_ID,
     GOOGLE_OAUTH_CLIENT_SECRET,
     google_oauth_enabled,
     google_oauth_redirect_uri,
 )
-from backend.api.process_state import PendingGoogleOAuthFlows
 from backend.audit import AuditContext, audit_log
 from backend.processes.oauth.google.errors import (
     GoogleOAuthDisabledError,
@@ -41,13 +38,15 @@ from backend.processes.oauth.google.errors import (
     GoogleOAuthLinkConflictError,
     GoogleOAuthServiceError,
 )
-from backend.processes.auth.types import IssuedSession
+from backend.processes.auth.errors import AuthConflictError
+from backend.processes.auth.lifecycle import IdentitySeed, create_user_account, issue_session
 from backend.processes.oauth.google.types import (
     IdentitySummary,
     LinkOutcome,
     SignInOutcome,
 )
 from backend.persistence import AuditEvent, IdentityConflictError, RuntimeStore
+from backend.runtime_state import PendingGoogleOAuthFlows
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +138,7 @@ class GoogleOAuthService:
             provider=GOOGLE, provider_subject=identity.sub
         )
         if existing_via_identity is not None:
-            session = await self._issue_session(existing_via_identity.id)
+            session = await issue_session(self.store, existing_via_identity.id)
             await audit_log(self.store, 
                 AuditEvent.OAUTH_SIGNIN_SUCCEEDED,
                 existing_via_identity.id,
@@ -175,7 +174,7 @@ class GoogleOAuthService:
                     {"reason": "identity_conflict"},
                 )
                 raise GoogleOAuthServiceError("Sign-in failed — try again.")
-            session = await self._issue_session(existing_via_email.id)
+            session = await issue_session(self.store, existing_via_email.id)
             await audit_log(self.store, 
                 AuditEvent.OAUTH_LINKED,
                 existing_via_email.id,
@@ -196,25 +195,28 @@ class GoogleOAuthService:
                 is_new_user=False,
             )
 
-        # Brand new user: create with OAuth sentinel password, seed identity.
-        is_first = await self.store.count_users() == 0
-        role = "admin" if is_first else "user"
-        verified_at = datetime.now(timezone.utc).isoformat()
-        user = await self.store.create_user(
-            email=identity.email,
-            password_hash=OAUTH_ONLY_SENTINEL_HASH,
-            role=role,
-            email_verified_at=verified_at,
-        )
-        if is_first:
-            await self.store.backfill_orphan_ownership(user.id)
-        await self.store.create_identity(
-            user_id=user.id,
-            provider=GOOGLE,
-            provider_subject=identity.sub,
-            email=identity.email,
-        )
-        session = await self._issue_session(user.id)
+        # Brand new user: create with OAuth sentinel password and seed Google identity.
+        try:
+            user = await create_user_account(
+                self.store,
+                email=identity.email,
+                password_hash=OAUTH_ONLY_SENTINEL_HASH,
+                verified=True,
+                identity=IdentitySeed(
+                    provider=GOOGLE,
+                    provider_subject=identity.sub,
+                    email=identity.email,
+                ),
+            )
+        except (AuthConflictError, IdentityConflictError) as exc:
+            await audit_log(self.store, 
+                AuditEvent.OAUTH_SIGNIN_FAILED,
+                None,
+                audit,
+                {"reason": "identity_conflict"},
+            )
+            raise GoogleOAuthServiceError("Sign-in failed — try again.") from exc
+        session = await issue_session(self.store, user.id)
         await audit_log(self.store, 
             AuditEvent.OAUTH_LINKED,
             user.id,
@@ -344,15 +346,3 @@ class GoogleOAuthService:
                 )
             )
         return summaries
-
-    # ---------------- internals ----------------
-
-    async def _issue_session(self, user_id: int) -> IssuedSession:
-        token = secrets.token_urlsafe(32)
-        expires_at = datetime.now(timezone.utc) + timedelta(days=AUTH_TOKEN_TTL_DAYS)
-        await self.store.create_auth_session(
-            token=token,
-            user_id=user_id,
-            expires_at=expires_at.isoformat(),
-        )
-        return IssuedSession(token=token, expires_at=expires_at)

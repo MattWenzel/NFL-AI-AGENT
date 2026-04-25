@@ -33,8 +33,8 @@ from backend.processes.oauth.google.errors import (
 from backend.processes.oauth.google.service import GoogleOAuthService
 from backend.audit import AuditContext
 from backend.processes.oauth.google.types import LinkOutcome, SignInOutcome
-from backend.api.process_state import PendingGoogleOAuthFlows
 from backend.persistence import RuntimeStore
+from backend.runtime_state import PendingGoogleOAuthFlows
 
 
 @pytest.fixture(autouse=True)

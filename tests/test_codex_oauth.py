@@ -8,7 +8,7 @@ Covers three layers:
 - `provider/codex.py` — strict-schema transformation, SSE
   parser, stop-reason derivation, and the `[DONE]`-before-`response.done`
   fallback that ensures emitted tool calls still surface `TOOL_USE`.
-- `backend/api/routes/oauth_codex.py` — start/status/cancel endpoints, cross-user
+- `backend/api/routes/settings.py` — start/status/cancel endpoints, cross-user
   404 guard, rate-limit backstop.
 
 Network is stubbed via `httpx.MockTransport`; the background OAuth task is
@@ -29,7 +29,7 @@ from cryptography.fernet import Fernet
 from backend.security.types import AuthenticatedUser
 from backend.api.dependencies import get_current_user
 from tests.app_factory import build_test_app, managed_test_client
-from backend.api.routes.oauth_codex import router as codex_router
+from backend.api.routes.settings import router as settings_router
 from backend.security import codex_oauth, encryption
 from backend.security.errors import CodexOAuthError, DeviceCodeExpired
 from backend.security.types import TokenBundle
@@ -502,7 +502,7 @@ def store(tmp_path):
 
 def _make_app(store: RuntimeStore, user_id: int, email: str):
     app = build_test_app(runtime_store=store)
-    app.include_router(codex_router)
+    app.include_router(settings_router)
     app.dependency_overrides[get_current_user] = lambda: AuthenticatedUser(id=user_id, email=email)
     return app
 

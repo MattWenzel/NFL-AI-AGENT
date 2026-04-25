@@ -9,10 +9,10 @@ from backend.processes.oauth.codex.credentials import (
     resolve_access_token as resolve_codex_access_token,
 )
 from backend.providers import get_provider
-from backend.api.process_state import PerUserLockRegistry
 from backend.processes.oauth.codex.errors import CodexCredentialError
 from backend.processes.oauth.errors import CredentialServiceError
 from backend.persistence import RuntimeStore
+from backend.runtime_state import PerUserLockRegistry
 
 
 @dataclass

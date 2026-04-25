@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from backend.persistence import RuntimeStore
 logger = logging.getLogger(__name__)
 
 PREVIEW_ROW_LIMIT = 50
+_SAFE_FILENAME = re.compile(r"^[a-zA-Z0-9_\-]+\.csv$")
 
 
 @dataclass
@@ -95,11 +97,23 @@ class ExportService:
         except OSError as exc:
             logger.warning("Could not unlink CSV file %s: %s", record.filename, exc)
 
-    async def get_download_record(self, filename: str, user_id: int):
+    async def resolve_download_path(self, filename: str, user_id: int) -> Path:
+        if not _SAFE_FILENAME.match(filename):
+            raise ExportServiceError("Invalid filename")
+
+        exports_dir = self.exports_dir.resolve()
+        file_path = (exports_dir / filename).resolve()
+        try:
+            file_path.relative_to(exports_dir)
+        except ValueError as exc:
+            raise ExportServiceError("Invalid filename") from exc
+
         record = await self.store.get_export_by_filename(filename, user_id=user_id)
         if record is None:
             raise ExportNotFoundError("Export not found")
-        return record
+        if not file_path.exists():
+            raise ExportNotFoundError("Export file not found")
+        return file_path
 
     async def create_session_from_export(
         self,

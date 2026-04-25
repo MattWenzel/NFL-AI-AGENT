@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from backend.security.types import GOOGLE, AuthenticatedUser
 from backend.api.csrf import verify_csrf
 from backend.api.dependencies import (
+    get_codex_oauth_service,
     get_current_user,
     get_google_oauth_service,
     get_process_state,
@@ -20,6 +21,15 @@ from backend.processes.settings.schemas import (
     IdentitySummaryResponse,
     LinkGoogleStartResponse,
 )
+from backend.processes.oauth.codex.errors import (
+    CodexOAuthUnknownFlowError,
+    CodexOAuthUpstreamError,
+)
+from backend.processes.oauth.codex.schemas import (
+    CodexOAuthStartResponse,
+    CodexOAuthStatusResponse,
+)
+from backend.processes.oauth.codex.service import CodexOAuthService
 from backend.processes.oauth.google.errors import (
     GoogleOAuthDisabledError,
     GoogleOAuthLastIdentityError,
@@ -70,6 +80,52 @@ async def update_api_key(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except SettingsServiceError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+# ---------------- Codex OAuth device flow ----------------
+
+
+@router.post("/oauth/codex/start", response_model=CodexOAuthStartResponse)
+async def start_codex_oauth(
+    request: Request,
+    user: AuthenticatedUser = Depends(get_current_user),
+    service: CodexOAuthService = Depends(get_codex_oauth_service),
+    process_state: AppProcessState = Depends(get_process_state),
+) -> CodexOAuthStartResponse:
+    process_state.codex_start_limiter.check(request)
+    try:
+        return await service.start(user_id=user.id)
+    except CodexOAuthUpstreamError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Could not reach OpenAI device-code endpoint: {exc}",
+        )
+
+
+@router.get("/oauth/codex/status", response_model=CodexOAuthStatusResponse)
+async def status_codex_oauth(
+    pending_id: str = Query(..., min_length=16, max_length=64),
+    service: CodexOAuthService = Depends(get_codex_oauth_service),
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> CodexOAuthStatusResponse:
+    try:
+        return await service.status(pending_id=pending_id, user_id=user.id)
+    except CodexOAuthUnknownFlowError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.delete("/oauth/codex/cancel")
+async def cancel_codex_oauth(
+    pending_id: str = Query(..., min_length=16, max_length=64),
+    service: CodexOAuthService = Depends(get_codex_oauth_service),
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> dict:
+    try:
+        await service.cancel(pending_id=pending_id, user_id=user.id)
+    except CodexOAuthUnknownFlowError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return {"ok": True}
+
 
 # ---------------- linked identities ----------------
 

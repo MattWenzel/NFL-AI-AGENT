@@ -8,8 +8,8 @@ This doc covers the boot flow, state shape, SSE consumption, the `patchLiveText`
 
 - `frontend/index.html` — HTML shell, static CSS links, and `static/js/app/main.js`.
 - `frontend/static/js/app/` — boot, event wiring, and the top-level render orchestrator.
-- `frontend/static/js/core/` — shared state, fetch helpers, render dispatch, markdown/DOM utilities, Chart.js lifecycle.
-- `frontend/static/js/processes/auth/` — token/session state, `/auth/status` boot, login/register screens.
+- `frontend/static/js/core/` — shared state/render hook, fetch helpers, markdown/DOM utilities, Chart.js lifecycle.
+- `frontend/static/js/processes/auth/` — session UI state, `/auth/status` boot, login/register screens.
 - `frontend/static/js/processes/chat/` — composer controls, SSE streaming, transcript rendering, live-turn fast path.
 - `frontend/static/js/processes/conversations/` — conversation sidebar list and selection/deletion flows.
 - `frontend/static/js/processes/exports/` — CSV/report list, preview, rename/delete, download, seed-new-chat flows.
@@ -28,7 +28,7 @@ The browser loads only `static/js/app/main.js`; native ES module imports pull in
 ```
 boot()
   ├─ bootAuth()                        # auth.js:62
-  │    ├─ fetch /auth/status with stored bearer
+  │    ├─ fetch /auth/status with the session cookie
   │    ├─ if authenticated: hideAuthScreen, return true
   │    └─ else: renderAuthScreen(login|register), return false
   │
@@ -41,7 +41,7 @@ boot()
        └─ render()
 ```
 
-The login form on success stores the token, sets `_currentUser`, hides the auth screen, and calls `postLoginInit()` → `init()` — the same boot as a cold page load from a valid token. One entry point.
+The login form on success sets `_currentUser`, hides the auth screen, broadcasts a cross-tab auth marker, and calls `postLoginInit()` → `init()` — the same boot as a cold page load from a valid cookie. One entry point.
 
 ## The global `state`
 
@@ -65,7 +65,7 @@ The login form on success stores the token, sets `_currentUser`, hides the auth 
 | `toolChoice` | `"auto" \| "required" \| "none"` | Composer dropdown; persisted to localStorage; sent as `tool_choice` on the next `/chat/stream` call. |
 | `sidebarView`, `sidebarSearch` | `string` | Sidebar tab (chats / csvs) + filter text. |
 
-No reactive framework. Mutations to `state` are followed by a call to `requestRender()` (`render-dispatch.js`) which coalesces repeated calls in a single tick into one `render()` invocation. This works because the app is small — most operations touch one section at a time, and the perf-critical path (text deltas) bypasses the full re-render entirely via `patchLiveText`.
+No reactive framework. Mutations to `state` are followed by a call to `requestRender()` from `state.js`, which delegates to the render hook registered by `main.js`. This works because the app is small — most operations touch one section at a time, and the perf-critical path (text deltas) bypasses the full re-render entirely via `patchLiveText`.
 
 ## SSE consumption
 
@@ -75,8 +75,8 @@ Flow:
 
 1. Guard: don't fire if `isStreaming` or text is empty.
 2. Initialize `state.liveTurn` with empty `assistantText`, empty `toolRuns`, status `"starting"`.
-3. `fetch('/chat/stream', { headers: authHeaders({...}), body: {...} })`.
-4. On 401 → `handleUnauthorized()` (auth.js) clears the token and shows the auth screen.
+3. `fetch('/chat/stream', { credentials: "same-origin", headers: {"X-CSRF-Token": ...}, body: {...} })`.
+4. On 401 → `handleUnauthorizedResponse()` runs the auth handler registered by `main.js`, clearing the user and showing the auth screen.
 5. On other non-2xx → throw.
 6. Read the response body as a stream. Decode chunks, split on `\n`, collect complete `data: {json}` lines, parse, dispatch to `handleStreamEvent(event)`.
 7. Buffer incomplete trailing lines for the next chunk (important — events can cross chunk boundaries).
@@ -133,24 +133,22 @@ Returns `true` if the patch landed. The first text delta of a turn is before the
 
 ## Auth integration
 
-### Token storage
+### Browser session
 
-`auth.js:5`. `localStorage.setItem("nfl_auth_token", token)`. Survives page reloads; scoped to origin. Not HttpOnly (can't be — it's in JS), so XSS risk is real — but the app has no user-generated HTML paths except markdown, and `renderMarkdown` (see `utils.js`) goes through marked.js with default sanitization.
-
-`authHeaders({...})` (`auth.js:29`) merges `Authorization: Bearer <token>` into any fetch headers. Every protected request goes through it.
+The browser uses an HttpOnly `session` cookie plus a JS-readable `csrf_token` cookie. `fetchJSON()` sends `credentials: "same-origin"` and echoes `csrf_token` as `X-CSRF-Token` on mutating requests. JavaScript never reads the session token itself.
 
 ### Cross-tab sync
 
-`auth.js:47`. A `storage` event listener watches the auth token key. If another tab clears the token (signed out) or changes it (signed in as different user), the current tab reloads. This covers:
+`auth.js`. A `storage` event listener watches the `nfl_auth_state` marker key. If another tab signs in or out, the current tab reloads. This covers:
 
 - User signs out in tab A → tab B reloads to the auth screen.
 - User signs in as someone else in tab A → tab B reloads with the new identity.
 
-Full `location.reload()` rather than cleanup-in-place. Cleanup would need to chase every in-flight request that's still using the old token in closure scope; reload is simpler and correct.
+Full `location.reload()` rather than cleanup-in-place. Cleanup would need to chase every in-flight request and every state island; reload is simpler and correct.
 
 ### `handleUnauthorized`
 
-`auth.js:39`. Called by fetch wrappers (`api.js`, `streaming.js`) when a protected request returns 401. Clears the token, sets `_currentUser = null`, and shows the auth screen **without a page reload** — preserves any draft text the user was composing in the message input.
+`auth.js`. Registered in `main.js` through `setUnauthorizedHandler(handleUnauthorized)`. Fetch helpers and streaming call the core `handleUnauthorizedResponse()` hook when a protected request returns 401. The auth handler sets `_currentUser = null` and shows the auth screen **without a page reload** — preserves any draft text the user was composing in the message input.
 
 ## Inspector and Thread rendering
 
@@ -201,12 +199,12 @@ Password change (`PUT /auth/password`) and account delete (`DELETE /auth/me`). A
 
 ## Fetch helpers
 
-`api.js`. Thin wrappers:
+`utils.js` and `api.js`. Thin wrappers:
 
 - `fetchJSON(url, opts)` — handles 401 → `handleUnauthorized`, parses JSON, throws on non-2xx.
 - `loadProviders()`, `loadTranscript(id)`, `refreshConversations()`, `refreshCsvs()` — endpoint-specific wrappers that update `state` and call `render()`.
 
-Every wrapper uses `authHeaders()` so the bearer token is always included. No interceptor pattern — FastAPI's OpenAPI docs have a "try it out" form that doesn't know about our token, and that was fine to accept as a tradeoff for keeping the fetch path boring.
+`fetchJSON()` handles same-origin cookies and CSRF headers centrally. The endpoint-specific wrappers stay in `api.js`; process modules call `fetchJSON()` directly when an endpoint belongs to that process.
 
 ## Charts
 
@@ -228,7 +226,7 @@ The cost: there's no component boundary. Adding a new pane means reading every f
 
 ## Adding UI
 
-- **New endpoint integration**: write a fetch wrapper in `api.js` and a call site wherever it fires. Use `authHeaders()` and `fetchJSON` to get the 401 handling free.
+- **New endpoint integration**: write a fetch wrapper in `api.js` or the owning process module. Use `fetchJSON()` to get cookies, CSRF, and 401 handling.
 - **New state field**: add to `state.js`, update everywhere that reads or mutates it, call `render()`.
 - **New DOM element**: add to `frontend/index.html`, wire event listeners in `static/js/app/main.js`. Style in the matching `frontend/static/css/` ownership folder.
 - **New streaming event**: add a case to `handleStreamEvent`, add a server-side emitter to [transport.md's](transport.md#sse-event-catalog) catalog.

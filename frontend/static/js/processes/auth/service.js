@@ -3,8 +3,6 @@
 // separate `csrf_token` cookie is readable by JS and echoed in the
 // X-CSRF-Token header (see utils.js).
 //
-// Must be loaded before api.js / main.js since they call handleUnauthorized().
-
 import { API_BASE } from "../../core/state.js";
 
 // Cross-tab auth sync key. Cookies themselves aren't observable via the

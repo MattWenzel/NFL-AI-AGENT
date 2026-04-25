@@ -67,13 +67,13 @@ backend/
 │   ├── routes/                   #   HTTP handlers by app process
 │   ├── dependencies.py           #   FastAPI Depends factories (get_store, get_runtime, ...)
 │   ├── csrf.py                   #   double-submit CSRF dependency
-│   ├── session_cookies.py        #   shared browser auth cookie behavior
+│   ├── session.py                #   session token parsing + browser auth cookie behavior
 │   ├── request_context.py        #   request → audit/client context helpers
 │   ├── middleware.py             #   SecurityHeadersMiddleware (CSP / HSTS / etc.)
 │   ├── sse.py                    #   RuntimeEvent → SSE dict serialization
 │   ├── startup.py                #   DB validation, runtime wiring, housekeeping
 │   ├── logging.py                #   setup_logging + secret-redacting filter
-│   ├── process_state.py          #   lock registries, pending OAuth flows, AppProcessState
+│   ├── process_state.py          #   AppProcessState + API-facing limiters
 │   └── rate_limit.py             #   per-IP RateLimiter + concurrency limiter
 ├── processes/                    # App-process services, DTOs, schemas, errors
 │   ├── auth/                     #   register / login / logout / password / delete / verify / resend
@@ -88,6 +88,7 @@ backend/
 ├── tools/                        # Tool definitions, registry, handlers, SQL sandbox, guides
 ├── persistence/                  # Runtime SQLite store, models, migrations
 ├── security/                     # Auth/security primitives, encryption, OAuth protocol helpers
+├── runtime_state.py              # Framework-free lock registries + pending OAuth flows
 └── config.py                     # DB paths, env loading, runtime settings
 
 frontend/                         # Browser UI (served at / by FastAPI; assets under /static)
@@ -99,7 +100,7 @@ frontend/                         # Browser UI (served at / by FastAPI; assets u
     │   └── processes/            #     chat, exports, inspector, settings
     └── js/
         ├── app/                  #     main.js (boot + event wiring), render.js (top-level render orchestrator)
-        ├── core/                 #     api.js, state.js, utils.js, charts.js, render-dispatch.js
+        ├── core/                 #     api.js, state.js, utils.js, charts.js
         ├── components/           #     small reusable widgets (e.g. confirm dialog)
         └── processes/            #     mirrors backend processes; UI-only siblings (inspector, navigation) live here too
             ├── auth/             #       sign-in / sign-up flow
@@ -168,7 +169,7 @@ Shipped 2026-04-23. Users can sign up / sign in with Google, and existing passwo
 - Both routes are GETs (browser navigation) and CSRF-exempt by the usual safe-method rule — the `state` parameter is the anti-CSRF for the callback. Session cookies from the rest of the app still travel (SameSite=Lax), which is how the callback can tell a link flow (user_id in pending row) from a sign-in flow.
 - `security_events` gains `oauth_signin_started`, `oauth_signin_succeeded`, `oauth_signin_failed`, `oauth_link_started`, `oauth_linked`, `oauth_unlinked`, `oauth_link_rejected`.
 
-**Files:** `backend/security/google_oauth.py` (OAuth primitives + ID-token verification), `backend/persistence/users/user_identities.py` (mixin), `backend/processes/oauth/google/service.py` (flow orchestration), `backend/api/routes/oauth_google.py` (endpoints), `backend/api/routes/settings.py` (link/unlink + list), and `backend/api/session_cookies.py` for shared session cookie behavior.
+**Files:** `backend/security/google_oauth.py` (OAuth primitives + ID-token verification), `backend/persistence/users/user_identities.py` (mixin), `backend/processes/oauth/google/service.py` (flow orchestration), `backend/api/routes/oauth_google.py` (endpoints), `backend/api/routes/settings.py` (link/unlink + list), and `backend/api/session.py` for shared session cookie behavior.
 
 **Env vars:**
 - `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` — set via Google Cloud Console. The "Continue with Google" button and `/auth/oauth/google/*` routes only appear when both are set.

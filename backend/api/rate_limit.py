@@ -18,18 +18,7 @@ from collections import deque
 
 from fastapi import HTTPException, Request, status
 
-
-def _client_ip(request: Request) -> str:
-    """Best-effort client IP. Falls back to the socket address.
-
-    If deployed behind a reverse proxy, the proxy should inject
-    X-Forwarded-For and we should trust it — but trusting headers on a
-    localhost default config is how you get spoofed limits, so we stick
-    to request.client.host here. The proxy setup can swap this out.
-    """
-    if request.client is not None:
-        return request.client.host or "unknown"
-    return "unknown"
+from backend.api.request_context import client_ip_key
 
 
 class RateLimiter:
@@ -53,7 +42,7 @@ class RateLimiter:
 
     def check(self, request: Request) -> None:
         """Record this attempt and raise 429 if the caller is over quota."""
-        key = _client_ip(request)
+        key = client_ip_key(request)
         now = time.monotonic()
         cutoff = now - self.window_seconds
         self._prune_empty_buckets(now=now, cutoff=cutoff)

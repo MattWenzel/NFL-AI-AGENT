@@ -1,9 +1,8 @@
-import { state } from "../../core/state.js";
+import { requestRender, state } from "../../core/state.js";
 import { confirmDialog } from "../../components/confirm.js";
 import { openCsv } from "../exports/service.js";
 import { loadTranscript, refreshConversations } from "../../core/api.js";
 import { setSidebarView } from "../navigation/sidebar.js";
-import { requestRender } from "../../core/render-dispatch.js";
 import { fetchJSON, escapeHtml, formatTime } from "../../core/utils.js";
 
 export function startNewSession() {

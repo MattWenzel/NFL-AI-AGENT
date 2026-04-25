@@ -10,10 +10,10 @@ from dataclasses import dataclass
 from backend.security import codex_oauth, encryption
 from backend.security.errors import CodexOAuthError, DeviceCodeExpired
 from backend.providers.types import CODEX
-from backend.api.process_state import PendingCodexOAuthFlows
 from backend.processes.oauth.codex.schemas import CodexOAuthStartResponse, CodexOAuthStatusResponse
 from backend.processes.oauth.codex.errors import CodexOAuthUnknownFlowError, CodexOAuthUpstreamError
 from backend.persistence import AuditEvent, RuntimeStore
+from backend.runtime_state import PendingCodexOAuthFlows
 
 logger = logging.getLogger(__name__)
 

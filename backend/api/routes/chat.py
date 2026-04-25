@@ -44,15 +44,12 @@ router = APIRouter(prefix="/chat", tags=["chat"], dependencies=[Depends(verify_c
 # connection while a long-running tool call is in flight.
 SSE_HEARTBEAT_SECONDS = 15
 
-MAX_CONCURRENT_STREAMS_PER_USER = 3
-
-
 async def _acquire_stream_slot(stream_gate: ConcurrencyLimiter, user_id: int) -> None:
     await stream_gate.acquire(
         user_id,
         detail=(
             f"Too many concurrent chat streams (max "
-            f"{MAX_CONCURRENT_STREAMS_PER_USER} per user). "
+            f"{stream_gate.max_active} per user). "
             "Wait for an in-flight reply to finish."
         ),
     )

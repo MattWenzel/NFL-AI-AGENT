@@ -7,11 +7,12 @@ The HTTP layer is three thin bands: **routes** parse requests and translate exce
 - `backend/api/app.py` — FastAPI factory, CORS, lifespan, router includes, static mount.
 - `backend/api/routes/*.py` — FastAPI routers by app process.
 - `backend/api/dependencies.py` — FastAPI dependency factories.
-- `backend/api/csrf.py`, `backend/api/session_cookies.py`, `backend/api/session_tokens.py`, `backend/api/request_context.py` — HTTP boundary helpers.
+- `backend/api/csrf.py`, `backend/api/session.py`, `backend/api/request_context.py` — HTTP boundary helpers.
 - `backend/api/sse.py` — `RuntimeEvent` → SSE dict serialization.
 - `backend/processes/*/service.py` — application services by app process.
 - `backend/processes/*/schemas.py` — Pydantic wire models by app process.
-- `backend/api/` — startup, process state, rate limiting, and logging.
+- `backend/api/` — startup, API-owned process state, rate limiting, and logging.
+- `backend/runtime_state.py` — framework-free lock registries and pending OAuth flow registries.
 - `backend/security/primitives.py` — password hashing and token generation.
 - `backend/security/types.py` — auth/OAuth value objects.
 - `run.py` — uvicorn launcher.
@@ -23,7 +24,7 @@ The HTTP layer is three thin bands: **routes** parse requests and translate exce
 - Title + version for `/docs` and `/redoc`.
 - `lifespan` context manager (below).
 - CORS middleware (`app.py:65`) — `ALLOWED_ORIGINS` env var replaces the dev defaults wholesale. Local defaults cover `localhost:8001` and Chrome's `null` origin (for `file://` testing). `allow_credentials=False` — no cookies; the frontend sends `Authorization: Bearer <token>` on every request, so credentialed CORS isn't needed.
-- Eight router mounts (`app.py:74`): auth, settings, codex_oauth, chat, conversations, providers, csv_downloads, csv_library.
+- Eight router mounts (`app.py:74`): auth, settings, Google OAuth, chat, conversations, providers, CSV downloads, CSV library.
 - `/health` — single-line health endpoint (`app.py:83`).
 - Static mount (`app.py:91`): `/static/*` → `frontend/static/`; `/` → `FileResponse(frontend/index.html)`.
 
@@ -80,12 +81,9 @@ Services own **IDOR enforcement** — every one that accepts an id passes the au
 - `get_chat_service` (`dependencies.py:114`) — `ChatService(runtime, store, refresh_locks)`.
 - `get_conversation_service`, `get_codex_oauth_service`, `get_export_service`, `get_auth_service`, `get_settings_service`.
 
-**Process-state accessors** (thin wrappers over `get_process_state`):
-
-- `get_chat_stream_gate` — the `ConcurrencyLimiter` that caps concurrent SSE streams per user.
-- `get_codex_start_limiter` — per-IP `RateLimiter` for `POST /settings/oauth/codex/start`.
-- `get_codex_pending_flows` — in-memory registry of active device-code flows.
-- `get_codex_refresh_locks` — per-user `asyncio.Lock` registry for OAuth token refresh.
+Routes that need rate limits or process-local coordination depend on
+`get_process_state` and read the specific limiter/registry from
+`AppProcessState`.
 
 ## Chat endpoints
 
@@ -119,7 +117,9 @@ Acquisition failures that used to surface as HTTP status codes (429 on stream ca
 
 #### Per-user stream cap
 
-`MAX_CONCURRENT_STREAMS_PER_USER = 3` (`chat.py:46`). Enforced by `ChatStreamGate.acquire(user.id)` inside the event generator (`chat.py:125`). A fourth concurrent `/chat/stream` from the same user yields a `rate_limited` SSE error + `done` — not HTTP 429.
+`process_state.chat_stream_limiter.max_active` is enforced inside the event
+generator. A fourth concurrent `/chat/stream` from the same user yields a
+`rate_limited` SSE error + `done` — not HTTP 429.
 
 #### Producer/consumer + heartbeat
 
@@ -180,15 +180,15 @@ Routes are in `backend/api/routes/`. Every user-scoped endpoint depends on `get_
 
 **Settings** (`routes/settings.py`). `GET /settings/api-keys`, `PUT /settings/api-keys/{provider}`, `DELETE /settings/api-keys/{provider}` — Fernet-encrypted per-user keys. `PUT` refuses to accept a raw Codex OAuth key (must go through the device flow).
 
-**Codex OAuth** (`routes/oauth_codex.py`). `POST /settings/oauth/codex/start` (rate-limited 5/hour/IP), `GET /settings/oauth/codex/status`, `DELETE /settings/oauth/codex/cancel`. Device-code flow — returns a `user_code` and verification URL, polls OpenAI's device endpoint in a background task, persists the encrypted OAuth bundle on success. See [auth.md](auth.md#chatgpt-oauth).
+**Codex OAuth** (`routes/settings.py`). `POST /settings/oauth/codex/start` (rate-limited 5/hour/IP), `GET /settings/oauth/codex/status`, `DELETE /settings/oauth/codex/cancel`. Device-code flow — returns a `user_code` and verification URL, polls OpenAI's device endpoint in a background task, persists the encrypted OAuth bundle on success. See [auth.md](auth.md#chatgpt-oauth).
 
 **CSV library** (`routes/exports.py`). `GET /chat/exports`, `GET /chat/exports/{id}` (preview + metadata), `PATCH /chat/exports/{id}` (rename), `DELETE /chat/exports/{id}`, `POST /chat/exports/{id}/new-session` (seed a fresh conversation with rows from this export). All IDOR-scoped.
 
-**CSV downloads** (`routes/export_downloads.py`). `GET /exports/{filename}` — serves the generated CSV. Filename safe-char check (alphanumeric / hyphen / underscore), ownership check against `exports.user_id`, then `FileResponse` with CSV MIME. 404 on any not-owned file — no existence leak.
+**CSV downloads** (`routes/exports.py`, `download_router`). `GET /exports/{filename}` — serves the generated CSV. Filename safe-char check (alphanumeric / hyphen / underscore), ownership check against `exports.user_id`, then `FileResponse` with CSV MIME. 404 on any not-owned file — no existence leak.
 
 ## Rate limiting and concurrency
 
-`backend/api/rate_limit.py`. Two primitives, both in-memory (single-process only). All state lives on `AppProcessState` in `backend/api/process_state.py` so it's shared across requests within one worker.
+`backend/api/rate_limit.py`. Two primitives, both in-memory (single-process only). API-facing limiter state lives on `AppProcessState` in `backend/api/process_state.py` so it's shared across requests within one worker. Framework-free lock and pending-flow registries live in `backend/runtime_state.py`.
 
 **`RateLimiter`** — sliding-window counter keyed by `request.client.host`. Per-IP bucket of request timestamps; entries older than the window are pruned. Infrequent global prune reaps empty buckets. Used by auth + Codex OAuth:
 

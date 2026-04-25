@@ -24,7 +24,6 @@ from backend.providers import (
 )
 from backend.persistence import RuntimeStore
 from backend.processes.chat.schemas import ChatRequest, ChatResponse, ToolCallPreview
-from backend.api.process_state import PerUserLockRegistry
 from backend.processes.oauth.credentials import ProviderCredentialService
 from backend.processes.chat.errors import (
     ChatConfigurationError,
@@ -33,6 +32,7 @@ from backend.processes.chat.errors import (
 )
 from backend.processes.chat.types import PreparedChat, ToolCallLogEntry
 from backend.processes.oauth.errors import CredentialServiceError
+from backend.runtime_state import PerUserLockRegistry
 
 
 async def close_client(client: BaseLLMClient) -> None:

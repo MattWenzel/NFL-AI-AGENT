@@ -1,5 +1,4 @@
-import { state } from "../../core/state.js";
-import { requestRender } from "../../core/render-dispatch.js";
+import { requestRender, state } from "../../core/state.js";
 
 export function applySidebarView() {
   const view = state.sidebarView === "csvs" ? "csvs" : "chats";

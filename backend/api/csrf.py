@@ -22,27 +22,21 @@ from __future__ import annotations
 
 import logging
 import secrets
-from dataclasses import dataclass
 
 from fastapi import HTTPException, Request, status
 
-from backend.api.session_tokens import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, SESSION_COOKIE_NAME, _extract_bearer
+from backend.api.request_context import client_ip
+from backend.api.session import (
+    CSRF_COOKIE_NAME,
+    CSRF_HEADER_NAME,
+    SESSION_COOKIE_NAME,
+    _extract_bearer,
+)
 from backend.persistence.audit_events import AuditEvent
 
 logger = logging.getLogger(__name__)
 
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
-
-
-@dataclass(frozen=True)
-class CSRFViolation:
-    reason: str
-
-
-def generate_csrf_token() -> str:
-    """32 random bytes, urlsafe base64. Not secret (JS reads it), but must
-    be unpredictable so an attacker can't guess it and precompute the header."""
-    return secrets.token_urlsafe(32)
 
 
 def verify_csrf(request: Request) -> None:
@@ -89,7 +83,7 @@ def _fail(request: Request, *, reason: str) -> None:
             loop.create_task(
                 store.record_security_event(
                     event_type=AuditEvent.CSRF_REJECTED,
-                    ip=_client_ip(request),
+                    ip=client_ip(request),
                     user_agent=request.headers.get("User-Agent"),
                     metadata={"reason": reason, "path": request.url.path, "method": request.method},
                 )
@@ -103,9 +97,3 @@ def _fail(request: Request, *, reason: str) -> None:
         status_code=status.HTTP_403_FORBIDDEN,
         detail="CSRF token missing or invalid",
     )
-
-
-def _client_ip(request: Request) -> str | None:
-    if request.client is not None:
-        return request.client.host
-    return None

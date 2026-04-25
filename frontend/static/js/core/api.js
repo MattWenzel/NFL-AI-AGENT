@@ -1,6 +1,5 @@
-import { state } from "./state.js";
+import { requestRender, state } from "./state.js";
 import { fetchJSON } from "./utils.js";
-import { requestRender } from "./render-dispatch.js";
 
 export async function loadProviders() {
   try {

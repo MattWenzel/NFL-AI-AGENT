@@ -29,6 +29,16 @@ export const state = {
   pendingCharts: new Map(),     // data-chart-id -> {spec, rows} queued for post-render rebuild
 };
 
+let renderHook = () => {};
+
+export function registerRenderHook(fn) {
+  renderHook = typeof fn === "function" ? fn : () => {};
+}
+
+export function requestRender() {
+  renderHook();
+}
+
 marked.setOptions({ breaks: true, gfm: true });
 
 (function initTheme() {

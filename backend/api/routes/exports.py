@@ -1,8 +1,8 @@
-"""CSV library: list, preview, rename, delete, and seed new chats."""
+"""CSV library and download endpoints."""
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 
-from backend.security.types import AuthenticatedUser
 from backend.api.csrf import verify_csrf
 from backend.api.dependencies import get_current_user, get_export_service
 from backend.processes.exports.schemas import (
@@ -14,8 +14,10 @@ from backend.processes.exports.schemas import (
 )
 from backend.processes.exports.errors import ExportNotFoundError, ExportServiceError
 from backend.processes.exports.service import ExportService
+from backend.security.types import AuthenticatedUser
 
 router = APIRouter(prefix="/chat/exports", tags=["csv-library"], dependencies=[Depends(verify_csrf)])
+download_router = APIRouter(tags=["exports"])
 
 
 @router.get("", response_model=list[ExportInfo])
@@ -82,3 +84,19 @@ async def new_session_from_csv(
         raise HTTPException(status_code=404, detail=str(exc))
     except ExportServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@download_router.get("/exports/{filename}")
+async def download_export(
+    filename: str,
+    service: ExportService = Depends(get_export_service),
+    user: AuthenticatedUser = Depends(get_current_user),
+):
+    try:
+        file_path = await service.resolve_download_path(filename, user.id)
+    except ExportNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ExportServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return FileResponse(path=file_path, filename=filename, media_type="text/csv")
