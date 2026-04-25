@@ -8,7 +8,7 @@ Covers three layers:
 - `provider/codex.py` — strict-schema transformation, SSE
   parser, stop-reason derivation, and the `[DONE]`-before-`response.done`
   fallback that ensures emitted tool calls still surface `TOOL_USE`.
-- `server/routes/codex_oauth.py` — start/status/cancel endpoints, cross-user
+- `backend/api/routes/oauth_codex.py` — start/status/cancel endpoints, cross-user
   404 guard, rate-limit backstop.
 
 Network is stubbed via `httpx.MockTransport`; the background OAuth task is
@@ -26,14 +26,14 @@ import time
 import httpx
 import pytest
 from cryptography.fernet import Fernet
-from backend.core.auth.types import AuthenticatedUser
-from backend.app.bootstrap.dependencies import get_current_user
+from backend.security.types import AuthenticatedUser
+from backend.api.dependencies import get_current_user
 from tests.app_factory import build_test_app, managed_test_client
-from backend.app.processes.oauth.codex.routes import router as codex_router
-from backend.core.auth import codex_oauth, encryption
-from backend.core.auth.errors import CodexOAuthError, DeviceCodeExpired
-from backend.core.auth.types import TokenBundle
-from backend.core.auth.codex_oauth import (
+from backend.api.routes.oauth_codex import router as codex_router
+from backend.security import codex_oauth, encryption
+from backend.security.errors import CodexOAuthError, DeviceCodeExpired
+from backend.security.types import TokenBundle
+from backend.security.codex_oauth import (
     _compute_expires_at,
     _decode_jwt_payload,
     bundle_from_json,
@@ -44,10 +44,10 @@ from backend.core.auth.codex_oauth import (
     poll_device_code,
     refresh_access_token,
 )
-from backend.app.processes.oauth.codex.service import CodexOAuthService
-from backend.core.persistence import RuntimeStore
-from backend.core.providers.types import StopReason
-from backend.core.providers.clients.codex import OpenAICodexClient
+from backend.processes.oauth.codex.service import CodexOAuthService
+from backend.persistence import RuntimeStore
+from backend.providers.types import StopReason
+from backend.providers.clients.codex import OpenAICodexClient
 
 
 # ---------------- helpers ----------------
@@ -509,7 +509,7 @@ def _make_app(store: RuntimeStore, user_id: int, email: str):
 
 def _patch_device_flow(monkeypatch, user_code="USER-CODE"):
     """Stub out the OpenAI device-code call and the background poller."""
-    from backend.core.auth.types import DeviceCodeStart
+    from backend.security.types import DeviceCodeStart
     start = DeviceCodeStart(
         device_auth_id="dev-1",
         user_code=user_code,

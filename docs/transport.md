@@ -4,18 +4,21 @@ The HTTP layer is three thin bands: **routes** parse requests and translate exce
 
 ## File map
 
-- `backend/app/main.py` — FastAPI factory, CORS, lifespan, router includes, static mount.
-- `backend/app/bootstrap/` — startup, dependencies, process state, rate limiting, middleware, logging, CSRF, audit helpers.
-- `backend/app/processes/*/routes.py` — FastAPI routers by app process.
-- `backend/app/processes/*/service.py` — application services by app process.
-- `backend/app/processes/*/schemas.py` — Pydantic wire models by app process.
-- `backend/app/processes/chat/sse.py` — `RuntimeEvent` → SSE dict serialization.
-- `backend/core/auth/primitives.py` — `AuthenticatedUser`, `_extract_bearer`.
+- `backend/api/app.py` — FastAPI factory, CORS, lifespan, router includes, static mount.
+- `backend/api/routes/*.py` — FastAPI routers by app process.
+- `backend/api/dependencies.py` — FastAPI dependency factories.
+- `backend/api/csrf.py`, `backend/api/session_cookies.py`, `backend/api/session_tokens.py`, `backend/api/request_context.py` — HTTP boundary helpers.
+- `backend/api/sse.py` — `RuntimeEvent` → SSE dict serialization.
+- `backend/processes/*/service.py` — application services by app process.
+- `backend/processes/*/schemas.py` — Pydantic wire models by app process.
+- `backend/api/` — startup, process state, rate limiting, and logging.
+- `backend/security/primitives.py` — password hashing and token generation.
+- `backend/security/types.py` — auth/OAuth value objects.
 - `run.py` — uvicorn launcher.
 
 ## App factory
 
-`backend/app/main.py`. `create_app()` returns a configured `FastAPI` instance:
+`backend/api/app.py`. `create_app()` returns a configured `FastAPI` instance:
 
 - Title + version for `/docs` and `/redoc`.
 - `lifespan` context manager (below).
@@ -28,7 +31,7 @@ Module-level `app = create_app()` is what uvicorn imports. One app instance per 
 
 ## Lifespan
 
-`app.py:26`. Runs **once per worker process**. The body delegates to four helpers in `backend/app/bootstrap/startup.py`:
+`app.py:26`. Runs **once per worker process**. The body delegates to four helpers in `backend/api/startup.py`:
 
 1. **Re-apply logging.** `setup_logging()` runs inside the worker because the child process resets the root logger when `reload=True` is in use.
 2. **`validate_encryption()`** (`startup.py`). Calls `encryption.require_configured()` — fails fast if `SETTINGS_ENCRYPTION_KEY` is missing or malformed. Failing at startup is strictly better than at the first `PUT /settings/api-keys` an hour later.
@@ -42,24 +45,24 @@ The store, runtime, and process state survive across requests for the life of th
 
 ## Services layer
 
-Routes in `backend/app/processes/` are thin shells — parse the request, call one service method, translate service exceptions to HTTP status codes. Everything cross-subsystem lives in `backend/app/processes/`. Each service is a class instantiated per-request via a `Depends(...)` factory (see below) with whatever it needs from the store, runtime, and process state.
+Routes in `backend/api/routes/` are thin shells — parse the request, call one service method, translate service exceptions to HTTP status codes. Everything cross-subsystem lives in `backend/processes/`. Each service is a class instantiated per-request via a `Depends(...)` factory (see below) with whatever it needs from the store, runtime, and process state.
 
 | Service | File | What it does |
 |---------|------|--------------|
-| `ChatService` | `services/chat.py` | `prepare_chat` (IDOR, decrypt credential, build client, prepare session), `run_message` (buffered response), `stream_events` (SSE event source). |
-| `ConversationService` | `services/conversations.py` | List / get-transcript / update-title-or-pin / delete for the authenticated user's conversations. |
-| `AuthService` | `services/auth.py` | Register, login, logout, password change, delete account. Password hashing + token issuance live here; routes only translate exceptions. |
-| `ProviderCredentialService` | `services/credentials.py` | Resolves the per-user API key for one provider. Dispatches Codex OAuth to `codex_credentials.resolve_access_token`; plain API keys are decrypted directly. |
-| `CodexOAuthService` | `services/codex_oauth.py` | Device-code flow: `start`, `status`, `cancel`. Spawns a background task that polls OpenAI's device endpoint and stores the encrypted bundle on success. |
-| `codex_credentials` module | `services/codex_credentials.py` | `resolve_access_token(user_id, …)` — refresh-if-near-expiry under a per-user `asyncio.Lock`. |
-| `ExportService` | `services/exports.py` | List / preview / rename / delete CSV exports + seed a new conversation from one. IDOR at each entry point. |
-| `SettingsService` | `services/settings.py` | Per-provider API-key status, set/clear a key, provider availability (server config ∪ user keys). |
+| `ChatService` | `backend/processes/chat/service.py` | `prepare_chat` (IDOR, decrypt credential, build client, prepare session), `run_message` (buffered response), `stream_events` (SSE event source). |
+| `ConversationService` | `backend/processes/conversations/service.py` | List / get-transcript / update-title-or-pin / delete for the authenticated user's conversations. |
+| `AuthService` | `backend/processes/auth/service.py` | Register, login, logout, password change, delete account. Password hashing + token issuance live here; routes only translate exceptions. |
+| `ProviderCredentialService` | `backend/processes/oauth/credentials.py` | Resolves the per-user API key for one provider. Dispatches Codex OAuth to the Codex credential helper; plain API keys are decrypted directly. |
+| `CodexOAuthService` | `backend/processes/oauth/codex/service.py` | Device-code flow: `start`, `status`, `cancel`. Spawns a background task that polls OpenAI's device endpoint and stores the encrypted bundle on success. |
+| `ExportService` | `backend/processes/exports/service.py` | List / preview / rename / delete CSV exports + seed a new conversation from one. IDOR at each entry point. |
+| `ProviderService` | `backend/processes/providers/service.py` | Provider availability (server config ∪ user keys). |
+| `SettingsService` | `backend/processes/settings/service.py` | Per-provider API-key status and set/clear key operations. |
 
 Services own **IDOR enforcement** — every one that accepts an id passes the authenticated user's id through to the store so unowned records return `None` and surface as 404. Routes rely on this; they don't re-check.
 
 ## Dependency injection
 
-`backend/app/bootstrap/dependencies.py`. Every request dependency lives here.
+`backend/api/dependencies.py`. Every request dependency lives here.
 
 **Core** (pull from `app.state`; raise `RuntimeError` if the lifespan didn't run):
 
@@ -86,7 +89,7 @@ Services own **IDOR enforcement** — every one that accepts an id passes the au
 
 ## Chat endpoints
 
-Both live in `backend/app/processes/chat.py`. Routes delegate to `ChatService` (see services table).
+Routes live in `backend/api/routes/chat.py` and delegate to `ChatService` in `backend/processes/chat/service.py`.
 
 ### `POST /chat/message` — buffered response
 
@@ -143,7 +146,7 @@ Client disconnect: `request.is_disconnected()` is checked at the top of every lo
 
 ## SSE event catalog
 
-`backend/app/processes/chat/sse.py` maps `RuntimeEvent`s to wire payloads. Events not listed are suppressed (mapper returns `None`):
+`backend/api/sse.py` maps `RuntimeEvent`s to wire payloads. Events not listed are suppressed (mapper returns `None`):
 
 | `RuntimeEvent.type` | Wire `type` | Extra fields |
 |---------------------|-------------|--------------|
@@ -167,7 +170,7 @@ The route also emits three events outside the mapper:
 
 ## Other routes
 
-All in `backend/app/processes/`. Every user-scoped endpoint depends on `get_current_user`; auth, health, and root do not.
+Routes are in `backend/api/routes/`. Every user-scoped endpoint depends on `get_current_user`; auth, health, and root do not.
 
 **Auth** (`routes/auth.py`). `GET /auth/status` (optional auth), `POST /auth/register`, `POST /auth/login`, `POST /auth/logout`, `PUT /auth/password`, `DELETE /auth/me`. Rate-limited per IP (see below). Full flow in [auth.md](auth.md).
 
@@ -177,15 +180,15 @@ All in `backend/app/processes/`. Every user-scoped endpoint depends on `get_curr
 
 **Settings** (`routes/settings.py`). `GET /settings/api-keys`, `PUT /settings/api-keys/{provider}`, `DELETE /settings/api-keys/{provider}` — Fernet-encrypted per-user keys. `PUT` refuses to accept a raw Codex OAuth key (must go through the device flow).
 
-**Codex OAuth** (`routes/codex_oauth.py`). `POST /settings/oauth/codex/start` (rate-limited 5/hour/IP), `GET /settings/oauth/codex/status`, `DELETE /settings/oauth/codex/cancel`. Device-code flow — returns a `user_code` and verification URL, polls OpenAI's device endpoint in a background task, persists the encrypted OAuth bundle on success. See [auth.md](auth.md#chatgpt-oauth).
+**Codex OAuth** (`routes/oauth_codex.py`). `POST /settings/oauth/codex/start` (rate-limited 5/hour/IP), `GET /settings/oauth/codex/status`, `DELETE /settings/oauth/codex/cancel`. Device-code flow — returns a `user_code` and verification URL, polls OpenAI's device endpoint in a background task, persists the encrypted OAuth bundle on success. See [auth.md](auth.md#chatgpt-oauth).
 
-**CSV library** (`routes/csv_library.py`). `GET /chat/exports`, `GET /chat/exports/{id}` (preview + metadata), `PATCH /chat/exports/{id}` (rename), `DELETE /chat/exports/{id}`, `POST /chat/exports/{id}/new-session` (seed a fresh conversation with rows from this export). All IDOR-scoped.
+**CSV library** (`routes/exports.py`). `GET /chat/exports`, `GET /chat/exports/{id}` (preview + metadata), `PATCH /chat/exports/{id}` (rename), `DELETE /chat/exports/{id}`, `POST /chat/exports/{id}/new-session` (seed a fresh conversation with rows from this export). All IDOR-scoped.
 
-**CSV downloads** (`routes/csv_downloads.py`). `GET /exports/{filename}` — serves the generated CSV. Filename safe-char check (alphanumeric / hyphen / underscore), ownership check against `exports.user_id`, then `FileResponse` with CSV MIME. 404 on any not-owned file — no existence leak.
+**CSV downloads** (`routes/export_downloads.py`). `GET /exports/{filename}` — serves the generated CSV. Filename safe-char check (alphanumeric / hyphen / underscore), ownership check against `exports.user_id`, then `FileResponse` with CSV MIME. 404 on any not-owned file — no existence leak.
 
 ## Rate limiting and concurrency
 
-`backend/app/bootstrap/rate_limit.py`. Two primitives, both in-memory (single-process only). All state lives on `AppProcessState` in `backend/app/bootstrap/process_state.py` so it's shared across requests within one worker.
+`backend/api/rate_limit.py`. Two primitives, both in-memory (single-process only). All state lives on `AppProcessState` in `backend/api/process_state.py` so it's shared across requests within one worker.
 
 **`RateLimiter`** — sliding-window counter keyed by `request.client.host`. Per-IP bucket of request timestamps; entries older than the window are pruned. Infrequent global prune reaps empty buckets. Used by auth + Codex OAuth:
 
@@ -222,7 +225,7 @@ Once connected, `codex_credentials.resolve_access_token(user_id)` handles refres
 Every user-scoped endpoint's ownership check happens inside the **service**, not in the route:
 
 ```python
-# backend/app/processes/chat.py:107
+# backend/processes/chat/service.py
 if (
     body.conversation_id
     and await self.store.get_session(body.conversation_id, user_id=user.id) is None
@@ -253,7 +256,7 @@ API routes registered above the static mount take precedence — `/health`, `/ch
 
 - `load_dotenv()` — pulls `.env` into the process environment.
 - `setup_logging(verbose=args.verbose)` — DEBUG when `--verbose`, else WARNING. `NFLVERSE_VERBOSE=1` propagates into the reloaded worker process.
-- `uvicorn.run("backend.app.main:app", host=HOST, port=PORT, reload=True, proxy_headers=True, forwarded_allow_ips=...)`.
+- `uvicorn.run("backend.api.app:app", host=HOST, port=PORT, reload=True, proxy_headers=True, forwarded_allow_ips=...)`.
 
 Key options:
 

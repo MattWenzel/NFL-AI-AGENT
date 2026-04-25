@@ -8,7 +8,7 @@ NFL player stats database built from [nflverse](https://github.com/nflverse/nflv
 |----------|------|--------|------|-------|
 | `nflverse.duckdb` | ~1.2 GB | 25 + 1 view | ~5M | 1999-2025 |
 
-Single DuckDB file with **78 FK constraints** enforced at build time. Accessed read-only by the chat agent via `backend/core/tools/sandbox/runner.py` (raw `duckdb.connect(..., read_only=True)`); no ORM involvement.
+Single DuckDB file with **78 FK constraints** enforced at build time. Accessed read-only by the chat agent via `backend/tools/sandbox/runner.py` (raw `duckdb.connect(..., read_only=True)`); no ORM involvement.
 
 **Full schema**: `../NFLVERSE/docs/CONSUMER_GUIDE.md` (short, gotcha-focused) + `../NFLVERSE/docs/DATABASE.md` (full reference). Sibling repo.
 
@@ -58,93 +58,37 @@ The chat runtime is transcript-backed: sessions, turns, assistant parts, tool ru
 
 ### Architecture
 
-Top-level split: `backend/` holds the Python server, `frontend/` holds the browser UI. Inside `backend/`, the hex split: `core/` is transport-agnostic libraries (none import FastAPI), `app/` is the FastAPI HTTP application. Each HTTP business process under `backend/app/processes/<feature>/` is a self-contained folder with routes + service + DTOs + errors. The frontend mirrors the same process-slice convention for its JS modules.
+Top-level split: `backend/` holds the Python server, `frontend/` holds the browser UI. Inside `backend/`, `api/` is the FastAPI HTTP boundary and process-local server lifecycle, `processes/` holds app-process services and DTOs, and reusable subsystems are named directly (`agent/`, `providers/`, `tools/`, `persistence/`, `security/`). The frontend mirrors the same process-slice convention for its JS modules.
 
 ```
 backend/
-├── app/                          # FastAPI HTTP application
-│   ├── main.py                   #   app factory + lifespan; uvicorn entry (backend.app.main:app)
-│   ├── bootstrap/                #   app construction + cross-cutting concerns
-│   │   ├── startup.py            #     DB validation, runtime wiring, housekeeping
-│   │   ├── logging.py            #     setup_logging + secret-redacting filter
-│   │   ├── middleware.py         #     SecurityHeadersMiddleware (CSP / HSTS / etc.)
-│   │   ├── csrf.py               #     double-submit CSRF dep + cookie helpers
-│   │   ├── audit.py              #     audit_log helper (security_events row + structured log)
-│   │   ├── dependencies.py       #     FastAPI Depends factories (get_store, get_runtime, ...)
-│   │   ├── process_state.py      #     per-process state (lock registries, pending OAuth flows, AppProcessState)
-│   │   └── rate_limit.py         #     per-IP RateLimiter + concurrency limiter
-│   └── processes/                #   one folder per HTTP business process
-│       ├── auth/                 #     register / login / logout / password / delete / verify / resend
-│       ├── chat/                 #     POST /chat/message, POST /chat/stream + SSE event serializer
-│       ├── conversations/        #     list / transcript / patch / delete
-│       ├── exports/              #     CSV library CRUD + GET /exports/{filename} download
-│       ├── oauth/
-│       │   ├── codex/            #       ChatGPT device-code OAuth
-│       │   ├── google/           #       Google OAuth + identity link/unlink
-│       │   ├── credentials.py    #       cross-flow credential lookup
-│       │   └── errors.py         #       cross-flow OAuth errors
-│       ├── providers/            #     GET /chat/providers
-│       └── settings/             #     per-user API key CRUD + linked-identity list
-│
-│   # Each app/processes/<feature>/ contains:
-│   #   routes.py    HTTP handlers
-│   #   service.py   orchestration class (depends on core/)
-│   #   schemas.py   Pydantic wire-format models
-│   #   types.py     internal DTOs (PreparedChat, AuditContext, IssuedSession, ...)
-│   #   errors.py    feature-specific exceptions
-│
-└── core/                         # Transport-agnostic libraries — no FastAPI imports
-    ├── config.py                 #   DB paths, env loading, runtime settings
-    ├── agent/                    # Chat runtime loop
-    │   ├── runtime.py            #     ChatRuntime: prepare_session, run_session
-    │   ├── turn.py               #     Turn: per-user-message state machine + tool execution + doom-loop detection
-    │   ├── events.py             #     11 typed RuntimeEvent variants (TurnStartedEvent, ToolPendingEvent, ...)
-    │   ├── errors.py             #     RuntimeLoopError
-    │   ├── types.py              #     ToolExecutor Protocol, ToolExecutionResult
-    │   ├── message_builder.py    #     transcript → wire-format message list
-    │   ├── system_prompt.py      #     base prompt template (~2.3K tokens)
-    │   └── compaction/           #     transcript shrinking
-    │       ├── policy.py         #       selector + RetentionPolicy + compact_if_needed
-    │       ├── summarizer.py     #       LLM-backed summarization
-    │       └── token_counting.py #       tiktoken cl100k estimator
-    ├── auth/                     # Auth primitives + OAuth wire helpers
-    │   ├── primitives.py         #     bcrypt, tokens, cookies, session-token extraction
-    │   ├── encryption.py         #     Fernet wrapper for at-rest secrets
-    │   ├── email.py              #     Resend wrapper (verification email)
-    │   ├── codex_oauth.py        #     Codex device-code OAuth functions
-    │   ├── google_oauth.py       #     Google OAuth + JWKS verification
-    │   ├── errors.py             #     CodexOAuthError, GoogleOAuthError, encryption errors, ...
-    │   └── types.py              #     AuthenticatedUser, TokenBundle, GoogleIdentity + identity-provider name constants
-    ├── persistence/              # SQLite storage layer — async SQLModel over aiosqlite
-    │   ├── store.py              #     RuntimeStore facade composing all mixins
-    │   ├── engine.py             #     sync engine (bootstrap/migrations) + async engine
-    │   ├── models.py             #     SQLModel table classes + helpers (utcnow, new_id)
-    │   ├── column_types.py       #     TolerantJSONList / ToolInputJSON TypeDecorators
-    │   ├── schema_version.py     #     in-house PRAGMA user_version migration runner
-    │   ├── audit_events.py       #     AuditEvent StrEnum (canonical event_type values)
-    │   ├── errors.py             #     IdentityConflictError
-    │   ├── users/                #     auth-table mixins (users, identities, login failures, email verification, security events)
-    │   ├── conversations/        #     chat-session mixins (sessions.py, transcripts.py)
-    │   └── exports/              #     CSV export library mixin
-    ├── providers/                # LLM provider adapters
-    │   ├── base.py               #     BaseLLMClient ABC
-    │   ├── types.py              #     value types (StopReason, Usage, ToolDefinition, ...) + canonical provider names (ANTHROPIC, OPENAI, CODEX)
-    │   ├── errors.py             #     LLMError, ContextOverflowError, RetryableError
-    │   ├── retry.py              #     header-aware exponential backoff
-    │   ├── overflow.py           #     context-overflow error classification
-    │   ├── tool_calls.py         #     tool-call payload parsing helpers
-    │   └── clients/              #     concrete clients (anthropic.py, openai.py, codex.py)
-    └── tools/                    # Tool registry + handlers (used by core/agent)
-        ├── registry.py           #     dispatch + execute_tool_structured
-        ├── definitions.py        #     tool JSON schemas + TOOLS list
-        ├── validation.py         #     JSON Schema input validation + hint injection
-        ├── truncate.py           #     result formatters
-        ├── guide_registry.py     #     GUIDE_TOPICS enum + GUIDES_DIR
-        ├── errors.py             #     SQLValidationError
-        ├── types.py              #     SQLResult
-        ├── handlers/             #     one file per tool (create_chart, create_csv_export, execute_sql, get_guide, get_schema, player_lookup)
-        ├── sandbox/              #     runner.py (DuckDB execution) + schema_metadata.py
-        └── guides/               #     markdown reference docs the get_guide tool serves
+├── api/                          # FastAPI HTTP boundary
+│   ├── app.py                    #   app factory + lifespan; uvicorn entry (backend.api.app:app)
+│   ├── routes/                   #   HTTP handlers by app process
+│   ├── dependencies.py           #   FastAPI Depends factories (get_store, get_runtime, ...)
+│   ├── csrf.py                   #   double-submit CSRF dependency
+│   ├── session_cookies.py        #   shared browser auth cookie behavior
+│   ├── request_context.py        #   request → audit/client context helpers
+│   ├── middleware.py             #   SecurityHeadersMiddleware (CSP / HSTS / etc.)
+│   ├── sse.py                    #   RuntimeEvent → SSE dict serialization
+│   ├── startup.py                #   DB validation, runtime wiring, housekeeping
+│   ├── logging.py                #   setup_logging + secret-redacting filter
+│   ├── process_state.py          #   lock registries, pending OAuth flows, AppProcessState
+│   └── rate_limit.py             #   per-IP RateLimiter + concurrency limiter
+├── processes/                    # App-process services, DTOs, schemas, errors
+│   ├── auth/                     #   register / login / logout / password / delete / verify / resend
+│   ├── chat/                     #   chat orchestration and response aggregation
+│   ├── conversations/            #   list / transcript / patch / delete orchestration
+│   ├── exports/                  #   CSV library CRUD
+│   ├── oauth/                    #   Codex + Google OAuth flows and credentials
+│   ├── providers/                #   provider response models
+│   └── settings/                 #   per-user API key CRUD + linked identity services
+├── agent/                        # Chat runtime loop, events, prompt, compaction
+├── providers/                    # LLM provider registry, types, errors, clients
+├── tools/                        # Tool definitions, registry, handlers, SQL sandbox, guides
+├── persistence/                  # Runtime SQLite store, models, migrations
+├── security/                     # Auth/security primitives, encryption, OAuth protocol helpers
+└── config.py                     # DB paths, env loading, runtime settings
 
 frontend/                         # Browser UI (served at / by FastAPI; assets under /static)
 ├── index.html                    #   shell + ES-module entrypoint
@@ -166,7 +110,7 @@ frontend/                         # Browser UI (served at / by FastAPI; assets u
             ├── navigation/       #       sidebar view switcher
             └── settings/         #       account + provider keys + identities
 
-run.py                            # uvicorn entry point → backend.app.main:app
+run.py                            # uvicorn entry point → backend.api.app:app
 tests/                            # pytest test suite
 data/                             # Runtime data (runtime.sqlite3 — ignored)
 ```
@@ -182,7 +126,7 @@ python3 -m pytest tests/          # Run tests
 # which this app reads via DB_PATH in .env.
 ```
 
-**Note**: Restart the API server (`python3 run.py`) after changing `backend/core/agent/system_prompt.py` or `backend/core/tools/*` — the running server caches imports.
+**Note**: Restart the API server (`python3 run.py`) after changing `backend/agent/system_prompt.py` or `backend/tools/*` — the running server caches imports.
 
 ## Auth & multi-user
 
@@ -224,7 +168,7 @@ Shipped 2026-04-23. Users can sign up / sign in with Google, and existing passwo
 - Both routes are GETs (browser navigation) and CSRF-exempt by the usual safe-method rule — the `state` parameter is the anti-CSRF for the callback. Session cookies from the rest of the app still travel (SameSite=Lax), which is how the callback can tell a link flow (user_id in pending row) from a sign-in flow.
 - `security_events` gains `oauth_signin_started`, `oauth_signin_succeeded`, `oauth_signin_failed`, `oauth_link_started`, `oauth_linked`, `oauth_unlinked`, `oauth_link_rejected`.
 
-**Files:** `backend/core/auth/google_oauth.py` (OAuth primitives + ID-token verification), `backend/core/persistence/users/user_identities.py` (mixin), `backend/app/processes/oauth/google/service.py` (flow orchestration), `backend/app/processes/oauth/google/routes.py` (endpoints), `backend/app/processes/settings/routes.py` (link/unlink + list), `backend/core/auth/primitives.py`'s existing `_set_auth_cookies` helper is reused unchanged.
+**Files:** `backend/security/google_oauth.py` (OAuth primitives + ID-token verification), `backend/persistence/users/user_identities.py` (mixin), `backend/processes/oauth/google/service.py` (flow orchestration), `backend/api/routes/oauth_google.py` (endpoints), `backend/api/routes/settings.py` (link/unlink + list), and `backend/api/session_cookies.py` for shared session cookie behavior.
 
 **Env vars:**
 - `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` — set via Google Cloud Console. The "Continue with Google" button and `/auth/oauth/google/*` routes only appear when both are set.

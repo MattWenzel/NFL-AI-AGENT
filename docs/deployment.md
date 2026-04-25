@@ -131,7 +131,7 @@ REGISTRATION_INVITE_CODE=<a secret>       # optional; open signup if unset
 ### Run
 
 ```bash
-uvicorn backend.app.main:app \
+uvicorn backend.api.app:app \
     --host 127.0.0.1 --port 8001 \
     --proxy-headers --forwarded-allow-ips 127.0.0.1
 ```
@@ -164,7 +164,7 @@ After=network.target
 User=nflverse
 WorkingDirectory=/srv/nflverse
 EnvironmentFile=/srv/nflverse/.env
-ExecStart=/srv/nflverse/.venv/bin/uvicorn backend.app.main:app \
+ExecStart=/srv/nflverse/.venv/bin/uvicorn backend.api.app:app \
     --host 127.0.0.1 --port 8001 \
     --proxy-headers --forwarded-allow-ips 127.0.0.1
 Restart=on-failure

@@ -7,22 +7,22 @@ from cryptography.fernet import Fernet
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from backend.core.agent.events import TextDeltaEvent
-from backend.core.auth import encryption
-from backend.core.auth.types import AuthenticatedUser
-from backend.app.bootstrap.dependencies import get_chat_service, get_current_user
-from backend.app.bootstrap.process_state import AppProcessState
-from backend.app.processes.chat.schemas import ChatResponse
-from backend.core.persistence import RuntimeStore, SessionRecord
-from backend.app.processes.chat import routes as chat_router
-from backend.app.processes.chat.routes import router as chat_router_module
-from backend.app.processes.chat.service import ChatService
-from backend.app.processes.chat.errors import (
+from backend.agent.events import TextDeltaEvent
+from backend.security import encryption
+from backend.security.types import AuthenticatedUser
+from backend.api.dependencies import get_chat_service, get_current_user
+from backend.api.process_state import AppProcessState
+from backend.processes.chat.schemas import ChatResponse
+from backend.persistence import RuntimeStore, SessionRecord
+from backend.api.routes import chat as chat_router
+from backend.api.routes.chat import router as chat_router_module
+from backend.processes.chat.service import ChatService
+from backend.processes.chat.errors import (
     ChatConfigurationError,
     ChatNotFoundError,
     ChatServiceError,
 )
-from backend.app.processes.chat.types import PreparedChat
+from backend.processes.chat.types import PreparedChat
 from tests.app_factory import build_test_app, managed_test_client
 
 

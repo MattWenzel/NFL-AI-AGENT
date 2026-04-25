@@ -4,10 +4,10 @@ Covers:
   - `auth/encryption.py` (round-trip, tampered ciphertext, missing key)
   - `auth/primitives.py` primitives (hash/verify/token)
   - `RuntimeStore` CRUD for users / api_keys / auth_sessions
-  - `server/routes/auth.py` (open multi-user registration, first user=admin,
+  - `backend/api/routes/auth.py` (open multi-user registration, first user=admin,
     login, logout, status, rate limits)
-  - `server/routes/settings.py` (PUT stores ciphertext, GET never leaks plaintext)
-  - `server/routes/providers.py` (availability considers user keys)
+  - `backend/api/routes/settings.py` (PUT stores ciphertext, GET never leaks plaintext)
+  - `backend/api/routes/providers.py` (availability considers user keys)
   - IDOR probes: one user can't see/mutate another user's data
 """
 
@@ -20,16 +20,16 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from cryptography.fernet import Fernet
-from backend.core.auth.primitives import generate_token, hash_password, verify_password
+from backend.security.primitives import generate_token, hash_password, verify_password
 from tests.app_factory import build_test_app, managed_test_client
-from backend.app.processes.auth.routes import router as auth_router
-from backend.app.processes.auth import service as auth_service_module
-from backend.app.processes.conversations.routes import router as conversations_router
-from backend.app.processes.exports.routes import router as csvs_router
-from backend.app.processes.providers.routes import router as providers_router
-from backend.app.processes.settings.routes import router as settings_router
-from backend.core.auth import encryption
-from backend.core.persistence import RuntimeStore
+from backend.api.routes.auth import router as auth_router
+from backend.processes.auth import service as auth_service_module
+from backend.api.routes.conversations import router as conversations_router
+from backend.api.routes.exports import router as csvs_router
+from backend.api.routes.providers import router as providers_router
+from backend.api.routes.settings import router as settings_router
+from backend.security import encryption
+from backend.persistence import RuntimeStore
 
 
 @pytest.fixture(autouse=True)
@@ -61,7 +61,7 @@ def _disable_google_oauth(monkeypatch):
     expects the default-off state. Null the module-level values so the default
     for this file is "OAuth disabled"; tests that exercise the OAuth path
     re-set them explicitly."""
-    import backend.core.config as _config
+    import backend.config as _config
     monkeypatch.setattr(_config, "GOOGLE_OAUTH_CLIENT_ID", None)
     monkeypatch.setattr(_config, "GOOGLE_OAUTH_CLIENT_SECRET", None)
 
@@ -182,7 +182,7 @@ class TestStoreCRUD:
         rec = await store.create_auth_session(token="tok", user_id=u.id, expires_at=future)
         stale = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
         from sqlalchemy import update as sa_update
-        from backend.core.persistence.models import AuthSessionRecord
+        from backend.persistence.models import AuthSessionRecord
         async with store._async_session() as session:
             await session.execute(
                 sa_update(AuthSessionRecord)
@@ -460,7 +460,7 @@ class TestIDOR:
         assert await store.get_session("aaa-session", user_id=u_a.id) is not None
 
     async def test_cross_user_rename_csv_returns_404(self, full_client, store):
-        from backend.core.persistence import ExportRecord  # noqa: F401
+        from backend.persistence import ExportRecord  # noqa: F401
         u_a = await store.create_user(email="a@e.com", password_hash=hash_password("pw"))
         rec = await store.register_export(
             filename="x.csv", title="A's CSV", sql="SELECT 1",
@@ -469,7 +469,7 @@ class TestIDOR:
         )
         # register_export only assigns user_id if source_session exists; set manually for A.
         from sqlalchemy import update as sa_update
-        from backend.core.persistence.models import ExportRecord as _ExportRecord
+        from backend.persistence.models import ExportRecord as _ExportRecord
         async with store._async_session() as session:
             await session.execute(
                 sa_update(_ExportRecord)
@@ -498,7 +498,7 @@ class TestOrphanRows:
 
     async def test_count_orphan_rows_detects_nulls(self, store):
         # Insert a session without a user_id to simulate pre-auth orphan data.
-        from backend.core.persistence.models import SessionRecord as _SessionRecord
+        from backend.persistence.models import SessionRecord as _SessionRecord
         now = datetime.now(timezone.utc).isoformat()
         async with store._async_session() as session:
             session.add(_SessionRecord(

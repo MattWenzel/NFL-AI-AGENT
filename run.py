@@ -6,7 +6,7 @@ import logging
 import os
 import uvicorn
 
-from backend.core.config import load_dotenv
+from backend.config import load_dotenv
 
 
 if __name__ == "__main__":
@@ -23,7 +23,7 @@ if __name__ == "__main__":
     if args.verbose:
         os.environ["NFLVERSE_VERBOSE"] = "1"
 
-    from backend.app.bootstrap.logging import setup_logging
+    from backend.api.logging import setup_logging
     setup_logging(verbose=args.verbose)
 
     # Bind to loopback by default so a production deploy can't be reached
@@ -46,7 +46,7 @@ if __name__ == "__main__":
         )
 
     uvicorn.run(
-        "backend.app.main:app",
+        "backend.api.app:app",
         host=host,
         port=port,
         reload=True,

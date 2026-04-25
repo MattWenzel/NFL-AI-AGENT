@@ -89,9 +89,14 @@ The SQL sandbox the model talks to is driver-level read-only (`file:…?mode=ro`
 Zero-framework browser UI, FastAPI backend, async SQLModel + aiosqlite persistence, three pluggable LLM adapters, seven tool handlers. Top-level folders:
 
 ```
-backend/app/    FastAPI app shell, bootstrap, and process-sliced HTTP/API code
-backend/core/   Reusable backend capabilities: agent, tools, providers, auth, persistence
-frontend/       Browser app (vanilla JS modules, one render() + one patchLiveText fast path)
+backend/api/       FastAPI app shell, dependency wiring, HTTP helpers, and routes
+backend/processes/ App-process services, schemas, DTOs, and errors
+backend/agent/     Chat runtime loop, turn state, events, prompts, compaction
+backend/providers/ LLM provider registry, shared provider types, concrete clients
+backend/tools/     Tool definitions, handlers, SQL sandbox, guide docs
+backend/persistence/ Runtime SQLite store, models, migrations
+backend/security/ Auth/security primitives, encryption, OAuth protocol helpers
+frontend/          Browser app (vanilla JS modules, one render() + one patchLiveText fast path)
 ```
 
 Full internal-design docs live under [docs/](docs/) — start with [docs/architecture.md](docs/architecture.md). Deployment runbooks (Fly.io + self-hosted VPS) are in [docs/deployment.md](docs/deployment.md); running locally for development is covered there too.
