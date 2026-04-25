@@ -11,12 +11,12 @@ from backend.api.session import _extract_session_token
 from backend.security.types import AuthenticatedUser
 from backend.config import AUTH_SESSION_TOUCH_INTERVAL_SECONDS, EXPORTS_DIR
 from backend.api.process_state import AppProcessState
-from backend.processes.auth import AuthService
-from backend.processes.chat import ChatService
+from backend.processes.auth.service import AuthService
+from backend.processes.chat.service import ChatService
 from backend.processes.conversations import ConversationService
 from backend.processes.exports import ExportService
-from backend.processes.oauth.codex import CodexOAuthService
-from backend.processes.oauth.google import GoogleOAuthService
+from backend.processes.oauth.codex.service import CodexOAuthService
+from backend.processes.oauth.google.service import GoogleOAuthService
 from backend.processes.providers import ProviderService
 from backend.processes.settings import SettingsService
 from backend.persistence import RuntimeStore

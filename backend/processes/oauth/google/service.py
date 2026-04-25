@@ -1,4 +1,18 @@
-"""Google OAuth process: errors, DTOs, and application service."""
+"""Application service for Google OAuth sign-in and identity linking.
+
+Owns three flows, all driven by the same `/auth/oauth/google/callback` route:
+
+  1. Sign in with existing Google identity → issue session
+  2. Sign up via Google (unknown sub + verified email) → create user with
+     password_hash sentinel "!", insert identity, issue session
+  3. Link Google to an authenticated user (started from settings) → insert
+     identity, keep existing session intact
+
+The password sentinel `"!"` is guaranteed to fail `verify_password` (bcrypt
+treats non-bcrypt strings as malformed and the helper returns False), so
+password login is naturally blocked for OAuth-only accounts without a
+users-table rebuild.
+"""
 
 from __future__ import annotations
 
@@ -6,74 +20,35 @@ import logging
 import secrets
 from dataclasses import dataclass
 
-from backend.audit import AuditContext, audit_log
+from backend.security import google_oauth
+from backend.security.errors import GoogleOAuthError
+from backend.security.types import GOOGLE, OAUTH_ONLY_SENTINEL_HASH, PASSWORD, GoogleIdentity
 from backend.config import (
     GOOGLE_OAUTH_CLIENT_ID,
     GOOGLE_OAUTH_CLIENT_SECRET,
     google_oauth_enabled,
     google_oauth_redirect_uri,
 )
-from backend.persistence import AuditEvent, IdentityConflictError, RuntimeStore
-from backend.processes.auth import (
-    AuthConflictError,
-    IdentitySeed,
-    IssuedSession,
-    create_user_account,
-    issue_session,
+from backend.audit import AuditContext, audit_log
+from backend.processes.oauth.google.errors import (
+    GoogleOAuthDisabledError,
+    GoogleOAuthEmailUnverifiedError,
+    GoogleOAuthInvalidStateError,
+    GoogleOAuthLastIdentityError,
+    GoogleOAuthLinkConflictError,
+    GoogleOAuthServiceError,
 )
+from backend.processes.auth.errors import AuthConflictError
+from backend.processes.auth.lifecycle import IdentitySeed, create_user_account, issue_session
+from backend.processes.oauth.google.types import (
+    IdentitySummary,
+    LinkOutcome,
+    SignInOutcome,
+)
+from backend.persistence import AuditEvent, IdentityConflictError, RuntimeStore
 from backend.runtime_state import PendingGoogleOAuthFlows
-from backend.security import google_oauth
-from backend.security.errors import GoogleOAuthError
-from backend.security.types import GOOGLE, OAUTH_ONLY_SENTINEL_HASH, PASSWORD, GoogleIdentity
 
 logger = logging.getLogger(__name__)
-
-
-class GoogleOAuthServiceError(Exception):
-    """Base class for Google OAuth flow failures."""
-
-
-class GoogleOAuthDisabledError(GoogleOAuthServiceError):
-    pass
-
-
-class GoogleOAuthInvalidStateError(GoogleOAuthServiceError):
-    pass
-
-
-class GoogleOAuthEmailUnverifiedError(GoogleOAuthServiceError):
-    pass
-
-
-class GoogleOAuthLinkConflictError(GoogleOAuthServiceError):
-    """Raised when the Google identity is already linked to a different user."""
-
-
-class GoogleOAuthLastIdentityError(GoogleOAuthServiceError):
-    """Raised when unlinking would leave the user with no login method."""
-
-
-@dataclass(frozen=True)
-class SignInOutcome:
-    user_id: int
-    user_email: str
-    user_role: str
-    session: IssuedSession
-    is_new_user: bool
-
-
-@dataclass(frozen=True)
-class LinkOutcome:
-    user_id: int
-
-
-@dataclass(frozen=True)
-class IdentitySummary:
-    provider: str
-    display: str
-    linked_at: str
-    removable: bool
-
 
 @dataclass
 class GoogleOAuthService:
@@ -134,18 +109,13 @@ class GoogleOAuthService:
                 expected_nonce=pending.nonce,
             )
         except GoogleOAuthError as exc:
-            await audit_log(
-                self.store,
-                AuditEvent.OAUTH_SIGNIN_FAILED,
-                pending.user_id,
-                audit,
-                {"reason": "token_exchange", "detail": str(exc)},
+            await audit_log(self.store, 
+                AuditEvent.OAUTH_SIGNIN_FAILED, pending.user_id, audit, {"reason": "token_exchange", "detail": str(exc)}
             )
             raise GoogleOAuthServiceError("Google sign-in failed — try again.") from exc
 
         if not identity.email_verified:
-            await audit_log(
-                self.store,
+            await audit_log(self.store, 
                 AuditEvent.OAUTH_SIGNIN_FAILED,
                 pending.user_id,
                 audit,
@@ -169,12 +139,11 @@ class GoogleOAuthService:
         )
         if existing_via_identity is not None:
             session = await issue_session(self.store, existing_via_identity.id)
-            await audit_log(
-                self.store,
+            await audit_log(self.store, 
                 AuditEvent.OAUTH_SIGNIN_SUCCEEDED,
                 existing_via_identity.id,
                 audit,
-                {"provider": GOOGLE, "via": "existing_identity"},
+                {"provider": GOOGLE,"via": "existing_identity"},
             )
             return SignInOutcome(
                 user_id=existing_via_identity.id,
@@ -184,6 +153,8 @@ class GoogleOAuthService:
                 is_new_user=False,
             )
 
+        # No Google identity → try auto-link on email match (Google already
+        # verified the email for us, so we trust it).
         existing_via_email = await self.store.get_user_by_email(identity.email)
         if existing_via_email is not None:
             try:
@@ -194,8 +165,9 @@ class GoogleOAuthService:
                     email=identity.email,
                 )
             except IdentityConflictError:
-                await audit_log(
-                    self.store,
+                # Should be impossible (we just checked by sub above), but
+                # handle it as a generic failure rather than crash.
+                await audit_log(self.store, 
                     AuditEvent.OAUTH_SIGNIN_FAILED,
                     existing_via_email.id,
                     audit,
@@ -203,19 +175,17 @@ class GoogleOAuthService:
                 )
                 raise GoogleOAuthServiceError("Sign-in failed — try again.")
             session = await issue_session(self.store, existing_via_email.id)
-            await audit_log(
-                self.store,
+            await audit_log(self.store, 
                 AuditEvent.OAUTH_LINKED,
                 existing_via_email.id,
                 audit,
-                {"provider": GOOGLE, "via": "auto_link_on_email_match"},
+                {"provider": GOOGLE,"via": "auto_link_on_email_match"},
             )
-            await audit_log(
-                self.store,
+            await audit_log(self.store, 
                 AuditEvent.OAUTH_SIGNIN_SUCCEEDED,
                 existing_via_email.id,
                 audit,
-                {"provider": GOOGLE, "via": "linked"},
+                {"provider": GOOGLE,"via": "linked"},
             )
             return SignInOutcome(
                 user_id=existing_via_email.id,
@@ -225,6 +195,7 @@ class GoogleOAuthService:
                 is_new_user=False,
             )
 
+        # Brand new user: create with OAuth sentinel password and seed Google identity.
         try:
             user = await create_user_account(
                 self.store,
@@ -238,8 +209,7 @@ class GoogleOAuthService:
                 ),
             )
         except (AuthConflictError, IdentityConflictError) as exc:
-            await audit_log(
-                self.store,
+            await audit_log(self.store, 
                 AuditEvent.OAUTH_SIGNIN_FAILED,
                 None,
                 audit,
@@ -247,13 +217,17 @@ class GoogleOAuthService:
             )
             raise GoogleOAuthServiceError("Sign-in failed — try again.") from exc
         session = await issue_session(self.store, user.id)
-        await audit_log(self.store, AuditEvent.OAUTH_LINKED, user.id, audit, {"provider": GOOGLE, "via": "signup"})
-        await audit_log(
-            self.store,
+        await audit_log(self.store, 
+            AuditEvent.OAUTH_LINKED,
+            user.id,
+            audit,
+            {"provider": GOOGLE,"via": "signup"},
+        )
+        await audit_log(self.store, 
             AuditEvent.OAUTH_SIGNIN_SUCCEEDED,
             user.id,
             audit,
-            {"provider": GOOGLE, "via": "signup"},
+            {"provider": GOOGLE,"via": "signup"},
         )
         return SignInOutcome(
             user_id=user.id,
@@ -269,27 +243,27 @@ class GoogleOAuthService:
         identity: GoogleIdentity,
         audit: AuditContext,
     ) -> LinkOutcome:
+        # Already linked to someone? 409 via service error.
         existing_owner = await self.store.get_user_by_identity(
             provider=GOOGLE, provider_subject=identity.sub
         )
         if existing_owner is not None and existing_owner.id != user_id:
-            await audit_log(
-                self.store,
+            await audit_log(self.store, 
                 AuditEvent.OAUTH_LINK_REJECTED,
                 user_id,
                 audit,
-                {"provider": GOOGLE, "reason": "already_linked_to_other_user"},
+                {"provider": GOOGLE,"reason": "already_linked_to_other_user"},
             )
             raise GoogleOAuthLinkConflictError(
                 "This Google account is already linked to a different user."
             )
         if existing_owner is not None and existing_owner.id == user_id:
-            await audit_log(
-                self.store,
+            # No-op (already linked) — still audit so the UX isn't silent.
+            await audit_log(self.store, 
                 AuditEvent.OAUTH_LINKED,
                 user_id,
                 audit,
-                {"provider": GOOGLE, "via": "noop_already_linked"},
+                {"provider": GOOGLE,"via": "noop_already_linked"},
             )
             return LinkOutcome(user_id=user_id)
 
@@ -301,15 +275,19 @@ class GoogleOAuthService:
                 email=identity.email,
             )
         except IdentityConflictError as exc:
-            await audit_log(
-                self.store,
+            await audit_log(self.store, 
                 AuditEvent.OAUTH_LINK_REJECTED,
                 user_id,
                 audit,
-                {"provider": GOOGLE, "reason": "conflict"},
+                {"provider": GOOGLE,"reason": "conflict"},
             )
             raise GoogleOAuthLinkConflictError(str(exc)) from exc
-        await audit_log(self.store, AuditEvent.OAUTH_LINKED, user_id, audit, {"provider": GOOGLE, "via": "settings"})
+        await audit_log(self.store, 
+            AuditEvent.OAUTH_LINKED,
+            user_id,
+            audit,
+            {"provider": GOOGLE,"via": "settings"},
+        )
         return LinkOutcome(user_id=user_id)
 
     async def unlink(
@@ -321,7 +299,12 @@ class GoogleOAuthService:
     ) -> None:
         identities = await self.store.list_identities_for_user(user_id)
         if not any(i.provider == provider for i in identities):
+            # Idempotent — already gone.
             return
+        # Guard: at least one other identity must remain, AND if only a
+        # password identity is left, that user must actually have a real
+        # password (not the "!" sentinel). Otherwise the user would be
+        # unable to sign in afterwards.
         remaining = [i for i in identities if i.provider != provider]
         if not remaining:
             raise GoogleOAuthLastIdentityError(
@@ -344,7 +327,11 @@ class GoogleOAuthService:
         for row in rows:
             display = row.email or row.provider_subject
             removable = len(rows) > 1
+            # If only one identity remains and it's the password sentinel,
+            # still report removable=False to match the unlink guard.
             if removable and len(rows) == 2:
+                # Both identities present; consider whether removing this
+                # one would leave only password-sentinel (unusable).
                 other = next(r for r in rows if r is not row)
                 if other.provider == PASSWORD:
                     user = await self.store.get_user_by_id(user_id)

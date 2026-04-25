@@ -1,4 +1,4 @@
-"""Auth process: schemas, errors, DTOs, lifecycle helpers, and service."""
+"""Application service for auth and account lifecycle."""
 
 from __future__ import annotations
 
@@ -10,11 +10,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from pydantic import BaseModel, Field
-
-from backend.audit import AuditContext, audit_log
+from backend.security import email as email_sender
+from backend.security.primitives import hash_password, verify_password
+from backend.security.types import AuthenticatedUser
 from backend.config import (
-    AUTH_TOKEN_TTL_DAYS,
     EMAIL_VERIFICATION_REQUIRED,
     LOGIN_LOCKOUT_DURATION_SECONDS,
     LOGIN_LOCKOUT_MAX_FAILURES,
@@ -22,169 +21,30 @@ from backend.config import (
     REGISTRATION_INVITE_CODE,
     google_oauth_enabled,
 )
+from backend.processes.auth.schemas import (
+    AuthStatusResponse,
+    AuthTokenResponse,
+    AuthUser,
+    RegistrationPendingResponse,
+)
+from backend.processes.auth.errors import (
+    AuthConflictError,
+    AuthCredentialsError,
+    AuthEmailUnverifiedError,
+    AuthLockedError,
+    AuthServiceError,
+    AuthValidationError,
+)
+from backend.security.types import PASSWORD
+from backend.audit import AuditContext, audit_log
+from backend.processes.auth.lifecycle import IdentitySeed, create_user_account, issue_session
+from backend.processes.auth.types import IssuedSession, RegistrationResult
 from backend.persistence import AuditEvent, RuntimeStore
-from backend.security import email as email_sender
-from backend.security.primitives import generate_token, hash_password, verify_password
-from backend.security.types import AuthenticatedUser, PASSWORD
 
 logger = logging.getLogger(__name__)
 
+
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-
-
-class AuthServiceError(Exception):
-    pass
-
-
-class AuthConflictError(AuthServiceError):
-    pass
-
-
-class AuthValidationError(AuthServiceError):
-    pass
-
-
-class AuthCredentialsError(AuthServiceError):
-    pass
-
-
-class AuthLockedError(AuthServiceError):
-    """Raised when an account is temporarily locked after too many failures."""
-
-    def __init__(self, retry_after_seconds: int, message: str = "Account temporarily locked"):
-        super().__init__(message)
-        self.retry_after_seconds = retry_after_seconds
-
-
-class AuthEmailUnverifiedError(AuthServiceError):
-    """Raised when email verification is required and the account is unverified."""
-
-
-class AuthUser(BaseModel):
-    id: int
-    email: str
-    role: str = "user"
-
-
-class AuthStatusResponse(BaseModel):
-    has_users: bool
-    authenticated: bool
-    user: AuthUser | None = None
-    invite_required: bool = False
-    verification_required: bool = False
-    google_oauth_enabled: bool = False
-
-
-class RegisterRequest(BaseModel):
-    email: str = Field(..., min_length=3, max_length=200)
-    password: str = Field(..., min_length=8, max_length=200)
-    invite_code: str | None = Field(None, max_length=200)
-
-
-class LoginRequest(BaseModel):
-    email: str = Field(..., min_length=3, max_length=200)
-    password: str = Field(..., min_length=1, max_length=200)
-
-
-class AuthTokenResponse(BaseModel):
-    token: str
-    user: AuthUser
-
-
-class RegistrationPendingResponse(BaseModel):
-    """Returned from /auth/register when EMAIL_VERIFICATION_REQUIRED=1."""
-
-    status: str = "verification_pending"
-    email: str
-
-
-class VerifyEmailRequest(BaseModel):
-    token: str = Field(..., min_length=16, max_length=128)
-
-
-class ResendVerificationRequest(BaseModel):
-    email: str = Field(..., min_length=3, max_length=200)
-
-
-class PasswordChangeRequest(BaseModel):
-    current_password: str = Field(..., min_length=1, max_length=200)
-    new_password: str = Field(..., min_length=8, max_length=200)
-
-
-class DeleteAccountRequest(BaseModel):
-    password: str = Field(..., min_length=1, max_length=200)
-
-
-class AuthOkResponse(BaseModel):
-    ok: bool
-
-
-@dataclass
-class IssuedSession:
-    token: str
-    expires_at: datetime
-
-
-@dataclass
-class RegistrationResult:
-    user: object
-    session: IssuedSession | None = None
-    verification_token: str | None = None
-
-
-@dataclass(frozen=True)
-class IdentitySeed:
-    provider: str
-    provider_subject: str
-    email: str | None = None
-    required: bool = True
-
-
-async def issue_session(store: RuntimeStore, user_id: int) -> IssuedSession:
-    token = generate_token()
-    expires_at = datetime.now(timezone.utc) + timedelta(days=AUTH_TOKEN_TTL_DAYS)
-    await store.create_auth_session(
-        token=token,
-        user_id=user_id,
-        expires_at=expires_at.isoformat(),
-    )
-    return IssuedSession(token=token, expires_at=expires_at)
-
-
-async def create_user_account(
-    store: RuntimeStore,
-    *,
-    email: str,
-    password_hash: str,
-    verified: bool,
-    identity: IdentitySeed | None = None,
-):
-    if await store.get_user_by_email(email) is not None:
-        raise AuthConflictError("An account with this email already exists.")
-    is_first_user = await store.count_users() == 0
-    role = "admin" if is_first_user else "user"
-    verified_at = datetime.now(timezone.utc).isoformat() if verified else None
-    user = await store.create_user(
-        email=email,
-        password_hash=password_hash,
-        role=role,
-        email_verified_at=verified_at,
-    )
-    if identity is not None:
-        try:
-            await store.create_identity(
-                user_id=user.id,
-                provider=identity.provider,
-                provider_subject=identity.provider_subject,
-                email=identity.email,
-            )
-        except Exception:
-            if identity.required:
-                raise
-            logger.exception("Failed to seed %s identity for user %d", identity.provider, user.id)
-    if is_first_user:
-        await store.backfill_orphan_ownership(user.id)
-    return user
 
 
 def _to_auth_user(user: AuthenticatedUser | object) -> AuthUser:
@@ -265,6 +125,9 @@ class AuthService:
         dummy_hash = "$2b$12$CwTycUXWue0Thq9StjUM0uJ8.zYtCbCpTqiq2CkP.QrTq3QSnGXFm"
         target_hash = user.password_hash if user else dummy_hash
 
+        # Progressive delay — each prior failure adds a small sleep that
+        # resets on success. Deliberate UX friction that makes password
+        # spraying uneconomic without blocking legit users.
         failures = await self.store.get_login_failures(normalized)
         delay = _progressive_delay(failures.failure_count if failures else 0)
         if delay > 0:
@@ -323,6 +186,9 @@ class AuthService:
         record = await self.store.get_user_by_id(user.id)
         if record is None or not verify_password(password, record.password_hash):
             raise AuthCredentialsError("Password is incorrect")
+        # Audit the deletion BEFORE the row is gone so the user_id reference
+        # points at a live user in the log; SET NULL on cascade keeps the row
+        # afterward with user_id=null for historical context.
         await audit_log(self.store, AuditEvent.ACCOUNT_DELETED, user.id, audit, {"email": record.email})
         filenames = await self.store.delete_user(user.id)
         for filename in filenames:
@@ -378,6 +244,8 @@ class AuthService:
             logger.exception("Resend verification failed for %s", normalized)
         await audit_log(self.store, AuditEvent.VERIFICATION_RESENT, user.id, audit, {})
 
+    # ---------------- internals ----------------
+
     async def _check_lockout(self, email: str) -> None:
         failures = await self.store.get_login_failures(email)
         if failures is None or failures.locked_until is None:
@@ -398,6 +266,8 @@ class AuthService:
             )
 
     async def _record_login_failure(self, email: str, audit: AuditContext) -> None:
+        """Record a failed attempt, roll over the counter if the window
+        elapsed, and set lockout when the threshold is hit."""
         existing = await self.store.get_login_failures(email)
         now = datetime.now(timezone.utc)
         reset_count = False
@@ -417,14 +287,21 @@ class AuthService:
         await self.store.record_login_failure(
             email, locked_until=locked_until, reset_count=reset_count
         )
+        # Audit regardless of whether the email exists — enumeration timing
+        # is already mitigated by the dummy-hash fallback, and the entry lets
+        # us spot password-spray attacks across multiple unknown emails.
         user = await self.store.get_user_by_email(email)
         meta = {"email": email, "failure_count": projected_count, "locked": locked_until is not None}
         event_type = AuditEvent.LOGIN_LOCKED if locked_until else AuditEvent.LOGIN_FAILURE
         await audit_log(self.store, event_type, user.id if user else None, audit, meta)
 
 
+
 def _progressive_delay(failure_count: int) -> float:
-    """Exponential backoff, capped at 4 seconds."""
+    """Exponential backoff, capped at 4 seconds.
+
+    0 failures → 0s, 1 → 0.25s, 2 → 0.5s, 3 → 1s, 4 → 2s, 5+ → 4s.
+    """
     if failure_count <= 0:
         return 0.0
     return min(2 ** (failure_count - 1) * 0.25, 4.0)

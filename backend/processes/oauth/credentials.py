@@ -5,11 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from backend.security import encryption
-from backend.processes.oauth.codex import (
+from backend.processes.oauth.codex.credentials import (
     resolve_access_token as resolve_codex_access_token,
 )
 from backend.providers import get_provider
-from backend.processes.oauth.codex import CodexCredentialError
+from backend.processes.oauth.codex.errors import CodexCredentialError
 from backend.processes.oauth.errors import CredentialServiceError
 from backend.persistence import RuntimeStore
 from backend.runtime_state import PerUserLockRegistry

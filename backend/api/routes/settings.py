@@ -21,16 +21,16 @@ from backend.processes.settings import (
     IdentitySummaryResponse,
     LinkGoogleStartResponse,
 )
-from backend.processes.oauth.codex import (
+from backend.processes.oauth.codex.errors import (
     CodexOAuthUnknownFlowError,
     CodexOAuthUpstreamError,
 )
-from backend.processes.oauth.codex import (
+from backend.processes.oauth.codex.schemas import (
     CodexOAuthStartResponse,
     CodexOAuthStatusResponse,
 )
-from backend.processes.oauth.codex import CodexOAuthService
-from backend.processes.oauth.google import (
+from backend.processes.oauth.codex.service import CodexOAuthService
+from backend.processes.oauth.google.errors import (
     GoogleOAuthDisabledError,
     GoogleOAuthLastIdentityError,
     GoogleOAuthLinkConflictError,
@@ -40,7 +40,7 @@ from backend.processes.settings import (
     SettingsNotFoundError,
     SettingsServiceError,
 )
-from backend.processes.oauth.google import GoogleOAuthService
+from backend.processes.oauth.google.service import GoogleOAuthService
 from backend.processes.settings import SettingsService
 
 # CSRF applies to mutating routes on this router; the GET /api-keys listing

@@ -75,12 +75,12 @@ backend/
 │   ├── logging.py                #   setup_logging + secret-redacting filter
 │   ├── process_state.py          #   AppProcessState + API-facing limiters
 │   └── rate_limit.py             #   per-IP RateLimiter + concurrency limiter
-├── processes/                    # App-process modules: services, DTOs, schemas, errors
-│   ├── auth.py                   #   register / login / logout / password / delete / verify / resend
-│   ├── chat.py                   #   chat orchestration and response aggregation
+├── processes/                    # App-process modules/packages: services, DTOs, schemas, errors
+│   ├── auth/                     #   register / login / logout / password / delete / verify / resend
+│   ├── chat/                     #   chat orchestration and response aggregation
 │   ├── conversations.py          #   list / transcript / patch / delete orchestration
 │   ├── exports.py                #   CSV library CRUD
-│   ├── oauth/                    #   OAuth credentials plus Codex/Google flows
+│   ├── oauth/                    #   credentials.py plus Codex/Google flow packages
 │   ├── providers.py              #   provider response models
 │   └── settings.py               #   per-user API key CRUD + linked identity services
 ├── agent/                        # Chat runtime loop, events, prompt, compaction
@@ -137,7 +137,7 @@ Multi-user password auth with open signup. First registrant becomes `role='admin
 
 **Password handling**: bcrypt cost 12. Failed logins tracked per-email with progressive delay (0s → 0.25s → 0.5s → 1s → 2s → 4s cap) and hard lockout after `LOGIN_LOCKOUT_MAX_FAILURES` (default 10) attempts for `LOGIN_LOCKOUT_DURATION_SECONDS` (default 900s). Layered on top of the per-IP rate limiter.
 
-**Email verification**: optional (`EMAIL_VERIFICATION_REQUIRED=1`). When on, `/auth/register` returns 202 `{status: "verification_pending"}` instead of a session, a verification link is mailed via Resend, and `/auth/login` rejects unverified accounts until `/auth/verify-email` consumes the token. OAuth-verified identities (future Google login) skip this gate via `_create_user_from_verified_identity(verified=True)`.
+**Email verification**: optional (`EMAIL_VERIFICATION_REQUIRED=1`). When on, `/auth/register` returns 202 `{status: "verification_pending"}` instead of a session, a verification link is mailed via Resend, and `/auth/login` rejects unverified accounts until `/auth/verify-email` consumes the token. OAuth-verified identities skip this gate via `create_user_account(..., verified=True)` in `backend/processes/auth/lifecycle.py`.
 
 **API keys**: Per-user, Fernet-encrypted at rest with the master key in `SETTINGS_ENCRYPTION_KEY`. Plaintext is never returned by any endpoint; ciphertext is decrypted only server-side when invoking the LLM.
 
@@ -169,7 +169,7 @@ Shipped 2026-04-23. Users can sign up / sign in with Google, and existing passwo
 - Both routes are GETs (browser navigation) and CSRF-exempt by the usual safe-method rule — the `state` parameter is the anti-CSRF for the callback. Session cookies from the rest of the app still travel (SameSite=Lax), which is how the callback can tell a link flow (user_id in pending row) from a sign-in flow.
 - `security_events` gains `oauth_signin_started`, `oauth_signin_succeeded`, `oauth_signin_failed`, `oauth_link_started`, `oauth_linked`, `oauth_unlinked`, `oauth_link_rejected`.
 
-**Files:** `backend/security/google_oauth.py` (OAuth primitives + ID-token verification), `backend/persistence/users/user_identities.py` (mixin), `backend/processes/oauth/google.py` (flow orchestration), `backend/api/routes/oauth_google.py` (endpoints), `backend/api/routes/settings.py` (link/unlink + list), and `backend/api/session.py` for shared session cookie behavior.
+**Files:** `backend/security/google_oauth.py` (OAuth primitives + ID-token verification), `backend/persistence/users/user_identities.py` (mixin), `backend/processes/oauth/google/service.py` (flow orchestration), `backend/api/routes/oauth_google.py` (endpoints), `backend/api/routes/settings.py` (link/unlink + list), and `backend/api/session.py` for shared session cookie behavior.
 
 **Env vars:**
 - `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` — set via Google Cloud Console. The "Continue with Google" button and `/auth/oauth/google/*` routes only appear when both are set.

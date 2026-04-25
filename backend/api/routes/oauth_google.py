@@ -25,14 +25,14 @@ from backend.api.dependencies import (
 from backend.api.request_context import audit_from_request
 from backend.api.session import set_auth_cookies
 from backend.api.process_state import AppProcessState
-from backend.processes.oauth.google import (
+from backend.processes.oauth.google.errors import (
     GoogleOAuthDisabledError,
     GoogleOAuthEmailUnverifiedError,
     GoogleOAuthInvalidStateError,
     GoogleOAuthServiceError,
 )
-from backend.processes.oauth.google import GoogleOAuthService
-from backend.processes.oauth.google import SignInOutcome
+from backend.processes.oauth.google.service import GoogleOAuthService
+from backend.processes.oauth.google.types import SignInOutcome
 
 logger = logging.getLogger(__name__)
 
