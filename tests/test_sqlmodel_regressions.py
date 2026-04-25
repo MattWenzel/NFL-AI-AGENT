@@ -4,8 +4,8 @@ import asyncio
 
 import pytest
 
-from server.services.conversations import ConversationService
-from storage import RuntimeStore
+from app.processes.conversations.service import ConversationService
+from core.persistence import RuntimeStore
 
 
 @pytest.fixture

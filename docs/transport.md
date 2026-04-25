@@ -257,7 +257,7 @@ API routes registered above the static mount take precedence — `/health`, `/ch
 
 - `load_dotenv()` — pulls `.env` into the process environment.
 - `setup_logging(verbose=args.verbose)` — DEBUG when `--verbose`, else WARNING. `NFLVERSE_VERBOSE=1` propagates into the reloaded worker process.
-- `uvicorn.run("server.app:app", host=HOST, port=PORT, reload=True, proxy_headers=True, forwarded_allow_ips=...)`.
+- `uvicorn.run("app.main:app", host=HOST, port=PORT, reload=True, proxy_headers=True, forwarded_allow_ips=...)`.
 
 Key options:
 

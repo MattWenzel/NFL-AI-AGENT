@@ -2,7 +2,7 @@
 
 import pytest
 
-from provider.overflow import is_context_overflow
+from core.providers.overflow import is_context_overflow
 
 
 @pytest.mark.parametrize(

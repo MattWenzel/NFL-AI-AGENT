@@ -59,7 +59,7 @@ sessions                              ── one row per conversation
 turns                                 ── one row per user/assistant/summary message
 ├─ id, session_id, role, status
 ├─ text, error
-├─ input_tokens, output_tokens        ── from provider usage; drives compaction
+├─ input_tokens, output_tokens        ── from core.providers usage; drives compaction
 ├─ compacted                          ── 0 active, 1 dropped from prompt
 └─ created_at, updated_at
 

@@ -19,21 +19,22 @@ from dataclasses import dataclass
 import pytest
 from cryptography.fernet import Fernet
 
-from auth import google_oauth as google_oauth_module
-from auth import encryption
-from auth.primitives import verify_password
-from server.services import auth as auth_service_module
-from server.services.auth import AuthService
-from server.services.errors import (
+from core.auth import google_oauth as google_oauth_module
+from core.auth import encryption
+from core.auth.primitives import verify_password
+from app.processes.auth import service as auth_service_module
+from app.processes.auth.service import AuthService
+from app.processes.oauth.google.errors import (
     GoogleOAuthEmailUnverifiedError,
     GoogleOAuthInvalidStateError,
     GoogleOAuthLastIdentityError,
     GoogleOAuthLinkConflictError,
 )
-from server.services.google_oauth import GoogleOAuthService
-from server.services.types import AuditContext, LinkOutcome, SignInOutcome
-from server.process_state import PendingGoogleOAuthFlows
-from storage import RuntimeStore
+from app.processes.oauth.google.service import GoogleOAuthService
+from app.processes.auth.types import AuditContext
+from app.processes.oauth.google.types import LinkOutcome, SignInOutcome
+from app.bootstrap.process_state import PendingGoogleOAuthFlows
+from core.persistence import RuntimeStore
 
 
 @pytest.fixture(autouse=True)
@@ -56,8 +57,8 @@ def _google_env(monkeypatch):
     # Patch the service's view of the client id/secret — the service reads
     # via imports from `config`. Patching the module attributes directly
     # keeps tests from depending on process env.
-    import config
-    from server.services import google_oauth as svc_mod
+    import core.config as config
+    from app.processes.oauth.google import service as svc_mod
 
     monkeypatch.setattr(config, "GOOGLE_OAUTH_CLIENT_ID", "test-client-id")
     monkeypatch.setattr(config, "GOOGLE_OAUTH_CLIENT_SECRET", "test-client-secret")

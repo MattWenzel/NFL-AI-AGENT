@@ -24,7 +24,7 @@ data/codex_auth.json
 AGENT.md
 
 # CSV exports (generated at runtime)
-exports/
+/exports/
 
 # NFLVERSE subproject (separate repo)
 NFLVERSE/

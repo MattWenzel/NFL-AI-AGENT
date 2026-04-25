@@ -20,16 +20,16 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from cryptography.fernet import Fernet
-from auth.primitives import generate_token, hash_password, verify_password
+from core.auth.primitives import generate_token, hash_password, verify_password
 from tests.app_factory import build_test_app, managed_test_client
-from server.routes.auth import router as auth_router
-from server.services import auth as auth_service_module
-from server.routes.conversations import router as conversations_router
-from server.routes.csv_library import router as csvs_router
-from server.routes.providers import router as providers_router
-from server.routes.settings import router as settings_router
-from auth import encryption
-from storage import RuntimeStore
+from app.processes.auth.routes import router as auth_router
+from app.processes.auth import service as auth_service_module
+from app.processes.conversations.routes import router as conversations_router
+from app.processes.exports.routes import router as csvs_router
+from app.processes.providers.routes import router as providers_router
+from app.processes.settings.routes import router as settings_router
+from core.auth import encryption
+from core.persistence import RuntimeStore
 
 
 @pytest.fixture(autouse=True)
@@ -61,7 +61,7 @@ def _disable_google_oauth(monkeypatch):
     expects the default-off state. Null the module-level values so the default
     for this file is "OAuth disabled"; tests that exercise the OAuth path
     re-set them explicitly."""
-    import config as _config
+    import core.config as _config
     monkeypatch.setattr(_config, "GOOGLE_OAUTH_CLIENT_ID", None)
     monkeypatch.setattr(_config, "GOOGLE_OAUTH_CLIENT_SECRET", None)
 
@@ -182,7 +182,7 @@ class TestStoreCRUD:
         rec = await store.create_auth_session(token="tok", user_id=u.id, expires_at=future)
         stale = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
         from sqlalchemy import update as sa_update
-        from storage.models import AuthSessionRecord
+        from core.persistence.models import AuthSessionRecord
         async with store._async_session() as session:
             await session.execute(
                 sa_update(AuthSessionRecord)
@@ -460,7 +460,7 @@ class TestIDOR:
         assert await store.get_session("aaa-session", user_id=u_a.id) is not None
 
     async def test_cross_user_rename_csv_returns_404(self, full_client, store):
-        from storage import ExportRecord  # noqa: F401
+        from core.persistence import ExportRecord  # noqa: F401
         u_a = await store.create_user(email="a@e.com", password_hash=hash_password("pw"))
         rec = await store.register_export(
             filename="x.csv", title="A's CSV", sql="SELECT 1",
@@ -469,7 +469,7 @@ class TestIDOR:
         )
         # register_export only assigns user_id if source_session exists; set manually for A.
         from sqlalchemy import update as sa_update
-        from storage.models import ExportRecord as _ExportRecord
+        from core.persistence.models import ExportRecord as _ExportRecord
         async with store._async_session() as session:
             await session.execute(
                 sa_update(_ExportRecord)
@@ -498,7 +498,7 @@ class TestOrphanRows:
 
     async def test_count_orphan_rows_detects_nulls(self, store):
         # Insert a session without a user_id to simulate pre-auth orphan data.
-        from storage.models import SessionRecord as _SessionRecord
+        from core.persistence.models import SessionRecord as _SessionRecord
         now = datetime.now(timezone.utc).isoformat()
         async with store._async_session() as session:
             session.add(_SessionRecord(

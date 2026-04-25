@@ -26,14 +26,14 @@ import time
 import httpx
 import pytest
 from cryptography.fernet import Fernet
-from auth.types import AuthenticatedUser
-from server.dependencies import get_current_user
+from core.auth.types import AuthenticatedUser
+from app.bootstrap.dependencies import get_current_user
 from tests.app_factory import build_test_app, managed_test_client
-from server.routes.codex_oauth import router as codex_router
-from auth import codex_oauth, encryption
-from auth.errors import CodexOAuthError, DeviceCodeExpired
-from auth.types import TokenBundle
-from auth.codex_oauth import (
+from app.processes.oauth.codex.routes import router as codex_router
+from core.auth import codex_oauth, encryption
+from core.auth.errors import CodexOAuthError, DeviceCodeExpired
+from core.auth.types import TokenBundle
+from core.auth.codex_oauth import (
     _compute_expires_at,
     _decode_jwt_payload,
     bundle_from_json,
@@ -44,10 +44,10 @@ from auth.codex_oauth import (
     poll_device_code,
     refresh_access_token,
 )
-from server.services.codex_oauth import CodexOAuthService
-from storage import RuntimeStore
-from provider.types import StopReason
-from provider.clients.codex import OpenAICodexClient
+from app.processes.oauth.codex.service import CodexOAuthService
+from core.persistence import RuntimeStore
+from core.providers.types import StopReason
+from core.providers.clients.codex import OpenAICodexClient
 
 
 # ---------------- helpers ----------------
@@ -509,7 +509,7 @@ def _make_app(store: RuntimeStore, user_id: int, email: str):
 
 def _patch_device_flow(monkeypatch, user_code="USER-CODE"):
     """Stub out the OpenAI device-code call and the background poller."""
-    from auth.types import DeviceCodeStart
+    from core.auth.types import DeviceCodeStart
     start = DeviceCodeStart(
         device_auth_id="dev-1",
         user_code=user_code,

@@ -8,9 +8,9 @@ without actually calling the SDK.
 
 from __future__ import annotations
 
-from provider.clients.anthropic import AnthropicClient, _ANTHROPIC_TOOL_CHOICE
-from provider.clients.codex import OpenAICodexClient
-from provider.clients.openai import OpenAIClient
+from core.providers.clients.anthropic import AnthropicClient, _ANTHROPIC_TOOL_CHOICE
+from core.providers.clients.codex import OpenAICodexClient
+from core.providers.clients.openai import OpenAIClient
 
 
 def _anthropic_kwargs(tool_choice):

@@ -5,8 +5,8 @@ from contextlib import contextmanager
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from agent.runtime import ChatRuntime
-from server.process_state import AppProcessState
+from core.agent.runtime import ChatRuntime
+from app.bootstrap.process_state import AppProcessState
 
 
 def build_test_app(*, runtime_store=None) -> FastAPI:
