@@ -1,14 +1,14 @@
 import { registerRenderHook, requestRender, state } from "../core/state.js";
-import { bootAuth, getCurrentUser, handleUnauthorized, setPostLoginInit, signOut } from "../processes/auth/service.js";
+import { bootAuth, getCurrentUser, handleUnauthorized, setPostLoginInit, signOut } from "../features/auth/service.js";
 import { loadProviders, loadTranscript, refreshConversations, refreshCsvs } from "../core/api.js";
-import { renderCsvList } from "../processes/exports/service.js";
-import { setInspectorOpen } from "../processes/inspector/service.js";
-import { setSidebarView } from "../processes/navigation/sidebar.js";
+import { renderCsvList } from "../features/exports/service.js";
+import { setInspectorOpen } from "../features/inspector/service.js";
+import { setSidebarView } from "../features/navigation/sidebar.js";
 import { render } from "./render.js";
-import { renderConversationList, startNewSession } from "../processes/conversations/sidebar.js";
-import { openSettingsModal, closeSettingsModal } from "../processes/settings/service.js";
-import { sendMessage } from "../processes/chat/streaming.js";
-import { fillSuggestion, onModelChange, onProviderChange, onToolChoiceChange, sendSuggestion } from "../processes/chat/thread.js";
+import { renderConversationList, startNewSession } from "../features/conversations/sidebar.js";
+import { openSettingsModal, closeSettingsModal } from "../features/settings/service.js";
+import { sendMessage } from "../features/chat/streaming.js";
+import { fillSuggestion, onModelChange, onProviderChange, onToolChoiceChange, sendSuggestion } from "../features/chat/thread.js";
 import { autoResize, copyTextFromNode, escapeHtml, setUnauthorizedHandler } from "../core/utils.js";
 
 document.getElementById("themeToggle").addEventListener("click", () => {

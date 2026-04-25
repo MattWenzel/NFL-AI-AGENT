@@ -58,7 +58,7 @@ The chat runtime is transcript-backed: sessions, turns, assistant parts, tool ru
 
 ### Architecture
 
-Top-level split: `backend/` holds the Python server, `frontend/` holds the browser UI. Inside `backend/`, `server/` is the FastAPI HTTP boundary and process-local server lifecycle, `features/` holds app-process services and DTOs, `storage/` owns runtime persistence, and `credentials/` owns auth/security primitives. Reusable subsystems are named directly (`agent/`, `providers/`, `tools/`). The frontend still mirrors the process-slice convention for its JS modules.
+Top-level split: `backend/` holds the Python server, `frontend/` holds the browser UI. Inside `backend/`, `server/` is the FastAPI HTTP boundary and process-local server lifecycle, `features/` holds app-process services and DTOs, `storage/` owns runtime persistence, and `credentials/` owns auth/security primitives. Reusable subsystems are named directly (`agent/`, `providers/`, `tools/`). The frontend still mirrors the feature-slice convention for its JS modules.
 
 ```
 backend/
@@ -97,12 +97,12 @@ frontend/                         # Browser UI (served at / by FastAPI; assets u
     ├── css/
     │   ├── base/                 #     theme, layout
     │   ├── components/           #     sidebar, composer
-    │   └── processes/            #     chat, exports, inspector, settings
+    │   └── features/             #     chat, exports, inspector, settings
     └── js/
         ├── app/                  #     main.js (boot + event wiring), render.js (top-level render orchestrator)
         ├── core/                 #     api.js, state.js, utils.js, charts.js
         ├── components/           #     small reusable widgets (e.g. confirm dialog)
-        └── processes/            #     mirrors backend processes; UI-only siblings (inspector, navigation) live here too
+        └── features/             #     mirrors backend features; UI-only siblings (inspector, navigation) live here too
             ├── auth/             #       sign-in / sign-up flow
             ├── chat/             #       streaming + thread rendering
             ├── conversations/    #       sidebar list + open

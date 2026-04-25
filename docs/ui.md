@@ -9,15 +9,15 @@ This doc covers the boot flow, state shape, SSE consumption, the `patchLiveText`
 - `frontend/index.html` — HTML shell, static CSS links, and `static/js/app/main.js`.
 - `frontend/static/js/app/` — boot, event wiring, and the top-level render orchestrator.
 - `frontend/static/js/core/` — shared state/render hook, fetch helpers, markdown/DOM utilities, Chart.js lifecycle.
-- `frontend/static/js/processes/auth/` — session UI state, `/auth/status` boot, login/register screens.
-- `frontend/static/js/processes/chat/` — composer controls, SSE streaming, transcript rendering, live-turn fast path.
-- `frontend/static/js/processes/conversations/` — conversation sidebar list and selection/deletion flows.
-- `frontend/static/js/processes/exports/` — CSV/report list, preview, rename/delete, download, seed-new-chat flows.
-- `frontend/static/js/processes/inspector/` — runtime inspector panel.
-- `frontend/static/js/processes/navigation/` — sidebar tab switching and drawer state.
-- `frontend/static/js/processes/settings/` — settings modal, provider credentials, linked identities, Codex OAuth device flow.
+- `frontend/static/js/features/auth/` — session UI state, `/auth/status` boot, login/register screens.
+- `frontend/static/js/features/chat/` — composer controls, SSE streaming, transcript rendering, live-turn fast path.
+- `frontend/static/js/features/conversations/` — conversation sidebar list and selection/deletion flows.
+- `frontend/static/js/features/exports/` — CSV/report list, preview, rename/delete, download, seed-new-chat flows.
+- `frontend/static/js/features/inspector/` — runtime inspector panel.
+- `frontend/static/js/features/navigation/` — sidebar tab switching and drawer state.
+- `frontend/static/js/features/settings/` — settings modal, provider credentials, linked identities, Codex OAuth device flow.
 - `frontend/static/js/components/` — small reusable widgets such as confirm dialogs.
-- `frontend/static/css/base/`, `components/`, `processes/` — CSS grouped by the same high-level ownership.
+- `frontend/static/css/base/`, `components/`, `features/` — CSS grouped by the same high-level ownership.
 
 The browser loads only `static/js/app/main.js`; native ES module imports pull in the rest. Relative import paths now encode ownership, so missing paths fail loudly in the browser console.
 
@@ -27,7 +27,7 @@ The browser loads only `static/js/app/main.js`; native ES module imports pull in
 
 ```
 boot()
-  ├─ bootAuth()                        # auth.js:62
+  ├─ bootAuth()                        # features/auth/service.js
   │    ├─ fetch /auth/status with the session cookie
   │    ├─ if authenticated: hideAuthScreen, return true
   │    └─ else: renderAuthScreen(login|register), return false
@@ -139,7 +139,7 @@ The browser uses an HttpOnly `session` cookie plus a JS-readable `csrf_token` co
 
 ### Cross-tab sync
 
-`auth.js`. A `storage` event listener watches the `nfl_auth_state` marker key. If another tab signs in or out, the current tab reloads. This covers:
+`features/auth/service.js`. A `storage` event listener watches the `nfl_auth_state` marker key. If another tab signs in or out, the current tab reloads. This covers:
 
 - User signs out in tab A → tab B reloads to the auth screen.
 - User signs in as someone else in tab A → tab B reloads with the new identity.
@@ -148,7 +148,7 @@ Full `location.reload()` rather than cleanup-in-place. Cleanup would need to cha
 
 ### `handleUnauthorized`
 
-`auth.js`. Registered in `main.js` through `setUnauthorizedHandler(handleUnauthorized)`. Fetch helpers and streaming call the core `handleUnauthorizedResponse()` hook when a protected request returns 401. The auth handler sets `_currentUser = null` and shows the auth screen **without a page reload** — preserves any draft text the user was composing in the message input.
+`features/auth/service.js`. Registered in `main.js` through `setUnauthorizedHandler(handleUnauthorized)`. Fetch helpers and streaming call the core `handleUnauthorizedResponse()` hook when a protected request returns 401. The auth handler sets `_currentUser = null` and shows the auth screen **without a page reload** — preserves any draft text the user was composing in the message input.
 
 ## Inspector and Thread rendering
 
@@ -174,7 +174,7 @@ Toggled via `inspectorOpen` state. On mobile, rendered as a drawer over the thre
 
 ## Settings modal
 
-`settings.js`. Two tabs, Providers and Account.
+`features/settings/service.js`. Two tabs, Providers and Account.
 
 ### Providers tab
 

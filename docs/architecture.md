@@ -21,7 +21,7 @@ One user message drives one call to `ChatRuntime.run_session`, which drives the 
 Top-level folders are organized by product surface, then by process/capability:
 
 ```
-backend/server/       FastAPI shell, dependency wiring, and process-sliced routes
+backend/server/       FastAPI shell, dependency wiring, and feature-sliced routes
 backend/features/ App-process services, schemas, DTOs, and errors
 backend/agent/     Chat runtime loop, turn state, events, prompts, compaction
 backend/providers/ LLM provider registry, shared provider types, concrete clients
@@ -50,7 +50,7 @@ Following a single message from the browser back to the browser:
 
 ```
  ┌── UI ─────────────────────────────┐
- │ sendMessage()                     │        frontend/static/js/processes/chat/streaming.js:1
+ │ sendMessage()                     │        frontend/static/js/features/chat/streaming.js:1
  │  ├─ fetch /chat/stream            │
  │  └─ read SSE events, render       │
  └───────────────────────────────────┘

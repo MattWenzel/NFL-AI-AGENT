@@ -1,10 +1,10 @@
 import { state } from "../core/state.js";
-import { renderCsvList, renderCsvViewer } from "../processes/exports/service.js";
+import { renderCsvList, renderCsvViewer } from "../features/exports/service.js";
 import { destroyAllCharts, mountPendingCharts } from "../core/charts.js";
-import { renderInspector } from "../processes/inspector/service.js";
-import { applySidebarView } from "../processes/navigation/sidebar.js";
-import { renderConversationList } from "../processes/conversations/sidebar.js";
-import { renderProviderControls, renderSessionHeader, renderThread } from "../processes/chat/thread.js";
+import { renderInspector } from "../features/inspector/service.js";
+import { applySidebarView } from "../features/navigation/sidebar.js";
+import { renderConversationList } from "../features/conversations/sidebar.js";
+import { renderProviderControls, renderSessionHeader, renderThread } from "../features/chat/thread.js";
 
 function renderMain() {
   const mainEl = document.querySelector(".main");
