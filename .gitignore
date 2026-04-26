@@ -35,5 +35,6 @@ tests/__pycache__/
 # Ad-hoc experiments (local research notebooks + raw SSE captures)
 experiments/
 
-# Claude Code local config
-.claude/
+# Claude Code local config — keep shared skills tracked, ignore everything else
+.claude/*
+!.claude/skills/
