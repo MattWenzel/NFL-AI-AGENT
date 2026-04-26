@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Menu, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -44,6 +44,23 @@ export function AppShell({ sidebar, main, inspector, inspectorAvailable = false 
   useEffect(() => {
     if (inspectorAvailable) setDesktopInspectorOpen(true)
   }, [inspectorAvailable])
+
+  // Close the desktop inspector when a click lands outside of it. Only
+  // attached while the pane is open. Tool rows / message clicks already
+  // stopPropagation, so they keep the pane open even though they live
+  // outside this ref.
+  const inspectorRef = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    if (!desktopInspectorOpen) return
+    const onClick = (e: MouseEvent) => {
+      const target = e.target
+      if (!(target instanceof Node)) return
+      if (inspectorRef.current?.contains(target)) return
+      setDesktopInspectorOpen(false)
+    }
+    document.addEventListener('click', onClick)
+    return () => document.removeEventListener('click', onClick)
+  }, [desktopInspectorOpen])
 
   const ctx: LayoutCtx = {
     desktopSidebarOpen,
@@ -109,6 +126,7 @@ export function AppShell({ sidebar, main, inspector, inspectorAvailable = false 
           ) : null}
 
           <aside
+            ref={inspectorRef}
             className={cn(
               'hidden lg:flex shrink-0 flex-col border-l border-border bg-card transition-[width] duration-200 ease-out',
               desktopInspectorOpen ? 'w-[360px]' : 'w-0',
