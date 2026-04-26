@@ -6,7 +6,9 @@ import { Input } from '@/components/ui/input'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { ConversationRow } from '@/components/sidebar/ConversationRow'
 import { UserWidget } from '@/components/sidebar/UserWidget'
+import { ExportRow } from '@/components/exports/ExportRow'
 import { useChatContext } from '@/lib/chatContext'
+import { useExports } from '@/lib/exportsStore'
 import type { AuthUser } from '@/lib/auth'
 
 interface SidebarProps {
@@ -15,10 +17,21 @@ interface SidebarProps {
   onOpenSettings?: () => void
   onNewChat?: () => void
   onOpenConversation?: (id: string) => void
+  activeExportId?: string | null
+  onOpenExport?: (id: string) => void
 }
 
-export function Sidebar({ user, onLogout, onOpenSettings, onNewChat, onOpenConversation }: SidebarProps) {
+export function Sidebar({
+  user,
+  onLogout,
+  onOpenSettings,
+  onNewChat,
+  onOpenConversation,
+  activeExportId,
+  onOpenExport,
+}: SidebarProps) {
   const chat = useChatContext()
+  const exportsStore = useExports()
   const [query, setQuery] = useState('')
 
   const filtered = useMemo(() => {
@@ -26,6 +39,12 @@ export function Sidebar({ user, onLogout, onOpenSettings, onNewChat, onOpenConve
     const q = query.trim().toLowerCase()
     return chat.conversations.filter((c) => c.title.toLowerCase().includes(q))
   }, [chat.conversations, query])
+
+  const filteredExports = useMemo(() => {
+    if (!query.trim()) return exportsStore.exports
+    const q = query.trim().toLowerCase()
+    return exportsStore.exports.filter((e) => e.title.toLowerCase().includes(q))
+  }, [exportsStore.exports, query])
 
   const { pinned, recent } = useMemo(() => {
     const p = filtered.filter((c) => !!c.pinned_at)
@@ -103,7 +122,25 @@ export function Sidebar({ user, onLogout, onOpenSettings, onNewChat, onOpenConve
           value="reports"
           className="m-0 flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-2"
         >
-          <SidebarMessage label="No CSV exports yet" />
+          {exportsStore.status === 'loading' ? (
+            <SidebarMessage label="Loading…" />
+          ) : exportsStore.status === 'error' ? (
+            <SidebarMessage label="Couldn't load reports" />
+          ) : filteredExports.length === 0 ? (
+            <SidebarMessage label={query ? 'No matches' : 'No CSV exports yet'} />
+          ) : (
+            <ul className="space-y-px py-1">
+              {filteredExports.map((item) => (
+                <ExportRow
+                  key={item.id}
+                  item={item}
+                  active={activeExportId === item.id}
+                  onPick={onOpenExport}
+                  onDelete={exportsStore.remove}
+                />
+              ))}
+            </ul>
+          )}
         </TabsContent>
       </Tabs>
 

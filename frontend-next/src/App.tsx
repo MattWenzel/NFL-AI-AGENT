@@ -10,6 +10,7 @@ import { ThemeProvider } from '@/components/theme/ThemeProvider'
 import { Toaster } from '@/components/ui/sonner'
 import { AuthWall } from '@/components/auth/AuthWall'
 import { SettingsModal } from '@/components/settings/SettingsModal'
+import { CsvViewer } from '@/components/exports/CsvViewer'
 import { useAuth, type AuthUser } from '@/lib/auth'
 import { ChatProvider, useChatContext } from '@/lib/chatContext'
 
@@ -37,6 +38,17 @@ export default function App() {
 function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   const chat = useChatContext()
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [activeExportId, setActiveExportId] = useState<string | null>(null)
+
+  const openExport = (id: string) => {
+    setActiveExportId(id)
+  }
+  const closeExport = () => setActiveExportId(null)
+
+  const openConversation = (id: string) => {
+    setActiveExportId(null)
+    chat.loadConversation(id)
+  }
 
   return (
     <>
@@ -46,29 +58,45 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
             user={user}
             onLogout={onLogout}
             onOpenSettings={() => setSettingsOpen(true)}
-            onNewChat={chat.newConversation}
-            onOpenConversation={chat.loadConversation}
+            onNewChat={() => {
+              setActiveExportId(null)
+              chat.newConversation()
+            }}
+            onOpenConversation={openConversation}
+            activeExportId={activeExportId}
+            onOpenExport={openExport}
           />
         }
         inspector={<Inspector />}
         main={
-          <>
-            {chat.transcript && chat.transcript.turns.length > 0 ? (
-              <Thread transcript={chat.transcript} />
-            ) : (
-              <EmptyThread />
-            )}
-            {chat.streamError ? (
-              <div className="border-t border-destructive/30 bg-destructive/5 px-4 py-2 text-center text-xs text-destructive">
-                {chat.streamError}
-              </div>
-            ) : null}
-            <Composer
-              streaming={chat.streamStatus === 'streaming'}
-              onSend={(message, opts) => chat.send(message, opts)}
-              onStop={chat.stop}
+          activeExportId ? (
+            <CsvViewer
+              exportId={activeExportId}
+              onClose={closeExport}
+              onConversationCreated={(conversationId) => {
+                setActiveExportId(null)
+                chat.loadConversation(conversationId)
+              }}
             />
-          </>
+          ) : (
+            <>
+              {chat.transcript && chat.transcript.turns.length > 0 ? (
+                <Thread transcript={chat.transcript} />
+              ) : (
+                <EmptyThread />
+              )}
+              {chat.streamError ? (
+                <div className="border-t border-destructive/30 bg-destructive/5 px-4 py-2 text-center text-xs text-destructive">
+                  {chat.streamError}
+                </div>
+              ) : null}
+              <Composer
+                streaming={chat.streamStatus === 'streaming'}
+                onSend={(message, opts) => chat.send(message, opts)}
+                onStop={chat.stop}
+              />
+            </>
+          )
         }
       />
       <SettingsModal
