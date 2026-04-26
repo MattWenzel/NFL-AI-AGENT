@@ -17,6 +17,8 @@ type LayoutCtx = {
   /** Desktop conversation sidebar visibility. */
   desktopSidebarOpen: boolean
   toggleDesktopSidebar: () => void
+  /** Open the desktop inspector pane (used when a tool row is clicked). */
+  openDesktopInspector: () => void
 }
 
 const LayoutContext = createContext<LayoutCtx | null>(null)
@@ -26,6 +28,7 @@ export function useLayout(): LayoutCtx {
     useContext(LayoutContext) ?? {
       desktopSidebarOpen: true,
       toggleDesktopSidebar: () => {},
+      openDesktopInspector: () => {},
     }
   )
 }
@@ -45,6 +48,7 @@ export function AppShell({ sidebar, main, inspector, inspectorAvailable = false 
   const ctx: LayoutCtx = {
     desktopSidebarOpen,
     toggleDesktopSidebar: () => setDesktopSidebarOpen((v) => !v),
+    openDesktopInspector: () => setDesktopInspectorOpen(true),
   }
 
   return (

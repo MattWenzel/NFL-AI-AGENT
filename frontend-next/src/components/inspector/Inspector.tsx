@@ -23,6 +23,17 @@ export function Inspector() {
     )
   }
 
+  if (chat.selectedToolRunId) {
+    const run = transcript.tool_runs.find((r) => r.id === chat.selectedToolRunId)
+    if (run) {
+      return (
+        <div className="space-y-6 p-5">
+          <ToolRunDetail run={run} onClear={() => chat.selectToolRun(null)} />
+        </div>
+      )
+    }
+  }
+
   if (chat.selectedExchangeId) {
     const slice = sliceForExchange(transcript, chat.selectedExchangeId)
     if (slice) {
@@ -208,6 +219,7 @@ function MetaRow({ term, detail }: { term: string; detail: React.ReactNode }) {
 }
 
 function ToolRuns({ transcript }: { transcript: ConversationTranscript }) {
+  const chat = useChatContext()
   const runs = transcript.tool_runs
   if (runs.length === 0) {
     return (
@@ -220,7 +232,7 @@ function ToolRuns({ transcript }: { transcript: ConversationTranscript }) {
     <Section label={`Tool runs · ${runs.length}`}>
       <ul className="space-y-1.5">
         {runs.map((run) => (
-          <ToolRunRow key={run.id} run={run} />
+          <ToolRunRow key={run.id} run={run} onSelect={() => chat.selectToolRun(run.id)} />
         ))}
       </ul>
     </Section>
@@ -228,6 +240,7 @@ function ToolRuns({ transcript }: { transcript: ConversationTranscript }) {
 }
 
 function ExchangeToolRuns({ slice }: { slice: ExchangeSlice }) {
+  const chat = useChatContext()
   if (slice.toolRuns.length === 0) {
     return (
       <Section label="Tool runs">
@@ -239,14 +252,14 @@ function ExchangeToolRuns({ slice }: { slice: ExchangeSlice }) {
     <Section label={`Tool runs · ${slice.toolRuns.length}`}>
       <ul className="space-y-1.5">
         {slice.toolRuns.map((run) => (
-          <ToolRunRow key={run.id} run={run} />
+          <ToolRunRow key={run.id} run={run} onSelect={() => chat.selectToolRun(run.id)} />
         ))}
       </ul>
     </Section>
   )
 }
 
-function ToolRunRow({ run }: { run: ToolRunRecord }) {
+function ToolRunRow({ run, onSelect }: { run: ToolRunRecord; onSelect?: () => void }) {
   const status = run.status
   const dotClass =
     status === 'completed'
@@ -254,40 +267,70 @@ function ToolRunRow({ run }: { run: ToolRunRecord }) {
       : status === 'error'
         ? 'bg-destructive'
         : 'bg-muted-foreground/60'
-  // Mirror the in-thread thinking block: only execute_sql carries payloads
-  // worth surfacing — guides and schema lookups have no useful detail.
-  const showDetails =
-    run.tool_name === 'execute_sql' && (!!run.result || !!run.error || !!run.hint)
   return (
-    <li className="rounded-md border border-border bg-background px-3 py-2">
-      <div className="flex items-center gap-2">
-        <Database className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="font-mono text-xs font-medium text-foreground">{run.tool_name}</span>
-        <span className={cn('ml-auto size-2 rounded-full', dotClass)} aria-hidden />
-      </div>
-      <div className="mt-1 flex items-center gap-1.5 text-2xs text-muted-foreground">
-        <span className="capitalize">{status}</span>
+    <li>
+      <button
+        type="button"
+        onClick={onSelect}
+        disabled={!onSelect}
+        className={cn(
+          'block w-full rounded-md border border-border bg-background px-3 py-2 text-left transition-colors',
+          onSelect &&
+            'cursor-pointer hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        )}
+      >
+        <div className="flex items-center gap-2">
+          <Database className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="font-mono text-xs font-medium text-foreground">{run.tool_name}</span>
+          <span className={cn('ml-auto size-2 rounded-full', dotClass)} aria-hidden />
+        </div>
+        <div className="mt-1 flex items-center gap-1.5 text-2xs text-muted-foreground">
+          <span className="capitalize">{status}</span>
+          {typeof run.duration_ms === 'number' ? (
+            <>
+              <span aria-hidden>·</span>
+              <span className="tabular">{run.duration_ms}ms</span>
+            </>
+          ) : null}
+        </div>
+      </button>
+    </li>
+  )
+}
+
+function ToolRunDetail({ run, onClear }: { run: ToolRunRecord; onClear: () => void }) {
+  return (
+    <Section
+      label="Tool call"
+      action={
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          onClick={onClear}
+          aria-label="Clear selection"
+        >
+          <X className="size-3.5" />
+        </Button>
+      }
+    >
+      <div className="rounded-md border border-border bg-background px-3 py-2">
+        <div className="flex items-center gap-2">
+          <Database className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="font-mono text-xs font-medium text-foreground">{run.tool_name}</span>
+          <span className="ml-auto text-2xs text-muted-foreground capitalize">{run.status}</span>
+        </div>
         {typeof run.duration_ms === 'number' ? (
-          <>
-            <span aria-hidden>·</span>
-            <span className="tabular">{run.duration_ms}ms</span>
-          </>
+          <p className="mt-1 text-2xs text-muted-foreground tabular">{run.duration_ms}ms</p>
         ) : null}
       </div>
-      {showDetails ? (
-        <details className="mt-2">
-          <summary className="cursor-pointer text-2xs text-muted-foreground hover:text-foreground">
-            Show details
-          </summary>
-          <div className="mt-2 space-y-2">
-            <ToolPayload label="Input" value={JSON.stringify(run.input, null, 2)} />
-            {run.result ? <ToolPayload label="Result" value={prettyJson(run.result)} /> : null}
-            {run.error ? <ToolPayload label="Error" value={run.error} variant="error" /> : null}
-            {run.hint ? <ToolPayload label="Hint" value={run.hint} variant="muted" /> : null}
-          </div>
-        </details>
-      ) : null}
-    </li>
+      <div className="space-y-3">
+        <ToolPayload label="Input" value={JSON.stringify(run.input, null, 2)} />
+        {run.result ? <ToolPayload label="Result" value={prettyJson(run.result)} /> : null}
+        {run.error ? <ToolPayload label="Error" value={run.error} variant="error" /> : null}
+        {run.hint ? <ToolPayload label="Hint" value={run.hint} variant="muted" /> : null}
+      </div>
+    </Section>
   )
 }
 

@@ -2,7 +2,8 @@ import { ChevronRight, Database, AlertCircle, AlertTriangle, CheckCircle2, Loade
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Markdown } from '@/components/thread/Markdown'
-import { ToolPayload, prettyJson } from '@/components/thread/ToolPayload'
+import { useLayout } from '@/components/layout/AppShell'
+import { useChatContext } from '@/lib/chatContext'
 import { cn } from '@/lib/utils'
 import type {
   AssistantPartRecord,
@@ -36,6 +37,8 @@ export function AgentResponse({
   selected = false,
   onSelect,
 }: AgentResponseProps) {
+  const { selectedToolRunId, selectToolRun } = useChatContext()
+  const { openDesktopInspector } = useLayout()
   // Streaming if ANY of the turns is still active.
   const isStreaming = turns.some((t) => t.status === 'pending' || t.status === 'streaming')
 
@@ -67,6 +70,11 @@ export function AgentResponse({
     return null
   }
 
+  const handleSelectTool = (runId: string) => {
+    selectToolRun(runId)
+    openDesktopInspector()
+  }
+
   return (
     <div
       role={onSelect ? 'button' : undefined}
@@ -93,7 +101,13 @@ export function AgentResponse({
         Agent
       </p>
 
-      {toolRuns.length > 0 ? <ThinkingBlock runs={toolRuns} /> : null}
+      {toolRuns.length > 0 ? (
+        <ThinkingBlock
+          runs={toolRuns}
+          selectedToolRunId={selectedToolRunId}
+          onSelectTool={handleSelectTool}
+        />
+      ) : null}
 
       {reasoningParts.length > 0 ? (
         <details className="text-sm text-muted-foreground">
@@ -135,7 +149,13 @@ export function AgentResponse({
   )
 }
 
-function ThinkingBlock({ runs }: { runs: ToolRunRecord[] }) {
+interface ThinkingBlockProps {
+  runs: ToolRunRecord[]
+  selectedToolRunId: string | null
+  onSelectTool: (runId: string) => void
+}
+
+function ThinkingBlock({ runs, selectedToolRunId, onSelectTool }: ThinkingBlockProps) {
   const totalMs = runs.reduce((s, r) => s + (r.duration_ms ?? 0), 0)
   const errors = runs.filter((r) => r.status === 'error').length
   const running = runs.some((r) => r.status === 'pending' || r.status === 'running')
@@ -144,6 +164,7 @@ function ThinkingBlock({ runs }: { runs: ToolRunRecord[] }) {
   return (
     <Collapsible className="overflow-hidden rounded-lg border border-border bg-muted/20">
       <CollapsibleTrigger
+        onClick={(e) => e.stopPropagation()}
         className={cn(
           'group flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-muted/40',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
@@ -173,7 +194,12 @@ function ThinkingBlock({ runs }: { runs: ToolRunRecord[] }) {
       <CollapsibleContent className="border-t border-border bg-background/50">
         <ul className="divide-y divide-border">
           {runs.map((run) => (
-            <ToolRunRow key={run.id} run={run} />
+            <ToolRunRow
+              key={run.id}
+              run={run}
+              selected={run.id === selectedToolRunId}
+              onSelect={() => onSelectTool(run.id)}
+            />
           ))}
         </ul>
       </CollapsibleContent>
@@ -181,15 +207,30 @@ function ThinkingBlock({ runs }: { runs: ToolRunRecord[] }) {
   )
 }
 
-function ToolRunRow({ run }: { run: ToolRunRecord }) {
+function ToolRunRow({
+  run,
+  selected,
+  onSelect,
+}: {
+  run: ToolRunRecord
+  selected: boolean
+  onSelect: () => void
+}) {
   const summary = summarizeInput(run.tool_name, run.input)
-  // Only execute_sql carries payloads worth surfacing inline — guides, schemas,
-  // and other helpers are pure prep work the user shouldn't have to read.
-  const showInlineDetails =
-    run.tool_name === 'execute_sql' && (!!run.result || !!run.error || !!run.hint)
   return (
-    <li className="px-3 py-2">
-      <div className="flex items-center gap-2">
+    <li>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          onSelect()
+        }}
+        className={cn(
+          'flex w-full items-center gap-2 px-3 py-2 text-left transition-colors',
+          'hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
+          selected && 'bg-accent/10',
+        )}
+      >
         <Database className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="font-mono text-xs font-medium text-foreground">{run.tool_name}</span>
         {summary ? (
@@ -201,20 +242,7 @@ function ToolRunRow({ run }: { run: ToolRunRecord }) {
             <span className="tabular">{run.duration_ms}ms</span>
           ) : null}
         </div>
-      </div>
-      {showInlineDetails ? (
-        <details className="mt-2">
-          <summary className="cursor-pointer text-2xs text-muted-foreground hover:text-foreground">
-            Show details
-          </summary>
-          <div className="mt-2 space-y-2">
-            <ToolPayload label="Input" value={JSON.stringify(run.input, null, 2)} />
-            {run.result ? <ToolPayload label="Result" value={prettyJson(run.result)} /> : null}
-            {run.error ? <ToolPayload label="Error" value={run.error} variant="error" /> : null}
-            {run.hint ? <ToolPayload label="Hint" value={run.hint} variant="muted" /> : null}
-          </div>
-        </details>
-      ) : null}
+      </button>
     </li>
   )
 }
@@ -242,4 +270,3 @@ function summarizeInput(toolName: string, input: Record<string, unknown>): strin
     .map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
     .join(', ')
 }
-

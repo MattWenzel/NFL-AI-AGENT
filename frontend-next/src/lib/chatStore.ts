@@ -265,17 +265,25 @@ export interface SendOptions {
 export function useChat() {
   const [state, dispatch] = useReducer(reduce, INITIAL)
   const [selectedExchangeId, setSelectedExchangeId] = useState<string | null>(null)
+  const [selectedToolRunId, setSelectedToolRunId] = useState<string | null>(null)
   const stateRef = useRef(state)
   stateRef.current = state
   const abortRef = useRef<AbortController | null>(null)
 
-  // Selecting an exchange should not survive a conversation switch.
+  // Selections should not survive a conversation switch.
   useEffect(() => {
     setSelectedExchangeId(null)
+    setSelectedToolRunId(null)
   }, [state.conversationId])
 
   const selectExchange = useCallback((id: string | null) => {
     setSelectedExchangeId(id)
+    setSelectedToolRunId(null)
+  }, [])
+
+  const selectToolRun = useCallback((id: string | null) => {
+    setSelectedToolRunId(id)
+    setSelectedExchangeId(null)
   }, [])
 
   const refreshConversations = useCallback(async () => {
@@ -465,6 +473,8 @@ export function useChat() {
     ...state,
     selectedExchangeId,
     selectExchange,
+    selectedToolRunId,
+    selectToolRun,
     refreshConversations,
     loadConversation,
     newConversation,
