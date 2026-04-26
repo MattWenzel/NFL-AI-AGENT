@@ -39,7 +39,7 @@ from backend.domain.providers.types import (
     CODEX,
     Message,
     MessageResponse,
-    RetryingEvent,
+    ProviderRetryingEvent,
     StopReason,
     TextEvent,
     ToolChoice,
@@ -172,7 +172,7 @@ class OpenAICodexClient(BaseLLMClient):
         *,
         model: str | None = None,
         tool_choice: ToolChoice | None = None,
-    ) -> AsyncIterator[TextEvent | ToolUseEvent | RetryingEvent]:
+    ) -> AsyncIterator[TextEvent | ToolUseEvent | ProviderRetryingEvent]:
         body = self._build_body(messages, tools, system, model=model, tool_choice=tool_choice)
         headers = {
             "Authorization": f"Bearer {self._access_token}",
@@ -290,7 +290,7 @@ class OpenAICodexClient(BaseLLMClient):
                     "codex stream open failed (attempt %d/%d, sleep %.1fs): %s",
                     attempt, MAX_ATTEMPTS, delay, exc,
                 )
-                yield RetryingEvent(
+                yield ProviderRetryingEvent(
                     attempt=attempt,
                     delay_seconds=delay,
                     error_message=str(exc),

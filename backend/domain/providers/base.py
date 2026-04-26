@@ -14,7 +14,7 @@ from backend.domain.providers.errors import LLMError
 from backend.domain.providers.types import (
     Message,
     MessageResponse,
-    RetryingEvent,
+    ProviderRetryingEvent,
     StopReason,
     TextEvent,
     ToolChoice,
@@ -62,7 +62,7 @@ class BaseLLMClient(ABC):
         tools: list[ToolDefinition] | None = None,
         system: str | None = None,
         tool_choice: ToolChoice | None = None,
-    ) -> AsyncIterator[TextEvent | ToolUseEvent | RetryingEvent]:
+    ) -> AsyncIterator[TextEvent | ToolUseEvent | ProviderRetryingEvent]:
         """Stream a message response, yielding text chunks and tool calls.
 
         `tool_choice` overrides the provider's default when set. `None`

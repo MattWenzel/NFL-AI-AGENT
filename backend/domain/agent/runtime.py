@@ -21,7 +21,7 @@ from typing import AsyncGenerator
 
 from backend.domain.agent.events import (
     AssistantRequiresFollowupEvent,
-    RetryingEvent as RuntimeRetryingEvent,
+    RetryingEvent,
     RuntimeErrorEvent,
     RuntimeEvent,
     ToolCompletedEvent,
@@ -31,7 +31,7 @@ from backend.domain.agent.events import (
 from backend.domain.providers.base import BaseLLMClient
 from backend.domain.providers.errors import ContextOverflowError
 from backend.domain.providers.types import (
-    RetryingEvent,
+    ProviderRetryingEvent,
     TextEvent,
     ToolChoice,
     ToolDefinition,
@@ -133,11 +133,11 @@ class ChatRuntime:
                             system=get_base_prompt(),
                             tool_choice=iter_tool_choice,
                         ):
-                            if isinstance(event, RetryingEvent):
+                            if isinstance(event, ProviderRetryingEvent):
                                 # Provider hit a transient error before any
                                 # content streamed; surface it so the UI
                                 # shows progress instead of a silent stall.
-                                yield RuntimeRetryingEvent(
+                                yield RetryingEvent(
                                     session_id=session.id,
                                     turn_id=turn.active_assistant_turn_id,
                                     error=event.error_message,

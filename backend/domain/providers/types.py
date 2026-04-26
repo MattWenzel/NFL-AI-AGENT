@@ -99,7 +99,7 @@ class ToolUseEvent:
 
 
 @dataclass
-class RetryingEvent:
+class ProviderRetryingEvent:
     """Emitted by `stream_message` before sleeping on a retryable failure.
 
     The runtime forwards this to the UI as a "retrying after rate limit"
@@ -107,6 +107,11 @@ class RetryingEvent:
     implementations only emit this *before* any TextEvent/ToolUseEvent
     has been yielded — once real content has flown, retries become
     unsafe.
+
+    Distinct from `backend.domain.agent.events.RetryingEvent`: that one
+    is the agent-runtime variant (carries session_id/turn_id/iterations
+    for the UI). This is the provider-side, lower-level signal that the
+    runtime translates into the agent variant.
     """
     attempt: int
     delay_seconds: float

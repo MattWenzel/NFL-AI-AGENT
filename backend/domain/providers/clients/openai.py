@@ -15,7 +15,7 @@ from backend.domain.providers.retry import (
     parse_retry_after_ms, with_retries,
 )
 from backend.domain.providers.types import (
-    OPENAI, Message, MessageResponse, RetryingEvent, StopReason, TextEvent,
+    OPENAI, Message, MessageResponse, ProviderRetryingEvent, StopReason, TextEvent,
     ToolChoice, ToolDefinition, ToolUseEvent, Usage,
 )
 from backend.domain.providers.tool_calls import build_tool_use_event, emit_accumulated_tool_calls
@@ -140,7 +140,7 @@ class OpenAIClient(BaseLLMClient):
         tools: list[ToolDefinition] | None = None,
         system: str | None = None,
         tool_choice: ToolChoice | None = None,
-    ) -> AsyncIterator[TextEvent | ToolUseEvent | RetryingEvent]:
+    ) -> AsyncIterator[TextEvent | ToolUseEvent | ProviderRetryingEvent]:
         kwargs = self._build_kwargs(
             self._convert_messages(messages),
             self._convert_tools(tools),
@@ -168,7 +168,7 @@ class OpenAIClient(BaseLLMClient):
                     "openai stream open failed (attempt %d/%d, sleep %.1fs): %s",
                     attempt, MAX_ATTEMPTS, delay, exc,
                 )
-                yield RetryingEvent(
+                yield ProviderRetryingEvent(
                     attempt=attempt,
                     delay_seconds=delay,
                     error_message=str(exc),
