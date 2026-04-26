@@ -24,7 +24,7 @@ from typing import Callable
 from sqlalchemy import text
 from sqlalchemy.engine import Connection, Engine
 
-from backend.lib.storage.models import SQLModel
+from backend.lib.db.sql.tables import SQLModel
 
 logger = logging.getLogger(__name__)
 

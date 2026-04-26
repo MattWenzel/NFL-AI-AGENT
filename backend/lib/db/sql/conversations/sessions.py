@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from sqlalchemy import delete, func, select, update
 
-from backend.lib.storage.models import (
+from backend.lib.db.sql.projections import SessionListEntry
+from backend.lib.db.sql.tables import (
     AssistantPartRecord,
     CompactionSummaryRecord,
-    SessionListEntry,
     SessionRecord,
     ToolRunRecord,
     TurnRecord,

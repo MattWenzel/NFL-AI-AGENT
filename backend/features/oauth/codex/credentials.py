@@ -12,7 +12,7 @@ import logging
 from backend.lib.auth import codex_oauth, encryption
 from backend.lib.auth.errors import CodexOAuthError
 from backend.lib.auth.types import TokenBundle
-from backend.lib.storage import RuntimeStore
+from backend.lib.db import RuntimeStore
 from backend.runtime_state import PerUserLockRegistry
 
 logger = logging.getLogger(__name__)

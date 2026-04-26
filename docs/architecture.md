@@ -26,8 +26,8 @@ backend/features/ App-process services, schemas, DTOs, and errors
 backend/lib/agent/     Chat runtime loop, turn state, events, prompts, compaction
 backend/lib/providers/ LLM provider registry, shared provider types, concrete clients
 backend/lib/tools/     Tool definitions, handlers, SQL sandbox, guide docs
-backend/lib/storage/ Runtime SQLite store, models, migrations
-backend/lib/credentials/ Auth/security primitives, encryption, OAuth protocol helpers
+backend/lib/db/ Runtime SQLite store, models, migrations
+backend/lib/auth/ Auth/security primitives, encryption, OAuth protocol helpers
 frontend/          Browser UI, grouped by app/core/process/component ownership
 ```
 
@@ -39,9 +39,9 @@ Dependencies flow from `backend/server/routes/*.py` (entry point) → `backend/f
 | `backend/features/` | Process services, schemas, DTOs, and errors | [transport.md](transport.md), [auth.md](auth.md) |
 | `backend/lib/agent/` | `ChatRuntime`, event types, compaction, system prompt, guides | [runtime.md](runtime.md), [compaction.md](compaction.md), [prompts.md](prompts.md) |
 | `backend/lib/tools/` | Tool definitions, registry/dispatch, validation, SQL sandbox, handlers | [tools.md](tools.md) |
-| `backend/lib/credentials/` | Password hashing, bearer-token issuance, Fernet encryption, OAuth protocol helpers | [auth.md](auth.md) |
+| `backend/lib/auth/` | Password hashing, bearer-token issuance, Fernet encryption, OAuth protocol helpers | [auth.md](auth.md) |
 | `backend/lib/providers/` | `BaseLLMClient`, Anthropic + OpenAI + OpenAI Codex adapters, retry/overflow helpers | [providers.md](providers.md) |
-| `backend/lib/storage/` | Async SQLModel store + in-house `schema_version` migration runner | [persistence.md](persistence.md) |
+| `backend/lib/db/` | Async SQLModel store + in-house `schema_version` migration runner | [persistence.md](persistence.md) |
 | `frontend/` | Browser app | [ui.md](ui.md) |
 
 ## Data flow of one user turn
@@ -111,7 +111,7 @@ Following a single message from the browser back to the browser:
  └───────────────────────────────────┘
                 │
                 ▼
- ┌── backend/lib/storage/ ───────────────────────┐
+ ┌── backend/lib/db/ ───────────────────────┐
  │ RuntimeStore writes every step    │       store.py + transcript_store.py
  │ (turns, parts, tool_runs)         │       async SQLModel over aiosqlite
  └───────────────────────────────────┘
@@ -166,13 +166,13 @@ New entry point (MCP server, background worker, etc.)? Build a `RuntimeStore`, c
 - **Async throughout** for I/O. FastAPI + uvicorn, asyncio tools, asyncio SDK clients.
 - **Per-session lock** (asyncio mutex in `RuntimeStore`) — concurrent requests to the same conversation serialize. Cross-session parallelism is untouched.
 - **Parallel tool execution within a pass** via `asyncio.gather`.
-- **Runtime DB is async** via `aiosqlite` under SQLModel. `RuntimeStore` exposes natively async methods (sessions, turns, parts, tool runs, users, keys, exports) that run on the event loop without `to_thread`. A sync engine also exists but is only used at process boot for schema migration apply and startup reconciliation (`backend/lib/storage/engine.py`).
+- **Runtime DB is async** via `aiosqlite` under SQLModel. `RuntimeStore` exposes natively async methods (sessions, turns, parts, tool runs, users, keys, exports) that run on the event loop without `to_thread`. A sync engine also exists but is only used at process boot for schema migration apply and startup reconciliation (`backend/lib/db/sql/engine.py`).
 - **Tool queries stay sync.** The read-only sandbox (`backend/lib/tools/sandbox/runner.py`) uses DuckDB against `nflverse.duckdb` and runs inside `asyncio.to_thread`, so a long query can't stall the loop and the driver's row-limit + timeout knobs stay available.
 - **Single process.** Rate limiting is in-memory; no multi-worker plan without swapping that for Redis/slowapi.
 
 ## Persistence model
 
-One SQLite file — `data/runtime.sqlite3` — holds everything mutable. Sessions, turns, assistant parts, tool runs, compaction summaries, exports, users, API keys, auth sessions. Tables are defined as SQLModel classes in `backend/lib/storage/models.py`; the schema evolves through in-house migration callables in `backend/lib/storage/schema_version.py`, applied automatically on process boot via `apply_migrations()`. WAL mode, foreign keys, and a 5s busy_timeout are enabled on both the sync and async engines. See [persistence.md](persistence.md) for the schema and the lifecycle of each record.
+One SQLite file — `data/runtime.sqlite3` — holds everything mutable. Sessions, turns, assistant parts, tool runs, compaction summaries, exports, users, API keys, auth sessions. Tables are defined as SQLModel classes in `backend/lib/db/sql/tables.py`; the schema evolves through in-house migration callables in `backend/lib/db/sql/migrations.py`, applied automatically on process boot via `apply_migrations()`. WAL mode, foreign keys, and a 5s busy_timeout are enabled on both the sync and async engines. See [persistence.md](persistence.md) for the schema and the lifecycle of each record.
 
 The nflverse DuckDB file (`nflverse.duckdb`) is read-only reference data opened by the SQL sandbox on demand. It never mutates at runtime and isn't backed up with user data.
 

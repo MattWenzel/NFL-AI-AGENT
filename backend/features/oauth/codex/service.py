@@ -11,7 +11,7 @@ from backend.lib.auth import codex_oauth, encryption
 from backend.lib.auth.errors import CodexOAuthError, DeviceCodeExpired
 from backend.lib.providers.types import CODEX
 from backend.features.oauth.codex.schemas import CodexOAuthStartResponse, CodexOAuthStatusResponse
-from backend.lib.storage import AuditEvent, RuntimeStore
+from backend.lib.db import AuditEvent, RuntimeStore
 from backend.runtime_state import PendingCodexOAuthFlows
 
 logger = logging.getLogger(__name__)

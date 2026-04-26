@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-from backend.lib.storage.models import LoginFailureRecord, utcnow
+from backend.lib.db.sql.tables import LoginFailureRecord, utcnow
 
 
 class LoginFailuresMixin:

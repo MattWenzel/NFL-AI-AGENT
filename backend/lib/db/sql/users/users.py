@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-from backend.lib.storage.models import (
+from backend.lib.db.sql.tables import (
     AuthSessionRecord,
     ExportRecord,
     SessionRecord,

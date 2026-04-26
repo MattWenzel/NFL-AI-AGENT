@@ -404,7 +404,7 @@ class TestSSEDisconnectDetection:
 # ---------------------------------------------------------------------------
 # 4. Runtime transcript replaces conversation windowing
 # ---------------------------------------------------------------------------
-from backend.lib.storage import RuntimeStore
+from backend.lib.db import RuntimeStore
 from backend.lib.agent.events import ToolCompletedEvent, ToolPendingEvent
 
 
@@ -469,7 +469,7 @@ class TestCsvExportRegistration:
     def test_csv_export_registers_library_row(self, tmp_path, monkeypatch):
         import asyncio
         import json
-        from backend.lib.storage import RuntimeStore
+        from backend.lib.db import RuntimeStore
         from backend.lib.agent.turn import Turn
         from backend.lib.tools.sandbox.runner import SQLResult
 

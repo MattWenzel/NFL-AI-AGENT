@@ -9,7 +9,7 @@ This doc covers the trigger, the retention policy, how the summary is generated 
 - `backend/lib/agent/compaction/policy.py` — trigger, retention policy, token estimation, two-phase algorithm, heuristic fallback.
 - `backend/lib/agent/compaction/summarizer.py` — LLM-backed summarizer with its own input-budget trimming and timeout.
 - `backend/lib/agent/compaction/token_counting.py` — `count_text_tokens` via `cl100k_base` tiktoken (lazy singleton, falls back to `len//4`).
-- `backend/lib/storage/conversations/transcripts.py` + `backend/lib/storage/models.py` — persists summary turns + `compaction_summaries` rows; rebuilds wire messages with them via `message_builder.py`.
+- `backend/lib/db/sql/conversations/transcripts.py` + `backend/lib/db/sql/tables.py` — persists summary turns + `compaction_summaries` rows; rebuilds wire messages with them via `message_builder.py`.
 
 ## The trigger
 
@@ -126,7 +126,7 @@ Fallback triggers (all handled in `_build_summary`, `compaction.py:371`):
 
 ## Persisting a summary
 
-`RuntimeStore.record_compaction` (`backend/lib/storage/conversations/transcripts.py:191`) performs three writes in a single transaction:
+`RuntimeStore.record_compaction` (`backend/lib/db/sql/conversations/transcripts.py:191`) performs three writes in a single transaction:
 
 1. Create a new turn with `role = "summary"` and the summary text.
 2. Insert a `compaction_summaries` row recording `(summary_turn_id, source_turn_ids)`.
@@ -149,7 +149,7 @@ Why summaries go first rather than chronologically: a summary represents compact
 
 ## The summary wrapping
 
-`wrap_summaries_for_prompt` (`backend/lib/storage/models.py:33`). Multiple summaries (layered compactions over a very long session) are concatenated with `---` separators, then wrapped:
+`_wrap_summaries_for_prompt` (`backend/lib/agent/message_builder.py`). Multiple summaries (layered compactions over a very long session) are concatenated with `---` separators, then wrapped:
 
 ```
 <prior_conversation_summary>

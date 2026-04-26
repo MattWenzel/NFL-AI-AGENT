@@ -16,7 +16,7 @@ from backend.features.exports.schemas import (
     NewSessionFromExportResponse,
 )
 from backend.lib.providers import get_default_provider, get_provider
-from backend.lib.storage import RuntimeStore
+from backend.lib.db import RuntimeStore
 
 logger = logging.getLogger(__name__)
 

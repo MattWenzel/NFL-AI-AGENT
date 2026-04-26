@@ -5,7 +5,7 @@
 write path. Composed into `RuntimeStore` via multiple inheritance.
 """
 
-from backend.lib.storage.conversations.sessions import SessionStoreMixin
-from backend.lib.storage.conversations.transcripts import TranscriptStoreMixin
+from backend.lib.db.sql.conversations.sessions import SessionStoreMixin
+from backend.lib.db.sql.conversations.transcripts import TranscriptStoreMixin
 
 __all__ = ["SessionStoreMixin", "TranscriptStoreMixin"]

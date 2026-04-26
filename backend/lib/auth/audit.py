@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from backend.lib.storage import AuditEvent, RuntimeStore
+from backend.lib.db import AuditEvent, RuntimeStore
 
 logger = logging.getLogger(__name__)
 _event_logger = logging.getLogger("security_events")

@@ -39,7 +39,7 @@ from backend.lib.auth.types import PASSWORD
 from backend.lib.auth.audit import AuditContext, audit_log
 from backend.lib.auth.lifecycle import IdentitySeed, create_user_account, issue_session
 from backend.features.auth.types import IssuedSession, RegistrationResult
-from backend.lib.storage import AuditEvent, RuntimeStore
+from backend.lib.db import AuditEvent, RuntimeStore
 
 logger = logging.getLogger(__name__)
 
@@ -210,7 +210,7 @@ class AuthService:
         now = datetime.now(timezone.utc).isoformat()
         async with self.store._async_session() as session:
             from sqlalchemy import update as sql_update
-            from backend.lib.storage.models import UserRecord
+            from backend.lib.db.sql.tables import UserRecord
 
             await session.execute(
                 sql_update(UserRecord)

@@ -29,7 +29,7 @@ from backend.server.routes.exports import router as csvs_router
 from backend.server.routes.providers import router as providers_router
 from backend.server.routes.settings import router as settings_router
 from backend.lib.auth import encryption
-from backend.lib.storage import RuntimeStore
+from backend.lib.db import RuntimeStore
 
 
 @pytest.fixture(autouse=True)
@@ -182,7 +182,7 @@ class TestStoreCRUD:
         rec = await store.create_auth_session(token="tok", user_id=u.id, expires_at=future)
         stale = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
         from sqlalchemy import update as sa_update
-        from backend.lib.storage.models import AuthSessionRecord
+        from backend.lib.db.sql.tables import AuthSessionRecord
         async with store._async_session() as session:
             await session.execute(
                 sa_update(AuthSessionRecord)
@@ -460,7 +460,7 @@ class TestIDOR:
         assert await store.get_session("aaa-session", user_id=u_a.id) is not None
 
     async def test_cross_user_rename_csv_returns_404(self, full_client, store):
-        from backend.lib.storage import ExportRecord  # noqa: F401
+        from backend.lib.db import ExportRecord  # noqa: F401
         u_a = await store.create_user(email="a@e.com", password_hash=hash_password("pw"))
         rec = await store.register_export(
             filename="x.csv", title="A's CSV", sql="SELECT 1",
@@ -469,7 +469,7 @@ class TestIDOR:
         )
         # register_export only assigns user_id if source_session exists; set manually for A.
         from sqlalchemy import update as sa_update
-        from backend.lib.storage.models import ExportRecord as _ExportRecord
+        from backend.lib.db.sql.tables import ExportRecord as _ExportRecord
         async with store._async_session() as session:
             await session.execute(
                 sa_update(_ExportRecord)
@@ -498,7 +498,7 @@ class TestOrphanRows:
 
     async def test_count_orphan_rows_detects_nulls(self, store):
         # Insert a session without a user_id to simulate pre-auth orphan data.
-        from backend.lib.storage.models import SessionRecord as _SessionRecord
+        from backend.lib.db.sql.tables import SessionRecord as _SessionRecord
         now = datetime.now(timezone.utc).isoformat()
         async with store._async_session() as session:
             session.add(_SessionRecord(

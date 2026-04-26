@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, select, update
 
-from backend.lib.storage.models import EmailVerificationRecord, utcnow
+from backend.lib.db.sql.tables import EmailVerificationRecord, utcnow
 
 
 VERIFICATION_TTL_HOURS = 24

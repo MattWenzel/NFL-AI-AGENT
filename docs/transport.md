@@ -13,8 +13,8 @@ The HTTP layer is three thin bands: **routes** parse requests and translate exce
 - `backend/features/*/schemas.py` — Pydantic wire models by app process.
 - `backend/server/` — startup, API-owned process state, rate limiting, and logging.
 - `backend/runtime_state.py` — framework-free lock registries and pending OAuth flow registries.
-- `backend/lib/credentials/primitives.py` — password hashing and token generation.
-- `backend/lib/credentials/types.py` — auth/OAuth value objects.
+- `backend/lib/auth/primitives.py` — password hashing and token generation.
+- `backend/lib/auth/types.py` — auth/OAuth value objects.
 - `run.py` — uvicorn launcher.
 
 ## App factory

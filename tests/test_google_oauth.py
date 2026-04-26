@@ -33,7 +33,7 @@ from backend.features.oauth.google.errors import (
 from backend.features.oauth.google.service import GoogleOAuthService
 from backend.lib.auth.audit import AuditContext
 from backend.features.oauth.google.types import LinkOutcome, SignInOutcome
-from backend.lib.storage import RuntimeStore
+from backend.lib.db import RuntimeStore
 from backend.runtime_state import PendingGoogleOAuthFlows
 
 

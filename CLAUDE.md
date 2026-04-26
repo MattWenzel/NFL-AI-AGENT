@@ -58,7 +58,7 @@ The chat runtime is transcript-backed: sessions, turns, assistant parts, tool ru
 
 ### Architecture
 
-Top-level split: `backend/` holds the Python server, `frontend/` holds the browser UI. Inside `backend/`, the layering is: `server/` is the FastAPI HTTP boundary, `features/` holds app-process services (one per HTTP feature), and `lib/` holds the framework-free libraries those features consume (`agent/`, `providers/`, `tools/`, `storage/`, `credentials/`). The frontend mirrors the feature-slice convention for its JS modules.
+Top-level split: `backend/` holds the Python server, `frontend/` holds the browser UI. Inside `backend/`, the layering is: `server/` is the FastAPI HTTP boundary, `features/` holds app-process services (one per HTTP feature), and `lib/` holds the framework-free libraries those features consume (`agent/`, `providers/`, `tools/`, `db/`, `auth/`). Inside `lib/db/` the SQL boundary is explicit: `lib/db/sql/` contains every file that imports SQLAlchemy/SQLModel (tables, RuntimeStore, per-domain query mixins, engine, migrations); `lib/db/types/` contains plain-Python value types (enums, exceptions) with zero SQL imports. The frontend mirrors the feature-slice convention for its JS modules.
 
 ```
 backend/
@@ -78,17 +78,19 @@ backend/
 ├── features/                     # App-process modules/packages: services, DTOs, schemas, errors
 │   ├── auth/                     #   register / login / logout / password / delete / verify / resend
 │   ├── chat/                     #   chat orchestration and response aggregation
-│   ├── conversations.py          #   list / transcript / patch / delete orchestration
-│   ├── exports.py                #   CSV library CRUD
-│   ├── oauth/                    #   credentials.py plus Codex/Google flow packages
+│   ├── conversations/            #   list / transcript / patch / delete orchestration
+│   ├── exports/                  #   CSV library CRUD
+│   ├── oauth/                    #   provider_credentials.py plus Codex/Google flow packages
 │   ├── providers.py              #   provider response models
 │   └── settings.py               #   per-user API key CRUD + linked identity services
 ├── lib/                          # Framework-free libraries consumed by server/ + features/
 │   ├── agent/                    #   Chat runtime loop, events, prompt, compaction
+│   ├── auth/                     #   Auth primitives, encryption, OAuth protocol helpers, audit log, lifecycle
+│   ├── db/                       #   SQLite persistence — the SQL boundary
+│   │   ├── sql/                  #     SQLAlchemy/SQLModel imports live here (tables, store, mixins, migrations)
+│   │   └── types/                #     Plain-Python value types — no SQL imports (audit_events, errors)
 │   ├── providers/                #   LLM provider registry, types, errors, clients
-│   ├── tools/                    #   Tool definitions, registry, handlers, SQL sandbox, guides
-│   ├── storage/                  #   Runtime SQLite store, models, migrations
-│   └── credentials/              #   Auth primitives, encryption, OAuth protocol helpers, audit log
+│   └── tools/                    #   Tool definitions, registry, handlers, SQL sandbox, guides
 ├── runtime_state.py              # Framework-free lock registries + pending OAuth flows
 └── config.py                     # DB paths, env loading, runtime settings
 
@@ -138,7 +140,7 @@ Multi-user password auth with open signup. First registrant becomes `role='admin
 
 **Password handling**: bcrypt cost 12. Failed logins tracked per-email with progressive delay (0s → 0.25s → 0.5s → 1s → 2s → 4s cap) and hard lockout after `LOGIN_LOCKOUT_MAX_FAILURES` (default 10) attempts for `LOGIN_LOCKOUT_DURATION_SECONDS` (default 900s). Layered on top of the per-IP rate limiter.
 
-**Email verification**: optional (`EMAIL_VERIFICATION_REQUIRED=1`). When on, `/auth/register` returns 202 `{status: "verification_pending"}` instead of a session, a verification link is mailed via Resend, and `/auth/login` rejects unverified accounts until `/auth/verify-email` consumes the token. OAuth-verified identities skip this gate via `create_user_account(..., verified=True)` in `backend/features/auth/lifecycle.py`.
+**Email verification**: optional (`EMAIL_VERIFICATION_REQUIRED=1`). When on, `/auth/register` returns 202 `{status: "verification_pending"}` instead of a session, a verification link is mailed via Resend, and `/auth/login` rejects unverified accounts until `/auth/verify-email` consumes the token. OAuth-verified identities skip this gate via `create_user_account(..., verified=True)` in `backend/lib/auth/lifecycle.py`.
 
 **API keys**: Per-user, Fernet-encrypted at rest with the master key in `SETTINGS_ENCRYPTION_KEY`. Plaintext is never returned by any endpoint; ciphertext is decrypted only server-side when invoking the LLM.
 
@@ -170,7 +172,7 @@ Shipped 2026-04-23. Users can sign up / sign in with Google, and existing passwo
 - Both routes are GETs (browser navigation) and CSRF-exempt by the usual safe-method rule — the `state` parameter is the anti-CSRF for the callback. Session cookies from the rest of the app still travel (SameSite=Lax), which is how the callback can tell a link flow (user_id in pending row) from a sign-in flow.
 - `security_events` gains `oauth_signin_started`, `oauth_signin_succeeded`, `oauth_signin_failed`, `oauth_link_started`, `oauth_linked`, `oauth_unlinked`, `oauth_link_rejected`.
 
-**Files:** `backend/lib/credentials/google_oauth.py` (OAuth primitives + ID-token verification), `backend/lib/storage/users.py::UserIdentitiesMixin` (storage), `backend/features/oauth/google/service.py` (flow orchestration), `backend/server/routes/oauth_google.py` (endpoints), `backend/server/routes/settings.py` (link/unlink + list), and `backend/server/session.py` for shared session cookie behavior.
+**Files:** `backend/lib/auth/google_oauth.py` (OAuth primitives + ID-token verification), `backend/lib/db/sql/users/identities.py::UserIdentitiesMixin` (storage), `backend/features/oauth/google/service.py` (flow orchestration), `backend/server/routes/oauth_google.py` (endpoints), `backend/server/routes/settings.py` (link/unlink + list), and `backend/server/session.py` for shared session cookie behavior.
 
 **Env vars:**
 - `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` — set via Google Cloud Console. The "Continue with Google" button and `/auth/oauth/google/*` routes only appear when both are set.

@@ -22,7 +22,7 @@ from backend.lib.providers import (
     get_provider,
     provider_is_available,
 )
-from backend.lib.storage import RuntimeStore
+from backend.lib.db import RuntimeStore
 from backend.features.chat.schemas import ChatRequest, ChatResponse, ToolCallPreview
 from backend.features.oauth.provider_credentials import (
     CredentialServiceError,

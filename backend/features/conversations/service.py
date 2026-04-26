@@ -9,7 +9,7 @@ from backend.features.conversations.schemas import (
     ConversationInfo,
     ConversationTranscriptResponse,
 )
-from backend.lib.storage import RuntimeStore, SessionListEntry, SessionTranscript
+from backend.lib.db import RuntimeStore, SessionListEntry, SessionTranscript
 
 
 def _conversation_info_from_row(item: SessionListEntry) -> ConversationInfo:

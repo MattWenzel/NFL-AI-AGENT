@@ -1,26 +1,24 @@
-"""SQLModel table classes + shared helpers.
+"""SQLModel table classes — the on-disk schema.
 
-These classes are the ORM-mapped domain types. Column names, types, defaults,
-indexes, and foreign keys mirror the existing `storage/schema.py` post-migration
-shape exactly, so pre-existing `runtime.sqlite3` files bind cleanly to the new
-models without schema changes.
+Every class here has `table=True` and corresponds to a row in `runtime.sqlite3`.
+Column names, types, defaults, indexes, and foreign keys are the source of
+truth for the schema; migrations in `migrations.py` keep existing DBs aligned.
 
-Legacy aliases (`SessionRecord` etc.) are preserved as the class names to keep
-the blast radius of the ORM migration small — external importers (agent/,
-server/, auth/) keep working unchanged.
+These classes serve double-duty as Pydantic models since SQLModel inherits
+from BaseModel — features can return them directly as HTTP response shapes
+when the row shape == the wire shape.
 """
 
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Mapping
 
 from sqlalchemy import Column, ForeignKey, Index, Integer, UniqueConstraint, desc
 from sqlmodel import Field, SQLModel
 
-from backend.lib.storage.column_types import TolerantJSONList, ToolInputJSON
+from backend.lib.db.sql.column_types import TolerantJSONList, ToolInputJSON
+
 
 def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -28,33 +26,6 @@ def utcnow() -> str:
 
 def new_id() -> str:
     return str(uuid.uuid4())
-
-
-def wrap_summaries_for_prompt(summary_turns: list["TurnRecord"]) -> str:
-    """Render one or more compaction summaries as a single assistant-role prefix.
-
-    Multiple summaries are concatenated with a separator so a long session
-    with several compaction events reads as layered context, oldest first.
-    Wrapped in <prior_conversation_summary> and followed by an anti-mimic
-    note so the model treats it as reference, not a template to echo.
-    """
-    parts: list[str] = []
-    for turn in summary_turns:
-        text = (turn.text or "").strip()
-        if text:
-            parts.append(text)
-    body = "\n\n---\n\n".join(parts)
-    return (
-        "<prior_conversation_summary>\n"
-        + body
-        + "\n</prior_conversation_summary>\n\n"
-        "The block above is a compressed memo of earlier "
-        "turns, provided for context only. I will answer the "
-        "user's next message naturally in plain prose and "
-        "will NOT reproduce the summary, its bullet-list "
-        "formatting, or any 'tool X (completed): input=…' "
-        "lines in my reply."
-    )
 
 
 class SessionRecord(SQLModel, table=True):
@@ -303,41 +274,3 @@ class SecurityEventRecord(SQLModel, table=True):
         sa_column=Column("metadata_json", ToolInputJSON, nullable=False),
     )
     created_at: str
-
-
-@dataclass(frozen=True)
-class SessionListEntry:
-    """Typed session-list projection returned by storage read helpers."""
-
-    id: str
-    turn_count: int
-    title: str
-    provider: str | None
-    model: str | None
-    updated_at: str | None
-    pinned_at: str | None
-    source_csv_id: str | None
-
-    @classmethod
-    def from_row(cls, row: Mapping[str, Any]) -> "SessionListEntry":
-        return cls(
-            id=str(row["id"]),
-            turn_count=int(row["turn_count"]),
-            title=str(row["title"]),
-            provider=row.get("provider"),
-            model=row.get("model"),
-            updated_at=row.get("updated_at"),
-            pinned_at=row.get("pinned_at"),
-            source_csv_id=row.get("source_csv_id"),
-        )
-
-
-@dataclass
-class SessionTranscript:
-    """Composite container returned by `get_transcript` — not a table."""
-
-    session: SessionRecord
-    turns: list[TurnRecord]
-    parts_by_turn: dict[str, list[AssistantPartRecord]]
-    tool_runs_by_turn: dict[str, list[ToolRunRecord]]
-    summaries: list[CompactionSummaryRecord]

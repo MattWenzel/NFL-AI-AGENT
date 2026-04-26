@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from backend.lib.storage import (
+from backend.lib.db import (
     AssistantPartRecord,
     CompactionSummaryRecord,
     ToolRunRecord,

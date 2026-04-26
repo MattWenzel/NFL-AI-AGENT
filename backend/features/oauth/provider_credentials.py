@@ -10,7 +10,7 @@ from backend.features.oauth.codex.credentials import (
     resolve_access_token as resolve_codex_access_token,
 )
 from backend.lib.providers import get_provider
-from backend.lib.storage import RuntimeStore
+from backend.lib.db import RuntimeStore
 from backend.runtime_state import PerUserLockRegistry
 
 

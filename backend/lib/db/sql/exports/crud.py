@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy import delete, select, update
 
-from backend.lib.storage.models import ExportRecord, SessionRecord, new_id, utcnow
+from backend.lib.db.sql.tables import ExportRecord, SessionRecord, new_id, utcnow
 
 
 class ExportsMixin:

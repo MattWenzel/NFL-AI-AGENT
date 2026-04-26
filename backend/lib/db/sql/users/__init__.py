@@ -9,11 +9,11 @@ Composed into `RuntimeStore` via multiple inheritance:
 - SecurityEventsMixin     — security_events audit log
 """
 
-from backend.lib.storage.users.email_verification import EmailVerificationMixin
-from backend.lib.storage.users.identities import UserIdentitiesMixin
-from backend.lib.storage.users.login_failures import LoginFailuresMixin
-from backend.lib.storage.users.security_events import SecurityEventsMixin
-from backend.lib.storage.users.users import UsersMixin
+from backend.lib.db.sql.users.email_verification import EmailVerificationMixin
+from backend.lib.db.sql.users.identities import UserIdentitiesMixin
+from backend.lib.db.sql.users.login_failures import LoginFailuresMixin
+from backend.lib.db.sql.users.security_events import SecurityEventsMixin
+from backend.lib.db.sql.users.users import UsersMixin
 
 __all__ = [
     "EmailVerificationMixin",

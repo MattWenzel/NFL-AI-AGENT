@@ -23,12 +23,12 @@ from pathlib import Path
 
 from sqlalchemy import func, update
 
-from backend.lib.storage.conversations import SessionStoreMixin, TranscriptStoreMixin
-from backend.lib.storage.engine import build_async_engine, build_async_sessionmaker, build_sync_engine
-from backend.lib.storage.exports import ExportsMixin
-from backend.lib.storage.models import ToolRunRecord, TurnRecord, utcnow
-from backend.lib.storage.schema_version import apply_migrations
-from backend.lib.storage.users import (
+from backend.lib.db.sql.conversations import SessionStoreMixin, TranscriptStoreMixin
+from backend.lib.db.sql.engine import build_async_engine, build_async_sessionmaker, build_sync_engine
+from backend.lib.db.sql.exports import ExportsMixin
+from backend.lib.db.sql.tables import ToolRunRecord, TurnRecord, utcnow
+from backend.lib.db.sql.migrations import apply_migrations
+from backend.lib.db.sql.users import (
     EmailVerificationMixin,
     LoginFailuresMixin,
     SecurityEventsMixin,

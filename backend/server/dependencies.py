@@ -19,7 +19,7 @@ from backend.features.oauth.codex.service import CodexOAuthService
 from backend.features.oauth.google.service import GoogleOAuthService
 from backend.features.providers import ProviderService
 from backend.features.settings import SettingsService
-from backend.lib.storage import RuntimeStore
+from backend.lib.db import RuntimeStore
 
 
 def get_store(request: Request) -> RuntimeStore:

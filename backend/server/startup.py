@@ -22,7 +22,7 @@ from backend.config import (
 from backend.lib.auth.types import OAUTH_ONLY_SENTINEL_HASH, PASSWORD
 from backend.lib.providers import list_providers
 from backend.server.process_state import AppProcessState
-from backend.lib.storage import IdentityConflictError, RuntimeStore
+from backend.lib.db import IdentityConflictError, RuntimeStore
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,7 @@ async def _seed_password_identities(store: RuntimeStore) -> int:
     """
     from sqlalchemy import select
 
-    from backend.lib.storage.models import UserRecord
+    from backend.lib.db.sql.tables import UserRecord
 
     count = 0
     async with store._async_session() as session:

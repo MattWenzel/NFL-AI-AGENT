@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
-from backend.lib.storage.models import SecurityEventRecord, new_id, utcnow
+from backend.lib.db.sql.tables import SecurityEventRecord, new_id, utcnow
 
 
 class SecurityEventsMixin:

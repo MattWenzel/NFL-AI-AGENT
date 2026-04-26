@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel
 
-from backend.lib.storage import RuntimeStore
+from backend.lib.db import RuntimeStore
 from backend.lib.providers import list_providers, provider_is_available
 
 

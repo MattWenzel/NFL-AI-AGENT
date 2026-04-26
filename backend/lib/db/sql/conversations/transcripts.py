@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from sqlalchemy import func, insert, literal, select, update
 
-from backend.lib.storage.models import (
+from backend.lib.db.sql.projections import SessionTranscript
+from backend.lib.db.sql.tables import (
     AssistantPartRecord,
     CompactionSummaryRecord,
     SessionRecord,
-    SessionTranscript,
     ToolRunRecord,
     TurnRecord,
     new_id,

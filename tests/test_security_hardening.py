@@ -22,7 +22,7 @@ from fastapi.testclient import TestClient
 from backend.lib.auth import encryption
 from backend.server.app import create_app
 from backend.features.auth import service as auth_service_module
-from backend.lib.storage import RuntimeStore
+from backend.lib.db import RuntimeStore
 from tests.app_factory import build_test_app, managed_test_client
 from backend.server.routes.auth import router as auth_router
 from backend.server.routes.settings import router as settings_router

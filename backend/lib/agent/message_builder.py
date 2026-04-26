@@ -4,9 +4,35 @@ from __future__ import annotations
 
 import json
 
+from backend.lib.db import SessionTranscript
 from backend.lib.providers.types import Message, ToolUseEvent
-from backend.lib.storage import SessionTranscript
-from backend.lib.storage.models import wrap_summaries_for_prompt
+
+
+def _wrap_summaries_for_prompt(summary_turns: list) -> str:
+    """Render one or more compaction summaries as a single assistant-role prefix.
+
+    Multiple summaries are concatenated with a separator so a long session
+    with several compaction events reads as layered context, oldest first.
+    Wrapped in <prior_conversation_summary> and followed by an anti-mimic
+    note so the model treats it as reference, not a template to echo.
+    """
+    parts: list[str] = []
+    for turn in summary_turns:
+        text = (turn.text or "").strip()
+        if text:
+            parts.append(text)
+    body = "\n\n---\n\n".join(parts)
+    return (
+        "<prior_conversation_summary>\n"
+        + body
+        + "\n</prior_conversation_summary>\n\n"
+        "The block above is a compressed memo of earlier "
+        "turns, provided for context only. I will answer the "
+        "user's next message naturally in plain prose and "
+        "will NOT reproduce the summary, its bullet-list "
+        "formatting, or any 'tool X (completed): input=…' "
+        "lines in my reply."
+    )
 
 
 def build_model_messages(transcript: SessionTranscript) -> list[Message]:
@@ -25,7 +51,7 @@ def build_model_messages(transcript: SessionTranscript) -> list[Message]:
     if summary_turns:
         messages.append(Message(
             role="assistant",
-            text=wrap_summaries_for_prompt(summary_turns),
+            text=_wrap_summaries_for_prompt(summary_turns),
         ))
 
     for turn in transcript.turns:

@@ -45,7 +45,7 @@ from backend.features.oauth.google.types import (
     LinkOutcome,
     SignInOutcome,
 )
-from backend.lib.storage import AuditEvent, IdentityConflictError, RuntimeStore
+from backend.lib.db import AuditEvent, IdentityConflictError, RuntimeStore
 from backend.runtime_state import PendingGoogleOAuthFlows
 
 logger = logging.getLogger(__name__)

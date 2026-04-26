@@ -5,8 +5,8 @@ from __future__ import annotations
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 
-from backend.lib.storage.errors import IdentityConflictError
-from backend.lib.storage.models import UserIdentityRecord, UserRecord, new_id, utcnow
+from backend.lib.db.types.errors import IdentityConflictError
+from backend.lib.db.sql.tables import UserIdentityRecord, UserRecord, new_id, utcnow
 
 
 class UserIdentitiesMixin:
