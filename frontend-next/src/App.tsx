@@ -81,24 +81,30 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
                 chat.loadConversation(conversationId)
               }}
             />
-          ) : (
+          ) : chat.transcript && chat.transcript.turns.length > 0 ? (
             <>
-              {chat.transcript && chat.transcript.turns.length > 0 ? (
-                <Thread transcript={chat.transcript} />
-              ) : (
-                <EmptyThread />
-              )}
+              <Thread transcript={chat.transcript} />
               {chat.streamError ? (
-                <div className="border-t border-destructive/30 bg-destructive/5 px-4 py-2 text-center text-xs text-destructive">
+                <div className="px-4 py-2 text-center text-xs text-destructive">
                   {chat.streamError}
                 </div>
               ) : null}
               <Composer
+                variant="docked"
                 streaming={chat.streamStatus === 'streaming'}
                 onSend={(message, opts) => chat.send(message, opts)}
                 onStop={chat.stop}
               />
             </>
+          ) : (
+            <EmptyThread>
+              <Composer
+                variant="centered"
+                streaming={chat.streamStatus === 'streaming'}
+                onSend={(message, opts) => chat.send(message, opts)}
+                onStop={chat.stop}
+              />
+            </EmptyThread>
           )
         }
       />

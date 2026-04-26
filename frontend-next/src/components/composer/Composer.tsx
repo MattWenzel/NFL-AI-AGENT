@@ -3,10 +3,19 @@ import { ArrowUp, Square } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 
 interface ComposerProps {
   disabled?: boolean
   streaming?: boolean
+  /**
+   * "docked" — pinned to the bottom of an active conversation. The thread
+   *   above scrolls behind a translucent surface for a soft fade rather
+   *   than a hard divider line.
+   * "centered" — used on the empty/new-chat state alongside the prompt
+   *   headline; flows in normal layout, no backdrop, no divider.
+   */
+  variant?: 'docked' | 'centered'
   onSend: (message: string, options: { provider: string; model: string; toolChoice: 'auto' | 'required' | 'none' }) => void
   onStop?: () => void
 }
@@ -36,7 +45,13 @@ const TOOL_CHOICES = [
   { value: 'none', label: 'Text only' },
 ] as const
 
-export function Composer({ disabled = false, streaming = false, onSend, onStop }: ComposerProps) {
+export function Composer({
+  disabled = false,
+  streaming = false,
+  variant = 'docked',
+  onSend,
+  onStop,
+}: ComposerProps) {
   const [value, setValue] = useState('')
   const [provider, setProvider] = useState<string>('anthropic')
   const [model, setModel] = useState<string>('claude-sonnet-4-6')
@@ -76,7 +91,14 @@ export function Composer({ disabled = false, streaming = false, onSend, onStop }
   const models = MODELS_BY_PROVIDER[provider] ?? []
 
   return (
-    <div className="border-t border-border bg-background/95 px-6 pb-4 pt-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 lg:px-10">
+    <div
+      className={cn(
+        'px-6 lg:px-10',
+        variant === 'docked' &&
+          'bg-background/85 pb-4 pt-8 backdrop-blur supports-[backdrop-filter]:bg-background/70',
+        variant === 'centered' && 'pb-2 pt-0',
+      )}
+    >
       <div className="mx-auto w-full max-w-5xl">
         <div className="rounded-2xl border border-border bg-card shadow-sm focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-0">
           <textarea
