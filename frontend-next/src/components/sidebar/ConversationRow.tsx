@@ -96,8 +96,10 @@ export function ConversationRow({ item, active, onPick }: ConversationRowProps) 
         onClick={() => onPick?.(item.id)}
         className={cn(
           'flex w-full flex-col gap-1 rounded-md px-2 py-2 pr-9 text-left transition-colors',
-          'hover:bg-sidebar-accent focus-visible:bg-sidebar-accent focus-visible:outline-none',
-          active && 'bg-accent/15 ring-1 ring-inset ring-accent/30',
+          'focus-visible:outline-none',
+          active
+            ? 'bg-accent/25 ring-1 ring-inset ring-accent/55 hover:bg-accent/30'
+            : 'hover:bg-sidebar-accent focus-visible:bg-sidebar-accent',
         )}
       >
         <div className="flex items-start gap-1.5">

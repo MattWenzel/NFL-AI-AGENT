@@ -276,15 +276,21 @@ export function useChat() {
     setSelectedToolRunId(null)
   }, [state.conversationId])
 
+  // Setters are independent — they no longer clear each other. Callers
+  // pass exactly the selection state they want. Use clearSelection() when
+  // you want a full deselect.
   const selectExchange = useCallback((id: string | null) => {
     setSelectedExchangeId(id)
-    setSelectedToolRunId(null)
+    if (id !== null) setSelectedToolRunId(null)
   }, [])
 
-  const selectToolRun = useCallback((id: string | null) => {
-    setSelectedToolRunId(id)
-    setSelectedExchangeId(null)
-  }, [])
+  const selectToolRun = useCallback(
+    (id: string | null, exchangeId?: string | null) => {
+      setSelectedToolRunId(id)
+      if (exchangeId !== undefined) setSelectedExchangeId(exchangeId)
+    },
+    [],
+  )
 
   const clearSelection = useCallback(() => {
     setSelectedExchangeId(null)

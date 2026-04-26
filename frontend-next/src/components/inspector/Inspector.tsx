@@ -1,4 +1,4 @@
-import { Database, X } from 'lucide-react'
+import { ArrowLeft, Database } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { ToolPayload, prettyJson } from '@/components/thread/ToolPayload'
@@ -105,13 +105,26 @@ function sliceForExchange(
   return { userTurn, assistantTurns, parts, toolRuns }
 }
 
-function Section({ label, action, children }: { label: string; action?: React.ReactNode; children: React.ReactNode }) {
+function Section({
+  label,
+  action,
+  labelButton,
+  children,
+}: {
+  label?: string
+  action?: React.ReactNode
+  /** Renders in place of the `label` text — for back-affordance headers. */
+  labelButton?: React.ReactNode
+  children: React.ReactNode
+}) {
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          {label}
-        </p>
+        {labelButton ?? (
+          <p className="text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+            {label}
+          </p>
+        )}
         {action}
       </div>
       {children}
@@ -174,16 +187,16 @@ function ExchangeMeta({
 
   return (
     <Section
-      label="Selected exchange"
-      action={
+      labelButton={
         <Button
           variant="ghost"
-          size="icon"
-          className="size-7"
+          size="sm"
+          className="-ml-2 h-7 gap-1.5 px-2 text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground hover:text-foreground"
           onClick={onClear}
-          aria-label="Clear selection"
+          aria-label="Back to session"
         >
-          <X className="size-3.5" />
+          <ArrowLeft className="size-3.5" />
+          Selected exchange
         </Button>
       }
     >
@@ -272,13 +285,15 @@ function handleInspectorToolClick(
   transcript: ConversationTranscript,
   chat: ReturnType<typeof useChatContext>,
 ) {
+  const exchangeId = exchangeIdForTurn(transcript, run.turn_id)
   if (run.tool_name === 'execute_sql') {
-    chat.selectToolRun(run.id)
+    // Set both: the inspector switches to ToolRunDetail (toolRunId), and
+    // the thread highlights / scrolls to the message (exchangeId).
+    chat.selectToolRun(run.id, exchangeId ?? null)
     return
   }
   // Non-SQL tools have no inspectable payload — scope to the surrounding
   // exchange instead so the user sees the message turn this came from.
-  const exchangeId = exchangeIdForTurn(transcript, run.turn_id)
   if (exchangeId) chat.selectExchange(exchangeId)
 }
 
@@ -346,17 +361,15 @@ function ToolRunDetail({ run, onClear }: { run: ToolRunRecord; onClear: () => vo
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex shrink-0 items-center justify-between gap-2">
-        <p className="text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          Tool call
-        </p>
         <Button
           variant="ghost"
-          size="icon"
-          className="size-7"
+          size="sm"
+          className="-ml-2 h-7 gap-1.5 px-2 text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground hover:text-foreground"
           onClick={onClear}
-          aria-label="Clear selection"
+          aria-label="Back to exchange"
         >
-          <X className="size-3.5" />
+          <ArrowLeft className="size-3.5" />
+          Tool call
         </Button>
       </div>
 

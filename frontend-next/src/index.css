@@ -104,24 +104,26 @@
 :root {
     --radius: 0.75rem; /* 12px base radius — Apple-leaning but tighter than initial 16px */
 
-    /* Surfaces — warm off-white paper, not pure white. */
-    --background: oklch(0.985 0.003 85);
+    /* Surfaces — soft warm paper for the canvas; cards and popovers stay
+       near-white so they sit visibly above the bg. */
+    --background: oklch(0.955 0.005 85);
     --foreground: oklch(0.18 0.008 60);
-    --card: oklch(1 0 0);
+    --card: oklch(0.99 0.003 85);
     --card-foreground: oklch(0.18 0.008 60);
-    --popover: oklch(1 0 0);
+    --popover: oklch(0.99 0.003 85);
     --popover-foreground: oklch(0.18 0.008 60);
 
     /* Primary action — quiet, charcoal-leaning. Used for default solid buttons. */
     --primary: oklch(0.22 0.008 60);
     --primary-foreground: oklch(0.985 0.003 85);
 
-    /* Secondary — warm tan-grey. Used for subdued surfaces and chips. */
-    --secondary: oklch(0.94 0.006 75);
+    /* Secondary — warm tan-grey. Used for chat bubbles and chips; pulled
+       distinctly below bg so the bubble reads as a contained shape. */
+    --secondary: oklch(0.87 0.008 80);
     --secondary-foreground: oklch(0.22 0.008 60);
 
-    /* Muted — wells, inputs, tertiary surfaces. */
-    --muted: oklch(0.955 0.005 75);
+    /* Muted — wells, inputs, code blocks, table heads. */
+    --muted: oklch(0.895 0.007 80);
     --muted-foreground: oklch(0.5 0.012 70);
 
     /* Accent — muted sage-teal. The single confident accent. */
@@ -133,9 +135,10 @@
     --success: oklch(0.58 0.1 155);
     --warning: oklch(0.72 0.13 75);
 
-    /* Borders & rings — hairline. */
-    --border: oklch(0.9 0.005 75);
-    --input: oklch(0.9 0.005 75);
+    /* Borders & rings — visible hairline. Bumped darker to keep tables
+       and pills outlined against the dimmer bg. */
+    --border: oklch(0.82 0.007 80);
+    --input: oklch(0.82 0.007 80);
     --ring: oklch(0.6 0.055 175 / 0.45);
 
     /* Chart palette — muted, magazine-data-graphic feel. */
@@ -145,14 +148,14 @@
     --chart-4: oklch(0.7 0.08 135);    /* moss */
     --chart-5: oklch(0.55 0.13 15);    /* terracotta */
 
-    /* Sidebar — slightly warmer than main bg to read as a distinct surface. */
-    --sidebar: oklch(0.97 0.006 80);
+    /* Sidebar — a notch darker than main bg so it reads as a rail. */
+    --sidebar: oklch(0.93 0.007 80);
     --sidebar-foreground: oklch(0.22 0.008 60);
     --sidebar-primary: oklch(0.22 0.008 60);
     --sidebar-primary-foreground: oklch(0.985 0.003 85);
-    --sidebar-accent: oklch(0.93 0.008 80);
+    --sidebar-accent: oklch(0.86 0.009 80);
     --sidebar-accent-foreground: oklch(0.22 0.008 60);
-    --sidebar-border: oklch(0.9 0.005 75);
+    --sidebar-border: oklch(0.82 0.007 80);
     --sidebar-ring: oklch(0.6 0.055 175 / 0.45);
 }
 
@@ -202,6 +205,55 @@
     --sidebar-accent-foreground: oklch(0.95 0.005 85);
     --sidebar-border: oklch(1 0 0 / 0.14);
     --sidebar-ring: oklch(0.7 0.06 175 / 0.55);
+}
+
+/* ---------------------------------------------------------------- *
+ * MIDNIGHT — the explicit "Dark" pick (System keeps the warm-charcoal
+ * .dark above so it tracks macOS dark mode). Cool near-black with a
+ * blue tilt and a vivid azure accent — Things 3 / Apple Music night.
+ * ---------------------------------------------------------------- */
+.dark.theme-midnight {
+    --background: oklch(0.08 0.008 255);
+    --foreground: oklch(0.97 0.003 255);
+    --card: oklch(0.13 0.01 255);
+    --card-foreground: oklch(0.97 0.003 255);
+    --popover: oklch(0.15 0.01 255);
+    --popover-foreground: oklch(0.97 0.003 255);
+
+    --primary: oklch(0.97 0.003 255);
+    --primary-foreground: oklch(0.1 0.008 255);
+
+    --secondary: oklch(0.19 0.012 255);
+    --secondary-foreground: oklch(0.97 0.003 255);
+
+    --muted: oklch(0.16 0.01 255);
+    --muted-foreground: oklch(0.66 0.012 255);
+
+    --accent: oklch(0.72 0.16 240);
+    --accent-foreground: oklch(0.1 0.008 255);
+
+    --destructive: oklch(0.7 0.2 22);
+    --success: oklch(0.74 0.15 155);
+    --warning: oklch(0.82 0.15 75);
+
+    --border: oklch(1 0 0 / 0.08);
+    --input: oklch(1 0 0 / 0.1);
+    --ring: oklch(0.72 0.16 240 / 0.55);
+
+    --chart-1: oklch(0.72 0.16 240);
+    --chart-2: oklch(0.78 0.13 60);
+    --chart-3: oklch(0.7 0.15 320);
+    --chart-4: oklch(0.78 0.1 145);
+    --chart-5: oklch(0.7 0.18 18);
+
+    --sidebar: oklch(0.06 0.008 255);
+    --sidebar-foreground: oklch(0.97 0.003 255);
+    --sidebar-primary: oklch(0.72 0.16 240);
+    --sidebar-primary-foreground: oklch(0.1 0.008 255);
+    --sidebar-accent: oklch(0.15 0.01 255);
+    --sidebar-accent-foreground: oklch(0.97 0.003 255);
+    --sidebar-border: oklch(1 0 0 / 0.08);
+    --sidebar-ring: oklch(0.72 0.16 240 / 0.55);
 }
 
 @layer base {

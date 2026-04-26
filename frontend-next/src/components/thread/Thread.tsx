@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { AgentResponse } from '@/components/thread/AgentResponse'
 import { UserTurn } from '@/components/thread/UserTurn'
@@ -79,6 +79,25 @@ export function Thread({ transcript }: ThreadProps) {
     return out
   }, [transcript])
 
+  // First-rendered group per exchange anchors the scroll target — usually the
+  // user turn, falling back to the agent group when no user turn precedes it.
+  const anchorFlags = useMemo(() => {
+    const seen = new Set<string>()
+    return groups.map((g) => {
+      if (seen.has(g.exchangeId)) return false
+      seen.add(g.exchangeId)
+      return true
+    })
+  }, [groups])
+
+  const exchangeRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+
+  useEffect(() => {
+    if (!selectedExchangeId) return
+    const el = exchangeRefs.current.get(selectedExchangeId)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }, [selectedExchangeId])
+
   return (
     <div
       className="flex-1 overflow-y-auto"
@@ -89,25 +108,38 @@ export function Thread({ transcript }: ThreadProps) {
       }}
     >
       <div className="mx-auto w-full max-w-5xl space-y-8 px-6 py-6 lg:px-10">
-        {groups.map((g, i) =>
-          g.kind === 'user' ? (
-            <UserTurn
-              key={g.turn.id}
-              turn={g.turn}
-              selected={selectedExchangeId === g.exchangeId}
-              onSelect={() => pickExchange(g.exchangeId)}
-            />
-          ) : (
-            <AgentResponse
-              key={g.turns[0]?.id ?? `agent-${i}`}
-              turns={g.turns}
-              parts={g.parts}
-              toolRuns={g.toolRuns}
-              selected={selectedExchangeId === g.exchangeId}
-              onSelect={() => pickExchange(g.exchangeId)}
-            />
-          ),
-        )}
+        {groups.map((g, i) => {
+          const setAnchorRef = anchorFlags[i]
+            ? (el: HTMLDivElement | null) => {
+                const map = exchangeRefs.current
+                if (el) map.set(g.exchangeId, el)
+                else map.delete(g.exchangeId)
+              }
+            : undefined
+          return (
+            <div
+              key={g.kind === 'user' ? g.turn.id : g.turns[0]?.id ?? `agent-${i}`}
+              ref={setAnchorRef}
+            >
+              {g.kind === 'user' ? (
+                <UserTurn
+                  turn={g.turn}
+                  selected={selectedExchangeId === g.exchangeId}
+                  onSelect={() => pickExchange(g.exchangeId)}
+                />
+              ) : (
+                <AgentResponse
+                  turns={g.turns}
+                  parts={g.parts}
+                  toolRuns={g.toolRuns}
+                  exchangeId={g.exchangeId}
+                  selected={selectedExchangeId === g.exchangeId}
+                  onSelect={() => pickExchange(g.exchangeId)}
+                />
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )

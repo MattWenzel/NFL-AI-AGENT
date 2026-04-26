@@ -18,6 +18,8 @@ interface AgentResponseProps {
   parts: AssistantPartRecord[]
   /** All ToolRunRecords across those turns, in chronological order. */
   toolRuns: ToolRunRecord[]
+  /** Anchor user-turn id so tool clicks can highlight the surrounding message. */
+  exchangeId: string
   /** True when the inspector is currently scoped to this exchange. */
   selected?: boolean
   /** Click anywhere on the response to scope the inspector to this exchange. */
@@ -34,6 +36,7 @@ export function AgentResponse({
   turns,
   parts,
   toolRuns,
+  exchangeId,
   selected = false,
   onSelect,
 }: AgentResponseProps) {
@@ -75,7 +78,7 @@ export function AgentResponse({
     // Only execute_sql carries inspectable payloads — for guides, schemas, etc.
     // we just scope the inspector to the surrounding exchange instead.
     if (run.tool_name === 'execute_sql') {
-      selectToolRun(run.id)
+      selectToolRun(run.id, exchangeId)
     } else if (onSelect) {
       onSelect()
     }
@@ -99,8 +102,10 @@ export function AgentResponse({
       }}
       className={cn(
         '-mx-3 space-y-2 rounded-xl px-3 py-2 transition-colors',
-        onSelect && 'cursor-pointer hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        selected && 'bg-muted/30 ring-1 ring-accent/40',
+        onSelect && 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        selected
+          ? 'bg-accent/20 ring-1 ring-accent/55 hover:bg-accent/30 dark:bg-accent/8 dark:ring-accent/30 dark:hover:bg-accent/12'
+          : onSelect && 'hover:bg-muted/30',
       )}
     >
       <p className="text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
@@ -233,8 +238,10 @@ function ToolRunRow({
         }}
         className={cn(
           'flex w-full items-center gap-2 px-3 py-2 text-left transition-colors',
-          'hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
-          selected && 'bg-accent/10',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
+          selected
+            ? 'bg-accent/20 hover:bg-accent/30 dark:bg-accent/10 dark:hover:bg-accent/15'
+            : 'hover:bg-muted/40',
         )}
       >
         <StatusDot status={run.status} />

@@ -31,8 +31,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const root = document.documentElement
     root.classList.toggle('dark', resolved === 'dark')
+    // The "Dark" pick gets its own palette; "System" (even when it resolves to
+    // dark) keeps the warm-charcoal default that matches macOS dark mode.
+    root.classList.toggle('theme-midnight', mode === 'dark')
     root.style.colorScheme = resolved
-  }, [resolved])
+  }, [resolved, mode])
 
   const value = useMemo(
     () => ({

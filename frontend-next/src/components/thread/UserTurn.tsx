@@ -26,7 +26,7 @@ export function UserTurn({ turn, selected = false, onSelect }: UserTurnProps) {
         className={cn(
           'max-w-2xl rounded-2xl rounded-tr-md bg-secondary px-4 py-2.5 text-left text-secondary-foreground transition-shadow',
           'cursor-pointer hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-          selected && 'ring-2 ring-accent/60',
+          selected && 'ring-2 ring-accent/60 dark:ring-accent/35',
         )}
       >
         <p className="whitespace-pre-wrap text-base leading-snug">{turn.text}</p>
