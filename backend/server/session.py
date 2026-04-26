@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from fastapi import Request, Response
 
-from backend.lib.auth.types import IssuedSession
+from backend.domain.auth.types import IssuedSession
 
 SESSION_COOKIE_NAME = "session"
 CSRF_COOKIE_NAME = "csrf_token"

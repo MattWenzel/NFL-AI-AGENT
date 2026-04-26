@@ -26,14 +26,14 @@ import time
 import httpx
 import pytest
 from cryptography.fernet import Fernet
-from backend.lib.auth.types import AuthenticatedUser
-from backend.server.dependencies import get_current_user
+from backend.domain.auth.types import AuthenticatedUser
+from backend.api.dependencies import get_current_user
 from tests.app_factory import build_test_app, managed_test_client
-from backend.server.routes.settings import router as settings_router
-from backend.lib.auth import codex_oauth, encryption
-from backend.lib.auth.errors import CodexOAuthError, DeviceCodeExpired
-from backend.lib.auth.types import TokenBundle
-from backend.lib.auth.codex_oauth import (
+from backend.api.routes.settings import router as settings_router
+from backend.domain.auth import codex_oauth, encryption
+from backend.domain.auth.errors import CodexOAuthError, DeviceCodeExpired
+from backend.domain.auth.types import TokenBundle
+from backend.domain.auth.codex_oauth import (
     _compute_expires_at,
     _decode_jwt_payload,
     bundle_from_json,
@@ -44,10 +44,10 @@ from backend.lib.auth.codex_oauth import (
     poll_device_code,
     refresh_access_token,
 )
-from backend.services.oauth.codex.service import CodexOAuthService
-from backend.lib.db import RuntimeStore
-from backend.lib.providers.types import StopReason
-from backend.lib.providers.clients.codex import OpenAICodexClient
+from backend.application.oauth.codex.service import CodexOAuthService
+from backend.data import RuntimeStore
+from backend.domain.providers.types import StopReason
+from backend.domain.providers.clients.codex import OpenAICodexClient
 
 
 # ---------------- helpers ----------------
@@ -509,7 +509,7 @@ def _make_app(store: RuntimeStore, user_id: int, email: str):
 
 def _patch_device_flow(monkeypatch, user_code="USER-CODE"):
     """Stub out the OpenAI device-code call and the background poller."""
-    from backend.lib.auth.types import DeviceCodeStart
+    from backend.domain.auth.types import DeviceCodeStart
     start = DeviceCodeStart(
         device_auth_id="dev-1",
         user_code=user_code,

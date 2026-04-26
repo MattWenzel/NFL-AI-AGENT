@@ -5,7 +5,7 @@ from contextvars import ContextVar
 
 from fastapi import Request
 
-from backend.lib.auth.audit import AuditContext
+from backend.domain.auth.audit import AuditContext
 
 
 # Per-request correlation ID. Set by RequestIDMiddleware on every incoming

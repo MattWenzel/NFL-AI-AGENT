@@ -2,7 +2,7 @@
 
 import pytest
 
-from backend.lib.providers.overflow import is_context_overflow
+from backend.domain.providers.overflow import is_context_overflow
 
 
 @pytest.mark.parametrize(

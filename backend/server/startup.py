@@ -6,8 +6,8 @@ import logging
 import os
 from fastapi import FastAPI
 
-from backend.lib.agent.runtime import ChatRuntime
-from backend.lib.auth import encryption
+from backend.domain.agent.runtime import ChatRuntime
+from backend.domain.auth import encryption
 from backend.config import (
     ALLOWED_ORIGINS,
     APP_BASE_URL,
@@ -19,10 +19,10 @@ from backend.config import (
     format_file_size,
     google_oauth_enabled,
 )
-from backend.lib.auth.types import OAUTH_ONLY_SENTINEL_HASH, PASSWORD
-from backend.lib.providers import list_providers
+from backend.domain.auth.types import OAUTH_ONLY_SENTINEL_HASH, PASSWORD
+from backend.domain.providers import list_providers
 from backend.server.process_state import AppProcessState
-from backend.lib.db import IdentityConflictError, RuntimeStore
+from backend.data import IdentityConflictError, RuntimeStore
 
 logger = logging.getLogger(__name__)
 
@@ -82,14 +82,8 @@ async def _seed_password_identities(store: RuntimeStore) -> int:
     can't remove Google later. Idempotent — skips users who already have a
     `password` identity.
     """
-    from sqlalchemy import select
-
-    from backend.lib.db.sql.tables import UserRecord
-
     count = 0
-    async with store._async_session() as session:
-        rows = await session.execute(select(UserRecord))
-        users = list(rows.scalars().all())
+    users = await store.list_users()
     for user in users:
         if user.password_hash == OAUTH_ONLY_SENTINEL_HASH:
             continue  # OAuth-only account — no password identity expected

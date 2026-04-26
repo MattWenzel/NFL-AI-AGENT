@@ -7,22 +7,21 @@ from cryptography.fernet import Fernet
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from backend.lib.agent.events import TextDeltaEvent
-from backend.lib.auth import encryption
-from backend.lib.auth.types import AuthenticatedUser
-from backend.server.dependencies import get_chat_service, get_current_user
+from backend.domain.agent.events import TextDeltaEvent
+from backend.domain.auth import encryption
+from backend.domain.auth.types import AuthenticatedUser
+from backend.api.dependencies import get_chat_service, get_current_user
 from backend.server.process_state import AppProcessState
-from backend.services.chat.schemas import ChatResponse
-from backend.lib.db import RuntimeStore, SessionRecord
-from backend.server.routes import chat as chat_router
-from backend.server.routes.chat import router as chat_router_module
-from backend.services.chat.service import (
+from backend.data import RuntimeStore, SessionRecord
+from backend.api.routes import chat as chat_router
+from backend.api.routes.chat import router as chat_router_module
+from backend.application.chat.service import (
     ChatConfigurationError,
     ChatNotFoundError,
     ChatService,
     ChatServiceError,
 )
-from backend.services.chat.types import PreparedChat
+from backend.application.chat.types import PreparedChat
 from tests.app_factory import build_test_app, managed_test_client
 
 
@@ -38,7 +37,17 @@ async def test_chat_message_returns_error_for_runtime_failure_and_closes_client(
     user = AuthenticatedUser(id=1, email="t@e.com")
     service = _make_service()
 
-    async def fake_run_message(self, body, user, *, tools):
+    async def fake_run_message(
+        self,
+        *,
+        message,
+        conversation_id,
+        provider,
+        model,
+        tool_choice,
+        user,
+        tools,
+    ):
         raise ChatServiceError("Detected repeated tool loop on search_players with identical input")
 
     monkeypatch.setattr(ChatService, "run_message", fake_run_message)
@@ -87,21 +96,31 @@ async def test_chat_message_route_resolves_service_through_depends_chain(tmp_pat
 
     captured: dict = {}
 
-    async def fake_run_message(self, body, caller, *, tools):
+    async def fake_run_message(
+        self,
+        *,
+        message,
+        conversation_id,
+        provider,
+        model,
+        tool_choice,
+        user,
+        tools,
+    ):
         captured["service_class"] = type(self).__name__
-        captured["caller_id"] = caller.id
-        captured["message"] = body.message
+        captured["caller_id"] = user.id
+        captured["message"] = message
         # Prove the injected dependencies reached the service.
         assert isinstance(self, ChatService)
         assert self.store is not None
         assert self.credentials is not None
         assert self.runtime is not None
-        return ChatResponse(
-            conversation_id="session-x",
-            response="wired correctly",
-            tool_calls=[],
-            truncated=False,
-        )
+        return {
+            "conversation_id": "session-x",
+            "response": "wired correctly",
+            "tool_calls": [],
+            "truncated": False,
+        }
 
     monkeypatch.setattr(ChatService, "run_message", fake_run_message)
 
@@ -127,9 +146,24 @@ async def test_chat_message_forwards_tool_choice_to_service(monkeypatch):
 
     captured: dict = {}
 
-    async def fake_run_message(self, body, user, *, tools):
-        captured["tool_choice"] = body.tool_choice
-        return ChatResponse(conversation_id="s1", response="ok", tool_calls=[], truncated=False)
+    async def fake_run_message(
+        self,
+        *,
+        message,
+        conversation_id,
+        provider,
+        model,
+        tool_choice,
+        user,
+        tools,
+    ):
+        captured["tool_choice"] = tool_choice
+        return {
+            "conversation_id": "s1",
+            "response": "ok",
+            "tool_calls": [],
+            "truncated": False,
+        }
 
     monkeypatch.setattr(ChatService, "run_message", fake_run_message)
 
@@ -219,7 +253,7 @@ async def test_chat_stream_acquires_no_resources_before_generator_is_iterated(mo
     gate = _CountingStreamGate()
     service = _make_service()
 
-    async def fake_prepare(self, body, user):
+    async def fake_prepare(self, *, conversation_id, provider, model, user):
         raise AssertionError("prepare_chat must not be called before iteration")
 
     monkeypatch.setattr(ChatService, "prepare_chat", fake_prepare)
@@ -250,12 +284,12 @@ async def test_chat_stream_releases_slot_and_client_on_normal_completion(monkeyp
     service = _make_service()
     stub_client = _TrackingClient()
 
-    async def fake_prepare(self, body, user):
+    async def fake_prepare(self, *, conversation_id, provider, model, user):
         return PreparedChat(
             client=stub_client, provider_name="anthropic", session=_stub_session()
         )
 
-    def fake_stream_events(self, prepared, body, *, tools):
+    def fake_stream_events(self, prepared, *, message, tool_choice, tools):
         async def _empty_events():
             if False:
                 yield  # makes this an async generator
@@ -291,7 +325,7 @@ async def test_chat_stream_emits_not_found_error_as_sse_and_releases_slot(monkey
     gate = _CountingStreamGate()
     service = _make_service()
 
-    async def fake_prepare(self, body, user):
+    async def fake_prepare(self, *, conversation_id, provider, model, user):
         raise ChatNotFoundError("Conversation not found")
 
     monkeypatch.setattr(ChatService, "prepare_chat", fake_prepare)
@@ -329,7 +363,7 @@ async def test_chat_stream_emits_configuration_error_as_sse_and_releases_slot(mo
     gate = _CountingStreamGate()
     service = _make_service()
 
-    async def fake_prepare(self, body, user):
+    async def fake_prepare(self, *, conversation_id, provider, model, user):
         raise ChatConfigurationError("No API key for Anthropic — add one in Settings.")
 
     monkeypatch.setattr(ChatService, "prepare_chat", fake_prepare)
@@ -361,7 +395,7 @@ async def test_chat_stream_emits_rate_limit_as_sse_without_holding_resources(mon
     gate = _CountingStreamGate(reject=True)
     service = _make_service()
 
-    async def fake_prepare(self, body, user):
+    async def fake_prepare(self, *, conversation_id, provider, model, user):
         raise AssertionError("prepare_chat must not be called when the gate rejects")
 
     monkeypatch.setattr(ChatService, "prepare_chat", fake_prepare)
@@ -399,12 +433,12 @@ async def test_chat_stream_cleans_up_runtime_source_and_client_on_early_close(mo
     stub_client = _TrackingClient()
     source_closed = {"called": False}
 
-    async def fake_prepare(self, body, user):
+    async def fake_prepare(self, *, conversation_id, provider, model, user):
         return PreparedChat(
             client=stub_client, provider_name="anthropic", session=_stub_session()
         )
 
-    def fake_stream_events(self, prepared, body, *, tools):
+    def fake_stream_events(self, prepared, *, message, tool_choice, tools):
         async def _slow_events():
             try:
                 # Hand control back once so the outer generator yields the

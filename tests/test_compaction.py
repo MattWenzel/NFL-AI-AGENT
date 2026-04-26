@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.lib.agent.compaction.policy import (
+from backend.domain.agent.compaction.policy import (
     HARD_KEEP_FLOOR_TURNS,
     MAX_RECENT_RAW_TOOL_RUNS,
     MAX_RECENT_RAW_TURNS,
@@ -17,8 +17,8 @@ from backend.lib.agent.compaction.policy import (
     _select_source_turns,
     estimate_active_tokens,
 )
-from backend.lib.agent.compaction.token_counting import count_text_tokens
-from backend.lib.db import RuntimeStore
+from backend.domain.agent.compaction.token_counting import count_text_tokens
+from backend.data import RuntimeStore
 
 
 def test_retention_policy_floors_when_no_window():

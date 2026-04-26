@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from backend.lib.providers.base import BaseLLMClient
-from backend.lib.providers.types import MessageResponse, StopReason, TextEvent, ToolDefinition, ToolUseEvent, Usage
-from backend.lib.agent.runtime import ChatRuntime
-from backend.lib.db import RuntimeStore
+from backend.domain.providers.base import BaseLLMClient
+from backend.domain.providers.types import MessageResponse, StopReason, TextEvent, ToolDefinition, ToolUseEvent, Usage
+from backend.domain.agent.runtime import ChatRuntime
+from backend.data import RuntimeStore
 
 
 class StubClient(BaseLLMClient):
@@ -80,7 +80,7 @@ async def test_runtime_persists_turns_and_tool_runs(tmp_path: Path, monkeypatch)
             "hint": None,
             "duration_ms": 1,
         }
-    monkeypatch.setattr("backend.lib.agent.runtime.execute_tool_structured", fake_execute)
+    monkeypatch.setattr("backend.domain.agent.runtime.execute_tool_structured", fake_execute)
     client = StubClient(
         [
             MessageResponse(
@@ -131,7 +131,7 @@ async def test_runtime_forwards_tool_choice_to_client(tmp_path: Path, monkeypatc
     async def fake_execute(name, input_data, ctx=None):
         return {"status": "completed", "tool": name, "content": "{}", "error": None, "hint": None, "duration_ms": 1}
 
-    monkeypatch.setattr("backend.lib.agent.runtime.execute_tool_structured", fake_execute)
+    monkeypatch.setattr("backend.domain.agent.runtime.execute_tool_structured", fake_execute)
     client = StubClient([
         MessageResponse(
             content=[ToolUseEvent(id="x", name="search_players", input={"name": "M"})],
@@ -163,7 +163,7 @@ async def test_runtime_store_compacts_old_turns(tmp_path: Path):
         await store.create_turn(session.id, "user", text=f"user question {i} " * 20)
         await store.create_turn(session.id, "assistant", text=f"assistant answer {i} " * 20)
 
-    from backend.lib.agent.compaction import compact_if_needed
+    from backend.domain.agent.compaction import compact_if_needed
     await compact_if_needed(store, session)
 
     transcript = await store.get_transcript(session.id)
@@ -183,7 +183,7 @@ async def test_runtime_uses_stored_token_usage_for_compaction(tmp_path: Path):
         assistant = await store.create_turn(session.id, "assistant", text=f"assistant {i}")
         await store.update_turn(assistant.id, input_tokens=120, output_tokens=60)
 
-    from backend.lib.agent.compaction import compact_if_needed
+    from backend.domain.agent.compaction import compact_if_needed
     await compact_if_needed(store, session)
     transcript = await store.get_transcript(session.id)
     assert any(turn.compacted for turn in transcript.turns)
@@ -198,7 +198,7 @@ async def test_build_model_messages_omits_compacted_turns(tmp_path: Path):
     recent_user = await store.create_turn(session.id, "user", text="recent user")
     await store.record_compaction(session.id, "summary text", [old_user.id, old_assistant.id])
 
-    from backend.lib.agent.message_builder import build_model_messages
+    from backend.domain.agent.message_builder import build_model_messages
     messages = build_model_messages(await store.get_transcript(session.id))
     texts = [msg.text for msg in messages if msg.text]
     assert "old user" not in texts
@@ -243,7 +243,7 @@ async def test_build_model_messages_preserves_tool_pairing_after_compaction(tmp_
 
     await store.record_compaction(session.id, "summary of old context", [old_user.id, old_assistant.id])
 
-    from backend.lib.agent.message_builder import build_model_messages
+    from backend.domain.agent.message_builder import build_model_messages
     transcript = await store.get_transcript(session.id)
     messages = build_model_messages(transcript)
 
@@ -285,7 +285,7 @@ async def test_build_model_messages_emits_summary_before_trailing_user_turn(tmp_
     # Compaction runs after the user turn → summary turn gets a later created_at.
     await store.record_compaction(session.id, "summary of old context", [old_user.id, old_assistant.id])
 
-    from backend.lib.agent.message_builder import build_model_messages
+    from backend.domain.agent.message_builder import build_model_messages
     messages = build_model_messages(await store.get_transcript(session.id))
     assert messages, "expected at least one message"
     assert messages[-1].role == "user", "last message must be the user turn, not the summary"
@@ -311,7 +311,7 @@ async def test_doom_loop_detection_stops_repeated_tool_calls(tmp_path: Path, mon
             "hint": None,
             "duration_ms": 1,
         }
-    monkeypatch.setattr("backend.lib.agent.runtime.execute_tool_structured", fake_execute)
+    monkeypatch.setattr("backend.domain.agent.runtime.execute_tool_structured", fake_execute)
     repeated = MessageResponse(
         content=[ToolUseEvent(id="ignored", name="search_players", input={"name": "Josh Allen"})],
         stop_reason=StopReason.TOOL_USE,

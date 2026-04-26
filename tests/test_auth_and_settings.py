@@ -20,16 +20,16 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from cryptography.fernet import Fernet
-from backend.lib.auth.primitives import generate_token, hash_password, verify_password
+from backend.domain.auth.primitives import generate_token, hash_password, verify_password
 from tests.app_factory import build_test_app, managed_test_client
-from backend.server.routes.auth import router as auth_router
-from backend.services.auth import service as auth_service_module
-from backend.server.routes.conversations import router as conversations_router
-from backend.server.routes.exports import router as csvs_router
-from backend.server.routes.providers import router as providers_router
-from backend.server.routes.settings import router as settings_router
-from backend.lib.auth import encryption
-from backend.lib.db import RuntimeStore
+from backend.api.routes.auth import router as auth_router
+from backend.application.auth import service as auth_service_module
+from backend.api.routes.conversations import router as conversations_router
+from backend.api.routes.exports import router as csvs_router
+from backend.api.routes.providers import router as providers_router
+from backend.api.routes.settings import router as settings_router
+from backend.domain.auth import encryption
+from backend.data import RuntimeStore
 
 
 @pytest.fixture(autouse=True)
@@ -182,7 +182,7 @@ class TestStoreCRUD:
         rec = await store.create_auth_session(token="tok", user_id=u.id, expires_at=future)
         stale = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
         from sqlalchemy import update as sa_update
-        from backend.lib.db.sql.tables import AuthSessionRecord
+        from backend.data.models import AuthSessionRecord
         async with store._async_session() as session:
             await session.execute(
                 sa_update(AuthSessionRecord)
@@ -461,7 +461,7 @@ class TestIDOR:
         assert await store.get_session("aaa-session", user_id=u_a.id) is not None
 
     async def test_cross_user_rename_csv_returns_404(self, full_client, store):
-        from backend.lib.db import ExportRecord  # noqa: F401
+        from backend.data import ExportRecord  # noqa: F401
         u_a = await store.create_user(email="a@e.com", password_hash=hash_password("pw"))
         rec = await store.register_export(
             filename="x.csv", title="A's CSV", sql="SELECT 1",
@@ -470,7 +470,7 @@ class TestIDOR:
         )
         # register_export only assigns user_id if source_session exists; set manually for A.
         from sqlalchemy import update as sa_update
-        from backend.lib.db.sql.tables import ExportRecord as _ExportRecord
+        from backend.data.models import ExportRecord as _ExportRecord
         async with store._async_session() as session:
             await session.execute(
                 sa_update(_ExportRecord)
@@ -499,7 +499,7 @@ class TestOrphanRows:
 
     async def test_count_orphan_rows_detects_nulls(self, store):
         # Insert a session without a user_id to simulate pre-auth orphan data.
-        from backend.lib.db.sql.tables import SessionRecord as _SessionRecord
+        from backend.data.models import SessionRecord as _SessionRecord
         now = datetime.now(timezone.utc).isoformat()
         async with store._async_session() as session:
             session.add(_SessionRecord(

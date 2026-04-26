@@ -13,13 +13,13 @@ from fastapi.staticfiles import StaticFiles
 from backend.config import ALLOW_NULL_ORIGIN, ALLOWED_ORIGINS
 from backend.server.middleware import RequestIDMiddleware, SecurityHeadersMiddleware
 from backend.server.startup import configure_runtime_state, log_environment_state, run_housekeeping, validate_encryption
-from backend.server.routes import auth
-from backend.server.routes import chat
-from backend.server.routes import conversations
-from backend.server.routes import exports
-from backend.server.routes import oauth_google
-from backend.server.routes import providers
-from backend.server.routes import settings
+from backend.api.routes import auth
+from backend.api.routes import chat
+from backend.api.routes import conversations
+from backend.api.routes import exports
+from backend.api.routes import oauth_google
+from backend.api.routes import providers
+from backend.api.routes import settings
 
 # Project root plus the browser frontend directory. Backend and frontend stay
 # as sibling top-level product surfaces.

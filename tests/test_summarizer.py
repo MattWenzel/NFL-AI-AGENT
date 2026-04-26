@@ -7,18 +7,18 @@ from pathlib import Path
 
 import pytest
 
-from backend.lib.providers.base import BaseLLMClient
-from backend.lib.providers.errors import LLMError
-from backend.lib.providers.types import (
+from backend.domain.providers.base import BaseLLMClient
+from backend.domain.providers.errors import LLMError
+from backend.domain.providers.types import (
     MessageResponse,
     StopReason,
     TextEvent,
     Usage,
 )
-from backend.lib.db import RuntimeStore, ToolRunRecord, TurnRecord
+from backend.data import RuntimeStore, ToolRunRecord, TurnRecord
 
-from backend.lib.agent.compaction import compact_if_needed
-from backend.lib.agent.compaction.summarizer import (
+from backend.domain.agent.compaction import compact_if_needed
+from backend.domain.agent.compaction.summarizer import (
     SUMMARIZER_INPUT_BUDGET_TOKENS,
     _build_summarizer_input,
     summarize_for_compaction,

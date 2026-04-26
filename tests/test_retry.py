@@ -8,8 +8,8 @@ from email.utils import format_datetime
 
 import pytest
 
-from backend.lib.providers.errors import RetryableError
-from backend.lib.providers.retry import (
+from backend.domain.providers.errors import RetryableError
+from backend.domain.providers.retry import (
     MAX_ATTEMPTS,
     compute_delay,
     parse_retry_after,
@@ -108,7 +108,7 @@ async def test_with_retries_retries_classified_then_succeeds(monkeypatch):
     async def fake_sleep(seconds):
         sleep_calls.append(seconds)
 
-    monkeypatch.setattr("backend.lib.providers.retry.asyncio.sleep", fake_sleep)
+    monkeypatch.setattr("backend.domain.providers.retry.asyncio.sleep", fake_sleep)
 
     calls = 0
 
@@ -132,7 +132,7 @@ async def test_with_retries_retries_classified_then_succeeds(monkeypatch):
 async def test_with_retries_exhausts_and_raises_last_exception(monkeypatch):
     async def fake_sleep(seconds):
         return None
-    monkeypatch.setattr("backend.lib.providers.retry.asyncio.sleep", fake_sleep)
+    monkeypatch.setattr("backend.domain.providers.retry.asyncio.sleep", fake_sleep)
 
     calls = 0
 
@@ -150,7 +150,7 @@ async def test_with_retries_exhausts_and_raises_last_exception(monkeypatch):
 async def test_with_retries_on_retry_callback_fires(monkeypatch):
     async def fake_sleep(seconds):
         return None
-    monkeypatch.setattr("backend.lib.providers.retry.asyncio.sleep", fake_sleep)
+    monkeypatch.setattr("backend.domain.providers.retry.asyncio.sleep", fake_sleep)
 
     callbacks: list[tuple[int, float, str]] = []
 
@@ -181,7 +181,7 @@ async def test_with_retries_on_retry_callback_fires(monkeypatch):
 async def test_with_retries_callback_failure_does_not_abort(monkeypatch):
     async def fake_sleep(seconds):
         return None
-    monkeypatch.setattr("backend.lib.providers.retry.asyncio.sleep", fake_sleep)
+    monkeypatch.setattr("backend.domain.providers.retry.asyncio.sleep", fake_sleep)
 
     async def bad_callback(attempt, delay, exc):
         raise RuntimeError("callback exploded")

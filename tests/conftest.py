@@ -24,5 +24,5 @@ def no_login_throttle(monkeypatch):
     async def _no_sleep(*_args, **_kwargs):
         return None
     monkeypatch.setattr(
-        "backend.services.auth.service.asyncio.sleep", _no_sleep
+        "backend.application.auth.service.asyncio.sleep", _no_sleep
     )

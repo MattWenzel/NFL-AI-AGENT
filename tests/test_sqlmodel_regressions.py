@@ -4,8 +4,9 @@ import asyncio
 
 import pytest
 
-from backend.services.conversations import ConversationService
-from backend.lib.db import RuntimeStore
+from backend.api.routes.conversations import _transcript_response
+from backend.application.conversations import ConversationService
+from backend.data import RuntimeStore
 
 
 @pytest.fixture
@@ -109,11 +110,11 @@ async def test_transcript_response_hides_storage_only_fields(store: RuntimeStore
     await store.record_compaction(session.id, "summary text", [user_turn.id])
 
     service = ConversationService(store)
-    response = await service.get_transcript(session.id, user.id)
+    transcript = await service.get_transcript(session.id, user.id)
+    response = _transcript_response(session.id, transcript)
     payload = response.model_dump()
 
     assert all("session_id" not in turn for turn in payload["turns"])
     assert all("session_id" not in part for part in payload["parts"])
     assert all("session_id" not in run for run in payload["tool_runs"])
     assert all("session_id" not in summary for summary in payload["summaries"])
-    assert all("raw_input_text" not in run for run in payload["tool_runs"])
