@@ -94,8 +94,7 @@ export function Composer({
     <div
       className={cn(
         'px-6 lg:px-10',
-        variant === 'docked' &&
-          'bg-background/85 pb-4 pt-8 backdrop-blur supports-[backdrop-filter]:bg-background/70',
+        variant === 'docked' && 'pb-4 pt-8',
         variant === 'centered' && 'pb-2 pt-0',
       )}
     >
