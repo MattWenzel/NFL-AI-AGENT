@@ -45,21 +45,22 @@ export function AppShell({ sidebar, main, inspector, inspectorAvailable = false 
     if (inspectorAvailable) setDesktopInspectorOpen(true)
   }, [inspectorAvailable])
 
-  // Close the desktop inspector when a click lands outside of it. Only
-  // attached while the pane is open. Tool rows / message clicks already
-  // stopPropagation, so they keep the pane open even though they live
-  // outside this ref.
+  // Close the desktop inspector when a pointer-down lands outside of it.
+  // mousedown is used (not click) so the contains() check runs before any
+  // React re-render that might unmount the button the user is actually
+  // clicking — a click on a tool row inside the inspector swaps views,
+  // and by the click phase the original button is detached from the DOM.
   const inspectorRef = useRef<HTMLElement | null>(null)
   useEffect(() => {
     if (!desktopInspectorOpen) return
-    const onClick = (e: MouseEvent) => {
+    const onMouseDown = (e: MouseEvent) => {
       const target = e.target
       if (!(target instanceof Node)) return
       if (inspectorRef.current?.contains(target)) return
       setDesktopInspectorOpen(false)
     }
-    document.addEventListener('click', onClick)
-    return () => document.removeEventListener('click', onClick)
+    document.addEventListener('mousedown', onMouseDown)
+    return () => document.removeEventListener('mousedown', onMouseDown)
   }, [desktopInspectorOpen])
 
   const ctx: LayoutCtx = {
