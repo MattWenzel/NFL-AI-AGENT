@@ -58,6 +58,11 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
             ) : (
               <EmptyThread />
             )}
+            {chat.streamError ? (
+              <div className="border-t border-destructive/30 bg-destructive/5 px-4 py-2 text-center text-xs text-destructive">
+                {chat.streamError}
+              </div>
+            ) : null}
             <Composer
               streaming={chat.streamStatus === 'streaming'}
               onSend={(message, opts) => chat.send(message, opts)}

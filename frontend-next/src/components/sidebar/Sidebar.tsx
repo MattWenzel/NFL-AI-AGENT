@@ -4,11 +4,10 @@ import { Plus, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { ConversationRow } from '@/components/sidebar/ConversationRow'
 import { UserWidget } from '@/components/sidebar/UserWidget'
 import { useChatContext } from '@/lib/chatContext'
-import { relativeTime } from '@/lib/datetime'
 import type { AuthUser } from '@/lib/auth'
-import { cn } from '@/lib/utils'
 
 interface SidebarProps {
   user: AuthUser
@@ -136,26 +135,12 @@ function SidebarGroup({
       ) : null}
       <ul className="space-y-px">
         {items.map((item) => (
-          <li key={item.id}>
-            <button
-              type="button"
-              onClick={() => onPick?.(item.id)}
-              className={cn(
-                'flex w-full flex-col gap-0.5 rounded-md px-2 py-2 text-left transition-colors',
-                'hover:bg-sidebar-accent focus-visible:bg-sidebar-accent focus-visible:outline-none',
-                activeId === item.id && 'bg-sidebar-accent',
-              )}
-            >
-              <span className="line-clamp-1 text-sm font-medium text-sidebar-foreground">
-                {item.title}
-              </span>
-              <span className="flex items-center gap-1.5 text-2xs text-muted-foreground">
-                {item.provider ? <span className="capitalize">{item.provider}</span> : null}
-                {item.provider && item.updated_at ? <span aria-hidden>·</span> : null}
-                {item.updated_at ? <span className="tabular">{relativeTime(item.updated_at)}</span> : null}
-              </span>
-            </button>
-          </li>
+          <ConversationRow
+            key={item.id}
+            item={item}
+            active={activeId === item.id}
+            onPick={onPick}
+          />
         ))}
       </ul>
     </div>

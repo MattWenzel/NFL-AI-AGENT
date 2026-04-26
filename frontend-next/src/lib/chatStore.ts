@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react'
 
-import { apiGet, ApiError } from '@/lib/api'
+import { apiDelete, apiGet, apiPatch, ApiError } from '@/lib/api'
 import { openSseStream } from '@/lib/sse'
 import type {
   AssistantPartRecord,
@@ -260,6 +260,30 @@ export function useChat() {
     dispatch({ type: 'new-conversation' })
   }, [])
 
+  const setPinned = useCallback(async (id: string, pinned: boolean) => {
+    try {
+      await apiPatch<ConversationInfo>(
+        `/chat/conversations/${encodeURIComponent(id)}`,
+        { pinned },
+      )
+    } catch {
+      // ignore — surfaced via list refresh
+    }
+    await refreshConversations()
+  }, [refreshConversations])
+
+  const removeConversation = useCallback(async (id: string) => {
+    try {
+      await apiDelete(`/chat/conversations/${encodeURIComponent(id)}`)
+    } catch {
+      // ignore — surfaced via list refresh
+    }
+    if (stateRef.current.conversationId === id) {
+      dispatch({ type: 'new-conversation' })
+    }
+    await refreshConversations()
+  }, [refreshConversations])
+
   const stop = useCallback(() => {
     abortRef.current?.abort()
     abortRef.current = null
@@ -386,6 +410,8 @@ export function useChat() {
     refreshConversations,
     loadConversation,
     newConversation,
+    setPinned,
+    removeConversation,
     send,
     stop,
   }
