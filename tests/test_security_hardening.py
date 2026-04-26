@@ -268,6 +268,7 @@ class TestEmailVerification:
 # ---------------- login lockout ----------------
 
 
+@pytest.mark.usefixtures("no_login_throttle")
 class TestLoginLockout:
     def test_lockout_after_max_failures(self, client, monkeypatch):
         # Tighten the thresholds for a fast test. The service reads these

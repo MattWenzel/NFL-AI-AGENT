@@ -346,6 +346,7 @@ class TestProvidersAvailability:
 
 # ---------------- rate limiting ----------------
 
+@pytest.mark.usefixtures("no_login_throttle")
 class TestRateLimit:
     def test_register_rate_limit_returns_429(self, client):
         # 5 attempts is the configured ceiling for register.
