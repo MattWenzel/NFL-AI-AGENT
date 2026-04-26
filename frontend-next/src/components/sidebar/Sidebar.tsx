@@ -82,9 +82,13 @@ export function Sidebar({
       </div>
 
       <Tabs defaultValue="chats" className="flex min-h-0 flex-1 flex-col gap-0">
-        <TabsList className="mx-3 grid h-9 grid-cols-2 bg-sidebar-accent/60">
-          <TabsTrigger value="chats" className="text-xs">Chats</TabsTrigger>
-          <TabsTrigger value="reports" className="text-xs">Reports</TabsTrigger>
+        <TabsList className="mx-3 mt-5 grid h-11 grid-cols-2 gap-1 bg-sidebar-accent/60 p-1">
+          <TabsTrigger value="chats" className="text-base font-medium">
+            Chats
+          </TabsTrigger>
+          <TabsTrigger value="reports" className="text-base font-medium">
+            Reports
+          </TabsTrigger>
         </TabsList>
 
         <div className="px-3 pb-2 pt-3">
