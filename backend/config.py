@@ -11,7 +11,7 @@ def load_dotenv() -> None:
     global _DOTENV_LOADED
     if _DOTENV_LOADED:
         return
-    env_path = Path(__file__).resolve().parents[2] / ".env"
+    env_path = Path(__file__).resolve().parents[1] / ".env"
     if os.path.exists(env_path):
         with open(env_path) as f:
             for line in f:
@@ -27,7 +27,7 @@ load_dotenv()
 # All four paths are env-overridable so a deploy (e.g. Fly.io) can point them
 # at a mounted persistent volume (typically /data/...) while local dev keeps
 # using the repo-relative defaults.
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = Path(os.environ.get("DB_PATH") or _PROJECT_ROOT / "NFLVERSE" / "data" / "nflverse.duckdb")
 
 # Conversation persistence
