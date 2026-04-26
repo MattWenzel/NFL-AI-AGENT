@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.config import ALLOW_NULL_ORIGIN, ALLOWED_ORIGINS
-from backend.server.middleware import SecurityHeadersMiddleware
+from backend.server.middleware import RequestIDMiddleware, SecurityHeadersMiddleware
 from backend.server.startup import configure_runtime_state, log_environment_state, run_housekeeping, validate_encryption
 from backend.server.routes import auth
 from backend.server.routes import chat
@@ -60,10 +60,13 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Security headers first so they wrap every response (including CORS
-    # preflights and error replies). Starlette composes middleware in reverse
-    # of registration order, so the one added first runs outermost — which is
-    # where we want security headers.
+    # RequestIDMiddleware first so the correlation contextvar is set before
+    # any other middleware runs (or logs). Starlette composes middleware in
+    # reverse of registration order, so first-added = outermost.
+    app.add_middleware(RequestIDMiddleware)
+
+    # Security headers wrap every response (including CORS preflights and
+    # error replies).
     app.add_middleware(SecurityHeadersMiddleware)
 
     # CORS — local defaults cover the dev setup; ALLOWED_ORIGINS env var

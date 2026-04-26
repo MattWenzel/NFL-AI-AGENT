@@ -4,6 +4,8 @@ import logging
 import re
 import sys
 
+from backend.server.request_context import request_id
+
 
 # Patterns that look like secrets — applied to every log record by the
 # SecretRedactingFilter below. The goal is defense-in-depth: if a caller
@@ -26,6 +28,21 @@ def _redact(value: str) -> str:
     for pattern in _SECRET_PATTERNS:
         value = pattern.sub("[REDACTED]", value)
     return value
+
+
+class RequestIDFilter(logging.Filter):
+    """Inject the per-request correlation ID into every log record.
+
+    Reads the `request_id` contextvar (set by `RequestIDMiddleware`) and
+    stuffs it onto the record so the formatter's `%(request_id)s` slot
+    always resolves. Outside a request context the contextvar's default
+    (`-`) flows through, so startup/lifespan/background logs render with
+    a dash instead of failing the formatter with a KeyError.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: A003
+        record.request_id = request_id.get()
+        return True
 
 
 class SecretRedactingFilter(logging.Filter):
@@ -66,8 +83,16 @@ def setup_logging(verbose: bool = False) -> None:
     level = logging.DEBUG if verbose else logging.WARNING
     handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(
-        logging.Formatter("%(asctime)s %(levelname)-5s [%(name)s] %(message)s", datefmt="%H:%M:%S")
+        logging.Formatter(
+            "%(asctime)s %(levelname)-5s [%(name)s] [%(request_id)s] %(message)s",
+            datefmt="%H:%M:%S",
+        )
     )
+    # Filters run in addition order. RequestIDFilter must run first so the
+    # record has `request_id` set before anything else processes it; the
+    # formatter would otherwise raise KeyError on every record. Filter order
+    # also doesn't affect SecretRedactingFilter — they touch different fields.
+    handler.addFilter(RequestIDFilter())
     handler.addFilter(SecretRedactingFilter())
     root = logging.getLogger()
     root.setLevel(level)
