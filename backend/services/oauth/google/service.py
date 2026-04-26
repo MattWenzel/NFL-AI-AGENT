@@ -30,7 +30,7 @@ from backend.config import (
     google_oauth_redirect_uri,
 )
 from backend.lib.auth.audit import AuditContext, audit_log
-from backend.services.auth.errors import AuthConflictError
+from backend.lib.auth.errors import AuthConflictError
 from backend.services.oauth.google.errors import (
     GoogleOAuthDisabledError,
     GoogleOAuthEmailUnverifiedError,

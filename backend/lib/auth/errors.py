@@ -7,6 +7,12 @@ OAuth protocols, encryption, email — has one predictable import path.
 from __future__ import annotations
 
 
+# ---------------- Account lifecycle ----------------
+
+class AuthConflictError(Exception):
+    """Raised when account creation collides with an existing email."""
+
+
 # ---------------- Codex (ChatGPT) OAuth ----------------
 
 class CodexOAuthError(Exception):

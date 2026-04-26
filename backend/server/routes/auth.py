@@ -44,14 +44,14 @@ from backend.services.auth.schemas import (
     ResendVerificationRequest,
     VerifyEmailRequest,
 )
-from backend.services.auth.service import AuthService
+from backend.lib.auth.errors import AuthConflictError
 from backend.services.auth.errors import (
-    AuthConflictError,
     AuthCredentialsError,
     AuthEmailUnverifiedError,
     AuthLockedError,
     AuthValidationError,
 )
+from backend.services.auth.service import AuthService
 
 logger = logging.getLogger(__name__)
 

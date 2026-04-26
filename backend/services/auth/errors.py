@@ -1,13 +1,16 @@
-"""Auth process service errors."""
+"""Auth service errors.
+
+`AuthConflictError` lives in `lib/auth/errors.py` because it's raised by
+the lib-level `create_user_account` helper. Importers should reach for
+the canonical lib path. The errors here are the ones that only make
+sense in a user-facing flow (validation, credentials, lockout,
+unverified email).
+"""
 
 from __future__ import annotations
 
 
 class AuthServiceError(Exception):
-    pass
-
-
-class AuthConflictError(AuthServiceError):
     pass
 
 

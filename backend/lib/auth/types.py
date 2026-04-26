@@ -10,6 +10,7 @@ values.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol
 
 
@@ -21,6 +22,13 @@ GOOGLE = "google"
 # set). bcrypt treats it as malformed, so `verify_password` always returns
 # False and password login is naturally blocked without a schema rebuild.
 OAUTH_ONLY_SENTINEL_HASH = "!"
+
+
+@dataclass
+class IssuedSession:
+    """An auth session token plus its expiry, returned by `issue_session`."""
+    token: str
+    expires_at: datetime
 
 
 class UserRecordView(Protocol):

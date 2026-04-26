@@ -1,15 +1,15 @@
-"""Internal DTOs for the auth process."""
+"""Internal DTOs for the auth service.
+
+`IssuedSession` lives in `lib/auth/types.py` (it's the result of the
+lib-level `issue_session` helper). Importers should reach for the
+canonical lib path.
+"""
 
 from __future__ import annotations
 
-from datetime import datetime
 from dataclasses import dataclass
 
-
-@dataclass
-class IssuedSession:
-    token: str
-    expires_at: datetime
+from backend.lib.auth.types import IssuedSession
 
 
 @dataclass

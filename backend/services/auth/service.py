@@ -27,19 +27,19 @@ from backend.services.auth.schemas import (
     AuthUser,
     RegistrationPendingResponse,
 )
+from backend.lib.auth.audit import AuditContext, audit_log
+from backend.lib.auth.errors import AuthConflictError
+from backend.lib.auth.lifecycle import IdentitySeed, create_user_account, issue_session
+from backend.lib.auth.types import PASSWORD, IssuedSession
+from backend.lib.db import AuditEvent, RuntimeStore
 from backend.services.auth.errors import (
-    AuthConflictError,
     AuthCredentialsError,
     AuthEmailUnverifiedError,
     AuthLockedError,
     AuthServiceError,
     AuthValidationError,
 )
-from backend.lib.auth.types import PASSWORD
-from backend.lib.auth.audit import AuditContext, audit_log
-from backend.lib.auth.lifecycle import IdentitySeed, create_user_account, issue_session
-from backend.services.auth.types import IssuedSession, RegistrationResult
-from backend.lib.db import AuditEvent, RuntimeStore
+from backend.services.auth.types import RegistrationResult
 
 logger = logging.getLogger(__name__)
 

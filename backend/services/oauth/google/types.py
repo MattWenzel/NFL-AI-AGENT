@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from backend.services.auth.types import IssuedSession
+from backend.lib.auth.types import IssuedSession
 
 
 @dataclass(frozen=True)

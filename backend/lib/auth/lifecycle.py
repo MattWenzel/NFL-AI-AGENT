@@ -7,10 +7,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from backend.config import AUTH_TOKEN_TTL_DAYS
-from backend.lib.db import RuntimeStore
-from backend.services.auth.errors import AuthConflictError
-from backend.services.auth.types import IssuedSession
+from backend.lib.auth.errors import AuthConflictError
 from backend.lib.auth.primitives import generate_token
+from backend.lib.auth.types import IssuedSession
+from backend.lib.db import RuntimeStore
 
 logger = logging.getLogger(__name__)
 
