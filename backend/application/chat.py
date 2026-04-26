@@ -1,7 +1,8 @@
-"""Application service for chat request orchestration."""
+"""Chat application service: request preparation + response aggregation."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import AsyncGenerator
 
 from backend.domain.auth.types import AuthenticatedUser
@@ -23,12 +24,11 @@ from backend.domain.providers import (
     provider_is_available,
 )
 from backend.domain.providers.types import ToolChoice
-from backend.data import RuntimeStore
+from backend.data import RuntimeStore, SessionRecord
 from backend.application.oauth.provider_credentials import (
     CredentialServiceError,
     ProviderCredentialService,
 )
-from backend.application.chat.types import PreparedChat, ToolCallLogEntry
 from backend.runtime_state import PerUserLockRegistry
 
 
@@ -42,6 +42,21 @@ class ChatNotFoundError(ChatServiceError):
 
 class ChatConfigurationError(ChatServiceError):
     """Provider, credential, or model selection failed."""
+
+
+@dataclass
+class PreparedChat:
+    client: BaseLLMClient
+    provider_name: str
+    session: SessionRecord
+
+
+@dataclass
+class ToolCallLogEntry:
+    tool_run_id: str
+    tool: str
+    input: dict
+    result_preview: str = ""
 
 
 async def close_client(client: BaseLLMClient) -> None:

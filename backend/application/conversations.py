@@ -1,11 +1,18 @@
-"""Application service for conversation APIs."""
+"""Conversation feature: list / transcript / patch / delete."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from backend.application.conversations.errors import ConversationNotFoundError
 from backend.data import RuntimeStore, SessionListEntry, SessionTranscript
+
+
+class ConversationServiceError(Exception):
+    pass
+
+
+class ConversationNotFoundError(ConversationServiceError):
+    pass
 
 
 @dataclass

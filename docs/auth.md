@@ -14,12 +14,10 @@ This doc covers the password flow, token scheme, rate limiting, Fernet-encrypted
 - `backend/domain/auth/audit.py` — shared `AuditContext` and `audit_log` helper used by auth and OAuth services.
 
 **Services (`backend/application/`):**
-- `auth/service.py` — `AuthService`: register, login, logout, change_password, delete_account.
-- `auth/types.py` / `auth/errors.py` — service-internal types and exceptions.
+- `auth.py` — `AuthService` (register, login, logout, change_password, delete_account) plus the service's errors and `RegistrationResult`.
 - `oauth/provider_credentials.py` — `ProviderCredentialService.get_api_key` dispatches `api_key` vs `codex_oauth` shapes.
-- `oauth/codex/credentials.py` — `resolve_access_token(user_id)` for Codex OAuth credentials.
-- `oauth/codex/service.py` — `CodexOAuthService` device-flow orchestration.
-- `oauth/google/service.py` — Google sign-in/linking flow orchestration.
+- `oauth/codex.py` — `CodexOAuthService` device flow + `resolve_access_token` credential resolver.
+- `oauth/google.py` — Google sign-in / sign-up / link / unlink flow + the flow's errors and DTOs.
 - `settings.py` — `SettingsService`: per-provider key status, upsert/delete.
 - `providers.py` — `ProviderService`: provider availability using server config plus user keys.
 
@@ -61,9 +59,9 @@ Protected endpoints depend on `get_current_user` (`backend/api/dependencies.py:5
 
 ## The password flow
 
-All password endpoints delegate to `AuthService` in `backend/application/auth/service.py`. Routes pass the user-provided body + (if authenticated) the current user.
+All password endpoints delegate to `AuthService` in `backend/application/auth.py`. Routes pass the user-provided body + (if authenticated) the current user.
 
-### Registration — `AuthService.register` (`auth/service.py`)
+### Registration — `AuthService.register` (`auth.py`)
 
 1. Rate-limit check (registered in the route).
 2. If `REGISTRATION_INVITE_CODE` is set, require a matching `invite_code` in the body. `secrets.compare_digest` avoids timing leaks on the code comparison.
@@ -74,21 +72,21 @@ All password endpoints delegate to `AuthService` in `backend/application/auth/se
 
 Pydantic (`RegisterRequest` in `backend/api/schemas/auth.py`) enforces password minimum length before the handler runs.
 
-### Login — `AuthService.login` (`auth/service.py`)
+### Login — `AuthService.login` (`auth.py`)
 
 1. Rate-limit check (route).
 2. Lookup by lowercased email.
-3. **Constant-time check even on unknown users** — if the user exists, verify against their hash; if not, verify against a dummy bcrypt hash (`auth/service.py`). Bcrypt's `checkpw` dominates latency either way, so an attacker can't time-probe whether an email is registered.
+3. **Constant-time check even on unknown users** — if the user exists, verify against their hash; if not, verify against a dummy bcrypt hash (`auth.py`). Bcrypt's `checkpw` dominates latency either way, so an attacker can't time-probe whether an email is registered.
 4. On mismatch or missing user → 401 "Invalid email or password". Don't distinguish.
 5. On success → issue a new session; return `{token, user}`.
 
 Successful login doesn't revoke existing sessions. The user may have other devices/browsers signed in; login just adds one more token to the pile.
 
-### Logout — `AuthService.logout` (`auth/service.py`)
+### Logout — `AuthService.logout` (`auth.py`)
 
 The route parses the current session token directly via `_extract_session_token` rather than through `get_current_user`, then calls `store.delete_auth_session(token)`. Subsequent requests with that token will 401. `get_current_user` is still a dependency so an unauthenticated caller can't log anyone out — need a valid token first.
 
-### Password change — `AuthService.change_password` (`auth/service.py`)
+### Password change — `AuthService.change_password` (`auth.py`)
 
 Requires the current password — without this check, a stolen bearer token could silently lock the owner out of all their other sessions. Flow:
 
@@ -96,7 +94,7 @@ Requires the current password — without this check, a stolen bearer token coul
 2. Update the hash (new bcrypt cost picks up any config change).
 3. `invalidate_other_auth_sessions(user_id, keep_token=current_token)` deletes every session for this user except the calling one. The UI stays signed in; other devices need to re-authenticate.
 
-### Delete account — `AuthService.delete_account` (`auth/service.py`)
+### Delete account — `AuthService.delete_account` (`auth.py`)
 
 Requires the user's password. On success, `store.delete_user(user_id)` cascades:
 
@@ -201,20 +199,20 @@ Some users don't have an OpenAI API key but do have a ChatGPT subscription. Open
 3. **`exchange_code(auth_code, code_verifier)`** (`backend/domain/auth/codex_oauth.py:232`) → `POST https://auth.openai.com/oauth/token` → returns `TokenBundle(access_token, refresh_token, expires_at, email)`. `expires_at` is parsed from the JWT's `exp` claim (or `expires_in + 55 minutes` fallback).
 4. **`refresh_access_token(refresh_token)`** (`backend/domain/auth/codex_oauth.py:252`) → same endpoint, `grant_type=refresh_token` → returns a new bundle. **OpenAI may rotate the refresh token**, so the caller must replace the stored bundle with the return value.
 
-### Transport-side orchestration (`oauth/codex/service.py`)
+### Transport-side orchestration (`oauth/codex.py`)
 
-- **`start(user_id)`** (`oauth/codex/service.py`) — evicts stale flows, calls `request_device_code`, registers a `PendingCodexOAuthFlow` in `PendingCodexOAuthFlows`, and spawns `run_device_flow` as an `asyncio.Task`. Returns `{pending_id, user_code, verification_url, expires_in: 900}` to the browser.
+- **`start(user_id)`** (`oauth/codex.py`) — evicts stale flows, calls `request_device_code`, registers a `PendingCodexOAuthFlow` in `PendingCodexOAuthFlows`, and spawns `run_device_flow` as an `asyncio.Task`. Returns `{pending_id, user_code, verification_url, expires_in: 900}` to the browser.
 - **`run_device_flow(pending_id)`** — polls for completion; on success, calls `exchange_code`, encrypts the JSON bundle, and `store.upsert_api_key(user_id, provider="openai-codex", encrypted_key=...)`. Sets flow status to `complete`. On timeout or error, sets `expired` / `error`.
 - **`status(pending_id, user_id)`** — IDOR-checked lookup. Pops the flow once it reaches a terminal state.
 - **`cancel(pending_id, user_id)`** — cancels the asyncio task.
 
 On worker shutdown, `AppProcessState.aclose()` cancels every in-flight flow task so they don't leak past the lifespan.
 
-### Access-token refresh (`oauth/codex/credentials.py`)
+### Access-token refresh (`oauth/codex.py`)
 
 Once connected, the access token is short-lived (Codex returns ~1-hour tokens). Refresh happens on-demand, not on a schedule:
 
-- `resolve_access_token(store, user_id, provider_name, refresh_locks)` (`oauth/codex/credentials.py`):
+- `resolve_access_token(store, user_id, provider_name, refresh_locks)` (`oauth/codex.py`):
   1. Load + decrypt the stored `TokenBundle`.
   2. If `not is_near_expiry(bundle, skew=REFRESH_SKEW_SECONDS=30)`, return the current access token.
   3. Otherwise acquire the per-user refresh lock (`refresh_locks.for_user(user_id)` in `InMemoryPerUserLockRegistry`).

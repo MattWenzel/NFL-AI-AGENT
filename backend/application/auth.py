@@ -1,4 +1,4 @@
-"""Application service for auth and account lifecycle."""
+"""Authentication application service: register / login / logout / password / delete / verify / resend."""
 
 from __future__ import annotations
 
@@ -26,19 +26,42 @@ from backend.domain.auth.errors import AuthConflictError
 from backend.domain.auth.lifecycle import IdentitySeed, create_user_account, issue_session
 from backend.domain.auth.types import PASSWORD, IssuedSession
 from backend.data import AuditEvent, RuntimeStore
-from backend.application.auth.errors import (
-    AuthCredentialsError,
-    AuthEmailUnverifiedError,
-    AuthLockedError,
-    AuthServiceError,
-    AuthValidationError,
-)
-from backend.application.auth.types import RegistrationResult
 
 logger = logging.getLogger(__name__)
 
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+class AuthServiceError(Exception):
+    pass
+
+
+class AuthValidationError(AuthServiceError):
+    pass
+
+
+class AuthCredentialsError(AuthServiceError):
+    pass
+
+
+class AuthLockedError(AuthServiceError):
+    """Raised when an account is temporarily locked after too many failures."""
+
+    def __init__(self, retry_after_seconds: int, message: str = "Account temporarily locked"):
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
+
+
+class AuthEmailUnverifiedError(AuthServiceError):
+    """Raised when email verification is required and the account is unverified."""
+
+
+@dataclass
+class RegistrationResult:
+    user: object
+    session: IssuedSession | None = None
+    verification_token: str | None = None
 
 
 def _to_auth_user(user: AuthenticatedUser | object) -> dict:
@@ -218,7 +241,7 @@ class AuthService:
         normalized = email.strip().lower()
         user = await self.store.get_user_by_email(normalized)
         if user is None or user.email_verified_at is not None:
-            await audit_log(self.store, 
+            await audit_log(self.store,
                 AuditEvent.VERIFICATION_RESENT_IGNORED, user.id if user else None, audit, {"email": normalized}
             )
             return
@@ -279,7 +302,6 @@ class AuthService:
         meta = {"email": email, "failure_count": projected_count, "locked": locked_until is not None}
         event_type = AuditEvent.LOGIN_LOCKED if locked_until else AuditEvent.LOGIN_FAILURE
         await audit_log(self.store, event_type, user.id if user else None, audit, meta)
-
 
 
 def _progressive_delay(failure_count: int) -> float:

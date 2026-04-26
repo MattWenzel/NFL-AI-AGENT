@@ -23,7 +23,7 @@ from cryptography.fernet import Fernet
 from backend.domain.auth.primitives import generate_token, hash_password, verify_password
 from tests.app_factory import build_test_app, managed_test_client
 from backend.api.routes.auth import router as auth_router
-from backend.application.auth import service as auth_service_module
+from backend.application import auth as auth_service_module
 from backend.api.routes.conversations import router as conversations_router
 from backend.api.routes.exports import router as csvs_router
 from backend.api.routes.providers import router as providers_router

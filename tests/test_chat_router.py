@@ -15,13 +15,13 @@ from backend.server.process_state import AppProcessState
 from backend.data import RuntimeStore, SessionRecord
 from backend.api.routes import chat as chat_router
 from backend.api.routes.chat import router as chat_router_module
-from backend.application.chat.service import (
+from backend.application.chat import (
     ChatConfigurationError,
     ChatNotFoundError,
     ChatService,
     ChatServiceError,
 )
-from backend.application.chat.types import PreparedChat
+from backend.application.chat import PreparedChat
 from tests.app_factory import build_test_app, managed_test_client
 
 

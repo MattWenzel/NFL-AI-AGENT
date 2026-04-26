@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from backend.domain.auth import encryption
-from backend.application.oauth.codex.credentials import (
+from backend.application.oauth.codex import (
     CodexCredentialError,
     resolve_access_token as resolve_codex_access_token,
 )

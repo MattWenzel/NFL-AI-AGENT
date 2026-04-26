@@ -69,7 +69,7 @@ Following a single message from the browser back to the browser:
  └───────────────────────────────────┘
                 │
                 ▼
- ┌── backend/application/chat/service.py ┐
+ ┌── backend/application/chat.py ┐
  │ ChatService.prepare_chat          │        chat.py:101
  │  ├─ IDOR check                    │
  │  ├─ resolve + decrypt API key     │
@@ -128,7 +128,7 @@ Common "where does X happen" questions:
 | Question | Where |
 |----------|-------|
 | User message arrives → HTTP | `backend/api/routes/chat.py` ([transport.md](transport.md)) |
-| Who owns this conversation? | IDOR guard in `ChatService.prepare_chat`, `backend/application/chat/service.py` ([transport.md](transport.md#idor-protection)) |
+| Who owns this conversation? | IDOR guard in `ChatService.prepare_chat`, `backend/application/chat.py` ([transport.md](transport.md#idor-protection)) |
 | Which API key to use? | `ProviderCredentialService.get_api_key` → `encryption.decrypt` ([auth.md](auth.md#api-keys)) |
 | Model selects a tool | Streamed `ToolUseEvent` from the provider adapter ([providers.md](providers.md#streaming)) |
 | Tool call actually runs | `Turn._execute_one_tool` → `execute_tool_structured` ([tools.md](tools.md#data-flow-for-one-tool-call)) |

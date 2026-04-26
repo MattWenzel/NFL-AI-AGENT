@@ -22,17 +22,17 @@ from cryptography.fernet import Fernet
 from backend.domain.auth import google_oauth as google_oauth_module
 from backend.domain.auth import encryption
 from backend.domain.auth.primitives import verify_password
-from backend.application.auth import service as auth_service_module
-from backend.application.auth.service import AuthService
-from backend.application.oauth.google.errors import (
+from backend.application import auth as auth_service_module
+from backend.application.auth import AuthService
+from backend.application.oauth.google import (
     GoogleOAuthEmailUnverifiedError,
     GoogleOAuthInvalidStateError,
     GoogleOAuthLastIdentityError,
     GoogleOAuthLinkConflictError,
 )
-from backend.application.oauth.google.service import GoogleOAuthService
+from backend.application.oauth.google import GoogleOAuthService
 from backend.domain.auth.audit import AuditContext
-from backend.application.oauth.google.types import LinkOutcome, SignInOutcome
+from backend.application.oauth.google import LinkOutcome, SignInOutcome
 from backend.data import RuntimeStore
 from backend.runtime_state import PendingGoogleOAuthFlows
 
@@ -58,7 +58,7 @@ def _google_env(monkeypatch):
     # via imports from `config`. Patching the module attributes directly
     # keeps tests from depending on process env.
     import backend.config as config
-    from backend.application.oauth.google import service as svc_mod
+    from backend.application.oauth import google as svc_mod
 
     monkeypatch.setattr(config, "GOOGLE_OAUTH_CLIENT_ID", "test-client-id")
     monkeypatch.setattr(config, "GOOGLE_OAUTH_CLIENT_SECRET", "test-client-secret")

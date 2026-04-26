@@ -25,7 +25,7 @@ from backend.api.dependencies import get_chat_service, get_current_user, get_pro
 from backend.server.process_state import AppProcessState
 from backend.server.rate_limit import ConcurrencyLimiter
 from backend.api.schemas.chat import ChatRequest, ChatResponse
-from backend.application.chat.service import (
+from backend.application.chat import (
     ChatConfigurationError,
     ChatNotFoundError,
     ChatService,

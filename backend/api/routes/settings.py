@@ -25,19 +25,19 @@ from backend.api.schemas.oauth_codex import (
     CodexOAuthStartResponse,
     CodexOAuthStatusResponse,
 )
-from backend.application.oauth.codex.service import (
+from backend.application.oauth.codex import (
     CodexOAuthService,
     CodexOAuthUnknownFlowError,
     CodexOAuthUpstreamError,
 )
-from backend.application.oauth.google.errors import (
+from backend.application.oauth.google import (
     GoogleOAuthDisabledError,
     GoogleOAuthLastIdentityError,
     GoogleOAuthLinkConflictError,
     GoogleOAuthServiceError,
 )
 from backend.application.settings import SettingsNotFoundError, SettingsServiceError
-from backend.application.oauth.google.service import GoogleOAuthService
+from backend.application.oauth.google import GoogleOAuthService
 from backend.application.settings import SettingsService
 
 # CSRF applies to mutating routes on this router; the GET /api-keys listing

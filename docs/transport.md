@@ -50,12 +50,12 @@ Routes in `backend/api/routes/` are thin shells — parse the request, call one 
 
 | Service | File | What it does |
 |---------|------|--------------|
-| `ChatService` | `backend/application/chat/service.py` | `prepare_chat` (IDOR, decrypt credential, build client, prepare session), `run_message` (buffered response), `stream_events` (SSE event source). |
-| `ConversationService` | `backend/application/conversations/service.py` | List / get-transcript / update-title-or-pin / delete for the authenticated user's conversations. |
-| `AuthService` | `backend/application/auth/service.py` | Register, login, logout, password change, delete account. Password hashing + token issuance live here; routes only translate exceptions. |
+| `ChatService` | `backend/application/chat.py` | `prepare_chat` (IDOR, decrypt credential, build client, prepare session), `run_message` (buffered response), `stream_events` (SSE event source). |
+| `ConversationService` | `backend/application/conversations.py` | List / get-transcript / update-title-or-pin / delete for the authenticated user's conversations. |
+| `AuthService` | `backend/application/auth.py` | Register, login, logout, password change, delete account. Password hashing + token issuance live here; routes only translate exceptions. |
 | `ProviderCredentialService` | `backend/application/oauth/provider_credentials.py` | Resolves the per-user API key for one provider. Dispatches Codex OAuth to the Codex credential helper; plain API keys are decrypted directly. |
-| `CodexOAuthService` | `backend/application/oauth/codex/service.py` | Device-code flow: `start`, `status`, `cancel`. Spawns a background task that polls OpenAI's device endpoint and stores the encrypted bundle on success. |
-| `ExportService` | `backend/application/exports/service.py` | List / preview / rename / delete CSV exports + seed a new conversation from one. IDOR at each entry point. |
+| `CodexOAuthService` | `backend/application/oauth/codex.py` | Device-code flow: `start`, `status`, `cancel`. Spawns a background task that polls OpenAI's device endpoint and stores the encrypted bundle on success. |
+| `ExportService` | `backend/application/exports.py` | List / preview / rename / delete CSV exports + seed a new conversation from one. IDOR at each entry point. |
 | `ProviderService` | `backend/application/providers.py` | Provider availability (server config ∪ user keys). |
 | `SettingsService` | `backend/application/settings.py` | Per-provider API-key status and set/clear key operations. |
 
@@ -87,7 +87,7 @@ Routes that need rate limits or process-local coordination depend on
 
 ## Chat endpoints
 
-Routes live in `backend/api/routes/chat.py` and delegate to `ChatService` in `backend/application/chat/service.py`.
+Routes live in `backend/api/routes/chat.py` and delegate to `ChatService` in `backend/application/chat.py`.
 
 ### `POST /chat/message` — buffered response
 
@@ -225,7 +225,7 @@ Once connected, `codex_credentials.resolve_access_token(user_id)` handles refres
 Every user-scoped endpoint's ownership check happens inside the **service**, not in the route:
 
 ```python
-# backend/application/chat/service.py
+# backend/application/chat.py
 if (
     body.conversation_id
     and await self.store.get_session(body.conversation_id, user_id=user.id) is None

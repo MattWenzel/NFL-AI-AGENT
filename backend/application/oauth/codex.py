@@ -1,17 +1,19 @@
-"""Application service for Codex OAuth device-code flow."""
+"""Codex OAuth: device-code flow orchestration plus stored-bundle access-token resolution."""
 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 from dataclasses import dataclass
 
 from backend.domain.auth import codex_oauth, encryption
 from backend.domain.auth.errors import CodexOAuthError, DeviceCodeExpired
+from backend.domain.auth.types import TokenBundle
 from backend.domain.providers.types import CODEX
 from backend.data import AuditEvent, RuntimeStore
-from backend.runtime_state import PendingCodexOAuthFlows
+from backend.runtime_state import PendingCodexOAuthFlows, PerUserLockRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +30,66 @@ class CodexOAuthUnknownFlowError(CodexOAuthServiceError):
 
 class CodexOAuthUpstreamError(CodexOAuthServiceError):
     pass
+
+
+class CodexCredentialError(Exception):
+    """Raised when a stored Codex connection exists but refresh fails."""
+
+
+# --- credential resolution (used by ProviderCredentialService) ---------------
+
+
+async def _load_bundle(
+    store: RuntimeStore, user_id: int, provider_name: str
+) -> TokenBundle | None:
+    rec = await store.get_api_key(user_id=user_id, provider=provider_name)
+    if rec is None:
+        return None
+    try:
+        blob_json = encryption.decrypt(rec.encrypted_key)
+    except ValueError:
+        logger.error("Failed to decrypt stored Codex bundle for user=%d", user_id)
+        return None
+    try:
+        return codex_oauth.bundle_from_json(blob_json)
+    except (KeyError, ValueError, json.JSONDecodeError) as exc:
+        logger.error("Malformed Codex bundle for user=%d: %s", user_id, exc)
+        return None
+
+
+async def resolve_access_token(
+    store: RuntimeStore,
+    user_id: int,
+    provider_name: str,
+    *,
+    refresh_locks: PerUserLockRegistry,
+) -> str | None:
+    bundle = await _load_bundle(store, user_id, provider_name)
+    if bundle is None:
+        return None
+    if not codex_oauth.is_near_expiry(bundle):
+        return bundle.access_token
+    async with refresh_locks.for_user(user_id):
+        bundle = await _load_bundle(store, user_id, provider_name)
+        if bundle is None:
+            return None
+        if not codex_oauth.is_near_expiry(bundle):
+            return bundle.access_token
+        try:
+            bundle = await codex_oauth.refresh_access_token(bundle.refresh_token)
+        except CodexOAuthError as exc:
+            logger.warning("Codex token refresh failed for user=%d: %s", user_id, exc)
+            raise CodexCredentialError("ChatGPT session expired — reconnect in Settings.") from exc
+        await store.upsert_api_key(
+            user_id=user_id,
+            provider=provider_name,
+            encrypted_key=encryption.encrypt(codex_oauth.bundle_to_json(bundle)),
+        )
+        logger.info("Refreshed Codex token for user=%d", user_id)
+        return bundle.access_token
+
+
+# --- device-code flow service -----------------------------------------------
 
 
 @dataclass

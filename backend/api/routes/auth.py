@@ -45,13 +45,13 @@ from backend.api.schemas.auth import (
     VerifyEmailRequest,
 )
 from backend.domain.auth.errors import AuthConflictError
-from backend.application.auth.errors import (
+from backend.application.auth import (
     AuthCredentialsError,
     AuthEmailUnverifiedError,
     AuthLockedError,
     AuthValidationError,
 )
-from backend.application.auth.service import AuthService
+from backend.application.auth import AuthService
 
 logger = logging.getLogger(__name__)
 

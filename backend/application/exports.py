@@ -1,4 +1,4 @@
-"""Application service for CSV export library APIs."""
+"""CSV export feature: library CRUD + download."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from backend.config import EXPORTS_DIR
-from backend.application.exports.errors import ExportNotFoundError, ExportServiceError
 from backend.domain.providers import get_default_provider, get_provider
 from backend.data import ExportRecord, RuntimeStore
 
@@ -17,6 +16,14 @@ logger = logging.getLogger(__name__)
 
 PREVIEW_ROW_LIMIT = 50
 _SAFE_FILENAME = re.compile(r"^[a-zA-Z0-9_\-]+\.csv$")
+
+
+class ExportServiceError(Exception):
+    pass
+
+
+class ExportNotFoundError(ExportServiceError):
+    pass
 
 
 @dataclass
