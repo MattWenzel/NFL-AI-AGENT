@@ -52,7 +52,9 @@ class ExportsMixin:
             stmt = select(ExportRecord)
             if user_id is not None:
                 stmt = stmt.where(ExportRecord.user_id == user_id)
-            stmt = stmt.order_by(ExportRecord.created_at.desc())
+            stmt = stmt.order_by(
+                ExportRecord.pinned_at.desc(), ExportRecord.created_at.desc()
+            )
             result = await session.execute(stmt)
             return list(result.scalars().all())
 
@@ -85,6 +87,21 @@ class ExportsMixin:
             if user_id is not None:
                 stmt = stmt.where(ExportRecord.user_id == user_id)
             stmt = stmt.values(title=title, updated_at=now)
+            result = await session.execute(stmt)
+            await session.commit()
+            if (result.rowcount or 0) == 0:
+                return None
+        return await self.get_export(export_id, user_id=user_id)
+
+    async def set_export_pinned(
+        self, export_id: str, pinned: bool, *, user_id: int | None = None
+    ) -> ExportRecord | None:
+        pinned_at = utcnow() if pinned else None
+        async with self._async_session() as session:
+            stmt = update(ExportRecord).where(ExportRecord.id == export_id)
+            if user_id is not None:
+                stmt = stmt.where(ExportRecord.user_id == user_id)
+            stmt = stmt.values(pinned_at=pinned_at)
             result = await session.execute(stmt)
             await session.commit()
             if (result.rowcount or 0) == 0:

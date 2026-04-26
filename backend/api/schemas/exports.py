@@ -16,6 +16,7 @@ class ExportInfo(BaseModel):
     file_size: int
     created_at: str
     updated_at: str
+    pinned_at: str | None = None
     download_url: str
     source_session_id: str | None = None
 
@@ -30,6 +31,7 @@ class ExportInfo(BaseModel):
             file_size=record.file_size,
             created_at=record.created_at,
             updated_at=record.updated_at,
+            pinned_at=record.pinned_at,
             download_url=f"/exports/{record.filename}",
             source_session_id=record.source_session_id,
         )
@@ -58,7 +60,8 @@ class ExportDetail(ExportInfo):
 
 
 class ExportUpdate(BaseModel):
-    title: str = Field(..., min_length=1, max_length=200)
+    title: str | None = Field(None, min_length=1, max_length=200)
+    pinned: bool | None = Field(None, description="Pin or unpin this export")
 
 
 class NewSessionFromExportRequest(BaseModel):

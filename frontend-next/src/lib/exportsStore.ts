@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { apiDelete, apiGet, ApiError } from '@/lib/api'
+import { apiDelete, apiGet, apiPatch, ApiError } from '@/lib/api'
 import type { ExportInfo } from '@/lib/exports'
 
 export function useExports() {
@@ -33,9 +33,31 @@ export function useExports() {
     [refresh],
   )
 
+  const rename = useCallback(
+    async (id: string, title: string) => {
+      const trimmed = title.trim()
+      if (!trimmed) return
+      await apiPatch<ExportInfo>(`/chat/exports/${encodeURIComponent(id)}`, {
+        title: trimmed,
+      })
+      await refresh()
+    },
+    [refresh],
+  )
+
+  const setPinned = useCallback(
+    async (id: string, pinned: boolean) => {
+      await apiPatch<ExportInfo>(`/chat/exports/${encodeURIComponent(id)}`, {
+        pinned,
+      })
+      await refresh()
+    },
+    [refresh],
+  )
+
   useEffect(() => {
     refresh()
   }, [refresh])
 
-  return { exports, status, error, refresh, remove }
+  return { exports, status, error, refresh, remove, rename, setPinned }
 }

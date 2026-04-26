@@ -137,6 +137,15 @@ def _migration_0004_oauth_identities(conn: Connection) -> None:
     ))
 
 
+def _migration_0005_export_pinned(conn: Connection) -> None:
+    """Add pinned_at to exports for the same pin/sort behavior as sessions."""
+    existing = {
+        row[1] for row in conn.execute(text("PRAGMA table_info(exports)"))
+    }
+    if "pinned_at" not in existing:
+        conn.execute(text("ALTER TABLE exports ADD COLUMN pinned_at TEXT"))
+
+
 # Ordered migration list. `user_version` after a full apply == len(MIGRATIONS).
 # Append-only — never reorder or delete entries or the version tracker drifts.
 MIGRATIONS: list[Callable[[Connection], None]] = [
@@ -144,6 +153,7 @@ MIGRATIONS: list[Callable[[Connection], None]] = [
     _migration_0002_rename_toolrun_columns,
     _migration_0003_security_hardening,
     _migration_0004_oauth_identities,
+    _migration_0005_export_pinned,
 ]
 
 

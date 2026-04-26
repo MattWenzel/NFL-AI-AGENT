@@ -11,6 +11,7 @@ export interface ExportInfo {
   file_size: number
   created_at: string
   updated_at: string
+  pinned_at: string | null
   download_url: string
   source_session_id: string | null
 }

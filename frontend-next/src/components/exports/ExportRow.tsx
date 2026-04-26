@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { MoreHorizontal, Trash2 } from 'lucide-react'
+import { MoreHorizontal, Pencil, Pin, PinOff, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import {
@@ -13,9 +13,20 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { relativeTime } from '@/lib/datetime'
@@ -27,10 +38,23 @@ interface ExportRowProps {
   active: boolean
   onPick?: (id: string) => void
   onDelete: (id: string) => Promise<void>
+  onRename: (id: string, title: string) => Promise<void>
+  onSetPinned: (id: string, pinned: boolean) => Promise<void>
 }
 
-export function ExportRow({ item, active, onPick, onDelete }: ExportRowProps) {
+export function ExportRow({
+  item,
+  active,
+  onPick,
+  onDelete,
+  onRename,
+  onSetPinned,
+}: ExportRowProps) {
   const [confirm, setConfirm] = useState(false)
+  const [renameOpen, setRenameOpen] = useState(false)
+  const [renameValue, setRenameValue] = useState(item.title)
+  const [renaming, setRenaming] = useState(false)
+  const isPinned = !!item.pinned_at
 
   const remove = async () => {
     try {
@@ -38,6 +62,38 @@ export function ExportRow({ item, active, onPick, onDelete }: ExportRowProps) {
       toast.success('CSV deleted')
     } catch {
       toast.error('Could not delete')
+    }
+  }
+
+  const togglePin = async () => {
+    try {
+      await onSetPinned(item.id, !isPinned)
+      toast.success(isPinned ? 'Unpinned' : 'Pinned')
+    } catch {
+      toast.error('Could not update')
+    }
+  }
+
+  const startRename = () => {
+    setRenameValue(item.title)
+    setRenameOpen(true)
+  }
+
+  const submitRename = async () => {
+    const next = renameValue.trim()
+    if (!next || next === item.title) {
+      setRenameOpen(false)
+      return
+    }
+    setRenaming(true)
+    try {
+      await onRename(item.id, next)
+      toast.success('Renamed')
+      setRenameOpen(false)
+    } catch {
+      toast.error('Could not rename')
+    } finally {
+      setRenaming(false)
     }
   }
 
@@ -52,9 +108,14 @@ export function ExportRow({ item, active, onPick, onDelete }: ExportRowProps) {
           active && 'bg-sidebar-accent',
         )}
       >
-        <span className="line-clamp-1 text-sm font-medium text-sidebar-foreground">
-          {item.title}
-        </span>
+        <div className="flex items-start gap-1.5">
+          <span className="line-clamp-1 flex-1 text-sm font-medium text-sidebar-foreground">
+            {item.title}
+          </span>
+          {isPinned ? (
+            <Pin className="size-3 shrink-0 mt-0.5 text-accent" aria-label="Pinned" />
+          ) : null}
+        </div>
         <span className="flex items-center gap-1.5 text-2xs text-muted-foreground">
           <span className="tabular">{item.row_count.toLocaleString()} rows</span>
           <span aria-hidden>·</span>
@@ -80,12 +141,54 @@ export function ExportRow({ item, active, onPick, onDelete }: ExportRowProps) {
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44">
+          <DropdownMenuItem onSelect={startRename}>
+            <Pencil className="size-4" />
+            Rename
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={togglePin}>
+            {isPinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
+            {isPinned ? 'Unpin' : 'Pin'}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onSelect={() => setConfirm(true)}>
             <Trash2 className="size-4" />
             Delete
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Rename CSV</DialogTitle>
+            <DialogDescription>Give this CSV a clearer title.</DialogDescription>
+          </DialogHeader>
+          <Input
+            autoFocus
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                submitRename()
+              }
+            }}
+            maxLength={200}
+            placeholder="CSV title"
+          />
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRenameOpen(false)} disabled={renaming}>
+              Cancel
+            </Button>
+            <Button
+              onClick={submitRename}
+              disabled={renaming || !renameValue.trim() || renameValue.trim() === item.title}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={confirm} onOpenChange={setConfirm}>
         <AlertDialogContent>

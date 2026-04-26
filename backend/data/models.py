@@ -147,6 +147,7 @@ class ExportRecord(SQLModel, table=True):
     user_id: int | None = Field(default=None, foreign_key="users.id")
     created_at: str
     updated_at: str
+    pinned_at: str | None = None
 
 
 class UserRecord(SQLModel, table=True):

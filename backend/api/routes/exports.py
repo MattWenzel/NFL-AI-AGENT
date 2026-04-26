@@ -46,14 +46,24 @@ async def get_csv_detail(
 
 
 @router.patch("/{export_id}", response_model=ExportInfo)
-async def rename_csv(
+async def update_csv(
     export_id: str,
     body: ExportUpdate,
     service: ExportService = Depends(get_export_service),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
+    if body.title is None and body.pinned is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provide title and/or pinned",
+        )
     try:
-        record = await service.rename_export(export_id, body.title, user.id)
+        record = await service.update_export(
+            export_id,
+            user_id=user.id,
+            title=body.title,
+            pinned=body.pinned,
+        )
     except ExportNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     return ExportInfo.from_record(record)

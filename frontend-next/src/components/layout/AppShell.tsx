@@ -39,10 +39,11 @@ export function AppShell({ sidebar, main, inspector, inspectorAvailable = false 
   const [desktopInspectorOpen, setDesktopInspectorOpen] = useState(false)
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true)
 
-  // Auto-open the desktop inspector once a transcript is loaded; user can
-  // still close it manually after.
+  // Auto-open the desktop inspector once a transcript is loaded; force-close
+  // when there's nothing to inspect (e.g. report viewer) so the floating
+  // button can't overlap unrelated UI.
   useEffect(() => {
-    if (inspectorAvailable) setDesktopInspectorOpen(true)
+    setDesktopInspectorOpen(inspectorAvailable)
   }, [inspectorAvailable])
 
   // Close the desktop inspector when a pointer-down lands outside of it.
@@ -151,12 +152,12 @@ export function AppShell({ sidebar, main, inspector, inspectorAvailable = false 
                     <PanelRightClose className="size-4" />
                   </Button>
                 </div>
-                <div className="flex-1 overflow-y-auto">{inspector}</div>
+                <div className="flex min-h-0 flex-1 flex-col">{inspector}</div>
               </div>
             ) : null}
           </aside>
 
-          {!desktopInspectorOpen ? (
+          {!desktopInspectorOpen && inspectorAvailable ? (
             <button
               type="button"
               onClick={() => setDesktopInspectorOpen(true)}

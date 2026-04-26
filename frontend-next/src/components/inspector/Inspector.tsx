@@ -13,7 +13,7 @@ export function Inspector() {
 
   if (!transcript || transcript.turns.length === 0) {
     return (
-      <div className="space-y-6 p-5">
+      <div className="flex-1 overflow-y-auto space-y-6 p-5">
         <Section label="Session">
           <p className="text-sm text-muted-foreground">
             No conversation selected. Open a chat or start a new one to inspect runtime details.
@@ -27,7 +27,7 @@ export function Inspector() {
     const run = transcript.tool_runs.find((r) => r.id === chat.selectedToolRunId)
     if (run) {
       return (
-        <div className="space-y-6 p-5">
+        <div className="flex min-h-0 flex-1 flex-col p-5">
           <ToolRunDetail run={run} onClear={() => chat.selectToolRun(null)} />
         </div>
       )
@@ -38,7 +38,7 @@ export function Inspector() {
     const slice = sliceForExchange(transcript, chat.selectedExchangeId)
     if (slice) {
       return (
-        <div className="space-y-7 p-5">
+        <div className="flex-1 overflow-y-auto space-y-7 p-5">
           <ExchangeMeta
             slice={slice}
             transcript={transcript}
@@ -51,7 +51,7 @@ export function Inspector() {
   }
 
   return (
-    <div className="space-y-7 p-5">
+    <div className="flex-1 overflow-y-auto space-y-7 p-5">
       <SessionMeta transcript={transcript} />
       <ToolRuns transcript={transcript} />
       <CompactionHistory transcript={transcript} />
@@ -332,11 +332,23 @@ function ToolRunRow({ run, onSelect }: { run: ToolRunRecord; onSelect?: () => vo
   )
 }
 
+function inputDisplayValue(run: ToolRunRecord): string {
+  // For execute_sql we show the SQL verbatim — JSON-encoding it just buries
+  // the query in escaped quotes and \n.
+  if (run.tool_name === 'execute_sql' || run.tool_name === 'run_sql') {
+    const sql = (run.input as { sql?: unknown }).sql
+    if (typeof sql === 'string') return sql
+  }
+  return JSON.stringify(run.input, null, 2)
+}
+
 function ToolRunDetail({ run, onClear }: { run: ToolRunRecord; onClear: () => void }) {
   return (
-    <Section
-      label="Tool call"
-      action={
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <div className="flex shrink-0 items-center justify-between gap-2">
+        <p className="text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+          Tool call
+        </p>
         <Button
           variant="ghost"
           size="icon"
@@ -346,9 +358,9 @@ function ToolRunDetail({ run, onClear }: { run: ToolRunRecord; onClear: () => vo
         >
           <X className="size-3.5" />
         </Button>
-      }
-    >
-      <div className="rounded-md border border-border bg-background px-3 py-2">
+      </div>
+
+      <div className="shrink-0 rounded-md border border-border bg-background px-3 py-2">
         <div className="flex items-center gap-2">
           <Database className="size-3.5 shrink-0 text-muted-foreground" />
           <span className="font-mono text-xs font-medium text-foreground">{run.tool_name}</span>
@@ -358,13 +370,24 @@ function ToolRunDetail({ run, onClear }: { run: ToolRunRecord; onClear: () => vo
           <p className="mt-1 text-2xs text-muted-foreground tabular">{run.duration_ms}ms</p>
         ) : null}
       </div>
-      <div className="space-y-3">
-        <ToolPayload label="Input" value={JSON.stringify(run.input, null, 2)} />
-        {run.result ? <ToolPayload label="Result" value={prettyJson(run.result)} /> : null}
-        {run.error ? <ToolPayload label="Error" value={run.error} variant="error" /> : null}
-        {run.hint ? <ToolPayload label="Hint" value={run.hint} variant="muted" /> : null}
+
+      <div className="shrink-0">
+        <ToolPayload label="Input" value={inputDisplayValue(run)} />
       </div>
-    </Section>
+      {run.result ? (
+        <ToolPayload label="Result" value={prettyJson(run.result)} fillHeight />
+      ) : null}
+      {run.error ? (
+        <div className="shrink-0">
+          <ToolPayload label="Error" value={run.error} variant="error" />
+        </div>
+      ) : null}
+      {run.hint ? (
+        <div className="shrink-0">
+          <ToolPayload label="Hint" value={run.hint} variant="muted" />
+        </div>
+      ) : null}
+    </div>
   )
 }
 

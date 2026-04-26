@@ -9,9 +9,10 @@ import { UserWidget } from '@/components/sidebar/UserWidget'
 import { ExportRow } from '@/components/exports/ExportRow'
 import { useLayout } from '@/components/layout/AppShell'
 import { useChatContext } from '@/lib/chatContext'
-import { useExports } from '@/lib/exportsStore'
+import { useExportsContext } from '@/lib/exportsContext'
 import { ageDays } from '@/lib/datetime'
 import type { ConversationInfo } from '@/lib/types'
+import type { ExportInfo } from '@/lib/exports'
 import type { AuthUser } from '@/lib/auth'
 
 interface SidebarProps {
@@ -22,6 +23,8 @@ interface SidebarProps {
   onOpenConversation?: (id: string) => void
   activeExportId?: string | null
   onOpenExport?: (id: string) => void
+  /** Called when the user switches to the Chats tab while a report is open. */
+  onSwitchToChats?: () => void
 }
 
 export function Sidebar({
@@ -32,9 +35,10 @@ export function Sidebar({
   onOpenConversation,
   activeExportId,
   onOpenExport,
+  onSwitchToChats,
 }: SidebarProps) {
   const chat = useChatContext()
-  const exportsStore = useExports()
+  const exportsStore = useExportsContext()
   const layout = useLayout()
   const [query, setQuery] = useState('')
 
@@ -51,6 +55,7 @@ export function Sidebar({
   }, [exportsStore.exports, query])
 
   const groupedChats = useMemo(() => groupConversations(filtered), [filtered])
+  const groupedExports = useMemo(() => groupExports(filteredExports), [filteredExports])
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -81,7 +86,18 @@ export function Sidebar({
         </Button>
       </div>
 
-      <Tabs defaultValue="chats" className="flex min-h-0 flex-1 flex-col gap-0">
+      <Tabs
+        value={activeExportId ? 'reports' : 'chats'}
+        onValueChange={(next) => {
+          if (next === 'reports' && !activeExportId) {
+            const mostRecent = exportsStore.exports[0]
+            if (mostRecent && onOpenExport) onOpenExport(mostRecent.id)
+          } else if (next === 'chats' && activeExportId) {
+            onSwitchToChats?.()
+          }
+        }}
+        className="flex min-h-0 flex-1 flex-col gap-0"
+      >
         <TabsList className="mx-3 mt-5 grid h-11 grid-cols-2 gap-1 bg-sidebar-accent/60 p-1">
           <TabsTrigger value="chats" className="text-base font-medium">
             Chats
@@ -137,17 +153,18 @@ export function Sidebar({
           ) : filteredExports.length === 0 ? (
             <SidebarMessage label={query ? 'No matches' : 'No CSV exports yet'} />
           ) : (
-            <ul className="space-y-px py-1">
-              {filteredExports.map((item) => (
-                <ExportRow
-                  key={item.id}
-                  item={item}
-                  active={activeExportId === item.id}
-                  onPick={onOpenExport}
-                  onDelete={exportsStore.remove}
-                />
-              ))}
-            </ul>
+            groupedExports.map((g) => (
+              <ExportGroup
+                key={g.label}
+                label={g.label}
+                items={g.items}
+                activeId={activeExportId ?? null}
+                onPick={onOpenExport}
+                onDelete={exportsStore.remove}
+                onRename={exportsStore.rename}
+                onSetPinned={exportsStore.setPinned}
+              />
+            ))
           )}
         </TabsContent>
       </Tabs>
@@ -192,12 +209,82 @@ function SidebarGroup({
   )
 }
 
+function ExportGroup({
+  label,
+  items,
+  activeId,
+  onPick,
+  onDelete,
+  onRename,
+  onSetPinned,
+}: {
+  label?: string
+  items: ExportInfo[]
+  activeId: string | null
+  onPick?: (id: string) => void
+  onDelete: (id: string) => Promise<void>
+  onRename: (id: string, title: string) => Promise<void>
+  onSetPinned: (id: string, pinned: boolean) => Promise<void>
+}) {
+  if (items.length === 0) return null
+  return (
+    <div className="mb-3">
+      {label ? (
+        <p className="px-2 pt-2 pb-1 text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+          {label}
+        </p>
+      ) : null}
+      <ul className="space-y-px">
+        {items.map((item) => (
+          <ExportRow
+            key={item.id}
+            item={item}
+            active={activeId === item.id}
+            onPick={onPick}
+            onDelete={onDelete}
+            onRename={onRename}
+            onSetPinned={onSetPinned}
+          />
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 function SidebarMessage({ label }: { label: string }) {
   return (
     <div className="grid flex-1 place-items-center px-4 text-center">
       <p className="text-xs text-muted-foreground">{label}</p>
     </div>
   )
+}
+
+function groupExports(items: ExportInfo[]): { label: string; items: ExportInfo[] }[] {
+  const pinned: ExportInfo[] = []
+  const today: ExportInfo[] = []
+  const week: ExportInfo[] = []
+  const month: ExportInfo[] = []
+  const older: ExportInfo[] = []
+
+  for (const e of items) {
+    if (e.pinned_at) {
+      pinned.push(e)
+      continue
+    }
+    const age = ageDays(e.created_at)
+    if (age < 1) today.push(e)
+    else if (age < 7) week.push(e)
+    else if (age < 30) month.push(e)
+    else older.push(e)
+  }
+
+  return [
+    { label: 'Pinned', items: pinned },
+    { label: 'Today', items: today },
+    { label: 'This week', items: week },
+    { label: 'This month', items: month },
+    { label: 'Older', items: older },
+  ].filter((g) => g.items.length > 0)
 }
 
 function groupConversations(items: ConversationInfo[]): { label: string; items: ConversationInfo[] }[] {

@@ -64,6 +64,34 @@ class ExportService:
             raise ExportNotFoundError("CSV not found")
         return updated
 
+    async def update_export(
+        self,
+        export_id: str,
+        *,
+        user_id: int,
+        title: str | None = None,
+        pinned: bool | None = None,
+    ) -> ExportRecord:
+        record: ExportRecord | None = None
+        if title is not None:
+            record = await self.store.update_export_title(
+                export_id, title.strip(), user_id=user_id
+            )
+            if record is None:
+                raise ExportNotFoundError("CSV not found")
+        if pinned is not None:
+            record = await self.store.set_export_pinned(
+                export_id, pinned, user_id=user_id
+            )
+            if record is None:
+                raise ExportNotFoundError("CSV not found")
+        if record is None:
+            # Neither title nor pinned was provided — fetch the current row.
+            record = await self.store.get_export(export_id, user_id=user_id)
+            if record is None:
+                raise ExportNotFoundError("CSV not found")
+        return record
+
     async def delete_export(self, export_id: str, user_id: int) -> None:
         record = await self.store.delete_export(export_id, user_id=user_id)
         if record is None:

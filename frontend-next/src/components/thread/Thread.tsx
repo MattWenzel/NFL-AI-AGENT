@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 
 import { AgentResponse } from '@/components/thread/AgentResponse'
 import { UserTurn } from '@/components/thread/UserTurn'
+import { useLayout } from '@/components/layout/AppShell'
 import { useChatContext } from '@/lib/chatContext'
 import type {
   AssistantPartRecord,
@@ -26,6 +27,11 @@ type ThreadGroup =
 
 export function Thread({ transcript }: ThreadProps) {
   const { selectedExchangeId, selectedToolRunId, selectExchange, clearSelection } = useChatContext()
+  const { openDesktopInspector } = useLayout()
+  const pickExchange = (id: string) => {
+    openDesktopInspector()
+    selectExchange(id)
+  }
   const groups = useMemo<ThreadGroup[]>(() => {
     const partsByTurn = new Map<string, AssistantPartRecord[]>()
     const runsByTurn = new Map<string, ToolRunRecord[]>()
@@ -89,7 +95,7 @@ export function Thread({ transcript }: ThreadProps) {
               key={g.turn.id}
               turn={g.turn}
               selected={selectedExchangeId === g.exchangeId}
-              onSelect={() => selectExchange(g.exchangeId)}
+              onSelect={() => pickExchange(g.exchangeId)}
             />
           ) : (
             <AgentResponse
@@ -98,7 +104,7 @@ export function Thread({ transcript }: ThreadProps) {
               parts={g.parts}
               toolRuns={g.toolRuns}
               selected={selectedExchangeId === g.exchangeId}
-              onSelect={() => selectExchange(g.exchangeId)}
+              onSelect={() => pickExchange(g.exchangeId)}
             />
           ),
         )}
