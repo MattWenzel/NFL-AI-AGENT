@@ -141,10 +141,10 @@ export function AppShell({ sidebar, main, inspector, inspectorAvailable = false 
             <button
               type="button"
               onClick={() => setDesktopInspectorOpen(true)}
-              className="absolute right-0 top-1/2 hidden -translate-y-1/2 items-center gap-1 rounded-l-md border border-r-0 border-border bg-card px-2 py-3 text-xs text-muted-foreground transition-colors hover:bg-muted lg:flex"
-              aria-label="Open inspector"
+              className="absolute right-3 top-3 hidden items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground lg:flex"
             >
-              <PanelRightOpen className="size-4" />
+              <PanelRightOpen className="size-3.5" />
+              <span>Inspector</span>
             </button>
           ) : null}
 
