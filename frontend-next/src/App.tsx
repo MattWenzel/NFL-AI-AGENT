@@ -2,9 +2,10 @@ import { AppShell } from '@/components/layout/AppShell'
 import { Sidebar } from '@/components/sidebar/Sidebar'
 import { Inspector } from '@/components/inspector/Inspector'
 import { Composer } from '@/components/composer/Composer'
-import { EmptyThread } from '@/components/thread/EmptyThread'
+import { Thread } from '@/components/thread/Thread'
 import { ThemeProvider } from '@/components/theme/ThemeProvider'
 import { Toaster } from '@/components/ui/sonner'
+import { MOCK_TRANSCRIPT } from '@/lib/mockTranscript'
 
 export default function App() {
   return (
@@ -14,7 +15,7 @@ export default function App() {
         inspector={<Inspector />}
         main={
           <>
-            <EmptyThread />
+            <Thread transcript={MOCK_TRANSCRIPT} />
             <Composer onSend={(msg) => console.log('send', msg)} />
           </>
         }
