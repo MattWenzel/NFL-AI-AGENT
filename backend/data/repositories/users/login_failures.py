@@ -14,8 +14,8 @@ class LoginFailuresMixin:
     Complements the per-IP rate limiter — the IP limit stops one address
     pounding login; this stops an IP-rotating attacker targeting one
     account. The counter resets on successful login (via
-    `clear_login_failures`) and the service layer also resets on reads
-    past `LOGIN_LOCKOUT_WINDOW_SECONDS` after the last failure.
+    `clear_login_failures`) and `AuthService` also resets on reads past
+    `LOGIN_LOCKOUT_WINDOW_SECONDS` after the last failure.
     """
 
     async def get_login_failures(self, email: str) -> LoginFailureRecord | None:

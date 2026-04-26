@@ -16,7 +16,7 @@ def no_login_throttle(monkeypatch):
     """Skip the per-email progressive delay during login.
 
     Production code adds an `asyncio.sleep` of up to 4s per failed login
-    (see backend/services/auth/service.py::_progressive_delay) to make
+    (see backend/application/auth.py::_progressive_delay) to make
     password spraying uneconomic. Rate-limit and lockout tests assert the
     cap-flip behavior, not the delay timing — without this patch one such
     test alone burned ~24s of every test run.
