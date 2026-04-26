@@ -4,16 +4,21 @@ import { Plus, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { UserWidget } from '@/components/sidebar/UserWidget'
 import { useChatContext } from '@/lib/chatContext'
 import { relativeTime } from '@/lib/datetime'
+import type { AuthUser } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 
 interface SidebarProps {
+  user: AuthUser
+  onLogout: () => void
+  onOpenSettings?: () => void
   onNewChat?: () => void
   onOpenConversation?: (id: string) => void
 }
 
-export function Sidebar({ onNewChat, onOpenConversation }: SidebarProps) {
+export function Sidebar({ user, onLogout, onOpenSettings, onNewChat, onOpenConversation }: SidebarProps) {
   const chat = useChatContext()
   const [query, setQuery] = useState('')
 
@@ -104,18 +109,7 @@ export function Sidebar({ onNewChat, onOpenConversation }: SidebarProps) {
       </Tabs>
 
       <div className="shrink-0 border-t border-sidebar-border p-2">
-        <button
-          type="button"
-          className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-colors hover:bg-sidebar-accent"
-        >
-          <div className="grid size-8 place-items-center rounded-full bg-sidebar-accent font-medium text-sm">
-            ?
-          </div>
-          <div className="flex flex-col leading-tight">
-            <span className="text-sm font-medium">Account</span>
-            <span className="text-2xs text-muted-foreground">Settings · Sign out</span>
-          </div>
-        </button>
+        <UserWidget user={user} onLogout={onLogout} onOpenSettings={onOpenSettings} />
       </div>
     </div>
   )

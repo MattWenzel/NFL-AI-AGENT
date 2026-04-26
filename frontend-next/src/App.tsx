@@ -23,7 +23,7 @@ export default function App() {
         <AuthWall onLogin={auth.login} onRegister={auth.register} errorMessage={auth.state.error} />
       ) : (
         <ChatProvider>
-          <ChatWorkspace />
+          <ChatWorkspace user={auth.state.user} onLogout={auth.logout} />
         </ChatProvider>
       )}
       <Toaster position="bottom-right" />
@@ -31,12 +31,19 @@ export default function App() {
   )
 }
 
-function ChatWorkspace() {
+function ChatWorkspace({ user, onLogout }: { user: import('@/lib/auth').AuthUser; onLogout: () => void }) {
   const chat = useChatContext()
 
   return (
     <AppShell
-      sidebar={<Sidebar onNewChat={chat.newConversation} onOpenConversation={chat.loadConversation} />}
+      sidebar={
+        <Sidebar
+          user={user}
+          onLogout={onLogout}
+          onNewChat={chat.newConversation}
+          onOpenConversation={chat.loadConversation}
+        />
+      }
       inspector={<Inspector />}
       main={
         <>
