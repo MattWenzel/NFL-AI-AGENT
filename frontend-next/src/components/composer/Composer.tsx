@@ -62,7 +62,7 @@ export function Composer({
     const el = textareaRef.current
     if (!el) return
     el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, 240)}px`
+    el.style.height = `${Math.min(Math.max(el.scrollHeight, 80), 240)}px`
   }, [value])
 
   // When provider changes, snap to its first model unless the current model
@@ -106,9 +106,9 @@ export function Composer({
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder="Ask about a player, season, matchup, or matchup history..."
-            rows={1}
+            rows={2}
             disabled={disabled || streaming}
-            className="block w-full resize-none bg-transparent px-4 pt-3 text-base leading-snug placeholder:text-muted-foreground focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+            className="block w-full resize-none bg-transparent px-4 pb-2 pt-4 text-base leading-snug placeholder:text-muted-foreground focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
             aria-label="Message"
           />
           <div className="flex items-center gap-1.5 px-2 pb-2 pt-1">
