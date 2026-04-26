@@ -4,11 +4,16 @@
      Hard min/max enforced in resize.js; CSS clamps as a safety net. */
   --sidebar-width: 280px;
   --inspector-width: 380px;
+
+  /* The grid's sidebar track caps at this width. When --sidebar-width grows
+     past it, the sidebar overflows its track and paints on top of .main, so
+     the main column (and the chat content centered inside it) stays put. */
+  --sidebar-default: 280px;
 }
 
 .shell {
   display: grid;
-  grid-template-columns: clamp(200px, var(--sidebar-width), 480px) minmax(0, 1fr);
+  grid-template-columns: min(var(--sidebar-width), var(--sidebar-default)) minmax(0, 1fr);
   height: 100vh;
   position: relative;
 }
@@ -19,7 +24,13 @@
   border-right: 1px solid var(--border);
 }
 
-.sidebar { position: relative; }
+.sidebar {
+  position: relative;
+  /* Let the sidebar's actual width exceed its grid track — the overflow
+     paints over .main rather than pushing it right. */
+  width: clamp(200px, var(--sidebar-width), 480px);
+  z-index: 5;
+}
 
 .inspector {
   border-right: none;
@@ -101,9 +112,13 @@ body.is-resizing * {
 
 
 /* Narrow desktop default: smaller sidebar unless the user has dragged it.
-   Inline `style="--sidebar-width:..."` from resize.js wins over this. */
+   Inline `style="--sidebar-width:..."` from resize.js wins over --sidebar-width;
+   --sidebar-default also drops so the main column sits closer to the left edge. */
 @media (max-width: 1220px) {
-  :root { --sidebar-width: 240px; }
+  :root {
+    --sidebar-width: 240px;
+    --sidebar-default: 240px;
+  }
 }
 
 @media (max-width: 900px) {
