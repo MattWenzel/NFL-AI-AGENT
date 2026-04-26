@@ -5,17 +5,16 @@ interface UserTurnProps {
 }
 
 /**
- * User message — non-bubble, document-feel, with a hairline divider above.
- * The "user voice" is signaled by a left border accent + condensed leading,
- * not a chat-bubble background.
+ * User message — right-aligned bubble, like Claude.ai / ChatGPT / iMessage.
+ * Position alone signals "user", so we drop the eyebrow label. Max-width
+ * caps the bubble at a comfortable line length on wide screens.
  */
 export function UserTurn({ turn }: UserTurnProps) {
   return (
-    <div className="border-l-2 border-accent/60 pl-4 py-1">
-      <p className="text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground mb-1">
-        You
-      </p>
-      <p className="whitespace-pre-wrap text-base leading-snug text-foreground">{turn.text}</p>
+    <div className="flex justify-end">
+      <div className="max-w-2xl rounded-2xl rounded-tr-md bg-secondary px-4 py-2.5 text-secondary-foreground">
+        <p className="whitespace-pre-wrap text-base leading-snug">{turn.text}</p>
+      </div>
     </div>
   )
 }
