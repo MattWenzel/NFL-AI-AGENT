@@ -2,8 +2,6 @@ import { useMemo } from 'react'
 
 import { AgentResponse } from '@/components/thread/AgentResponse'
 import { UserTurn } from '@/components/thread/UserTurn'
-import { useLayout } from '@/components/layout/AppShell'
-import { cn } from '@/lib/utils'
 import type {
   AssistantPartRecord,
   ConversationTranscript,
@@ -20,7 +18,6 @@ type ThreadGroup =
   | { kind: 'agent'; turns: TurnRecord[]; parts: AssistantPartRecord[]; toolRuns: ToolRunRecord[] }
 
 export function Thread({ transcript }: ThreadProps) {
-  const { desktopSidebarOpen } = useLayout()
   const groups = useMemo<ThreadGroup[]>(() => {
     const partsByTurn = new Map<string, AssistantPartRecord[]>()
     const runsByTurn = new Map<string, ToolRunRecord[]>()
@@ -62,12 +59,7 @@ export function Thread({ transcript }: ThreadProps) {
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div
-        className={cn(
-          'max-w-5xl space-y-8 px-6 py-6 lg:px-10',
-          !desktopSidebarOpen && 'mx-auto',
-        )}
-      >
+      <div className="mx-auto w-full max-w-5xl space-y-8 px-6 py-6 lg:px-10">
         {groups.map((g, i) =>
           g.kind === 'user' ? (
             <UserTurn key={g.turn.id} turn={g.turn} />

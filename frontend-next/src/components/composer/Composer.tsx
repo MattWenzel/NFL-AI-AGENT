@@ -3,8 +3,6 @@ import { ArrowUp, Square } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { useLayout } from '@/components/layout/AppShell'
-import { cn } from '@/lib/utils'
 
 interface ComposerProps {
   disabled?: boolean
@@ -44,7 +42,6 @@ export function Composer({ disabled = false, streaming = false, onSend, onStop }
   const [model, setModel] = useState<string>('claude-sonnet-4-6')
   const [toolChoice, setToolChoice] = useState<'auto' | 'required' | 'none'>('auto')
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
-  const { desktopSidebarOpen } = useLayout()
 
   useEffect(() => {
     const el = textareaRef.current
@@ -80,7 +77,7 @@ export function Composer({ disabled = false, streaming = false, onSend, onStop }
 
   return (
     <div className="border-t border-border bg-background/95 px-6 pb-4 pt-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 lg:px-10">
-      <div className={cn('max-w-5xl', !desktopSidebarOpen && 'mx-auto')}>
+      <div className="mx-auto w-full max-w-5xl">
         <div className="rounded-2xl border border-border bg-card shadow-sm focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-0">
           <textarea
             ref={textareaRef}
