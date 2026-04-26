@@ -54,14 +54,11 @@ export function Sidebar({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center gap-3 border-b border-sidebar-border px-4 py-3">
-        <div className="grid size-8 place-items-center rounded-md bg-primary font-display text-base font-semibold text-primary-foreground">
+      <div className="flex shrink-0 items-center px-3 py-2.5">
+        <div className="grid size-7 place-items-center rounded-md bg-primary font-display text-sm font-semibold text-primary-foreground">
           N
         </div>
-        <div className="flex flex-col leading-tight">
-          <span className="font-display text-sm font-semibold tracking-tight">NFL Stats</span>
-          <span className="text-2xs text-muted-foreground">analytical chat</span>
-        </div>
+        <span className="ml-2 font-display text-sm font-semibold tracking-tight">NFL Stats</span>
         <Button
           variant="ghost"
           size="icon"
@@ -73,10 +70,10 @@ export function Sidebar({
         </Button>
       </div>
 
-      <div className="px-3 py-2">
+      <div className="px-2 pt-1">
         <Button
-          variant="secondary"
-          className="w-full justify-start gap-2 font-medium"
+          variant="ghost"
+          className="w-full justify-start gap-2 font-medium text-sidebar-foreground hover:bg-sidebar-accent"
           onClick={onNewChat}
         >
           <Plus className="size-4" />
