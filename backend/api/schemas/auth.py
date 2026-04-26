@@ -61,7 +61,3 @@ class PasswordChangeRequest(BaseModel):
 
 class DeleteAccountRequest(BaseModel):
     password: str = Field(..., min_length=1, max_length=200)
-
-
-class AuthOkResponse(BaseModel):
-    ok: bool

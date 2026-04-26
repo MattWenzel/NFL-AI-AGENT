@@ -15,6 +15,7 @@ from backend.api.dependencies import (
 )
 from backend.server.request_context import audit_from_request, client_ip
 from backend.server.process_state import AppProcessState
+from backend.api.schemas.common import OkResponse
 from backend.api.schemas.settings import (
     ApiKeyStatus,
     ApiKeyUpdate,
@@ -34,11 +35,14 @@ from backend.application.oauth.google import (
     GoogleOAuthDisabledError,
     GoogleOAuthLastIdentityError,
     GoogleOAuthLinkConflictError,
+    GoogleOAuthService,
     GoogleOAuthServiceError,
 )
-from backend.application.settings import SettingsNotFoundError, SettingsServiceError
-from backend.application.oauth.google import GoogleOAuthService
-from backend.application.settings import SettingsService
+from backend.application.settings import (
+    SettingsNotFoundError,
+    SettingsService,
+    SettingsServiceError,
+)
 
 # CSRF applies to mutating routes on this router; the GET /api-keys listing
 # is safe. Wiring at router level avoids per-route Depends sprawl.
@@ -108,20 +112,20 @@ async def status_codex_oauth(
     try:
         return await service.status(pending_id=pending_id, user_id=user.id)
     except CodexOAuthUnknownFlowError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
 
-@router.delete("/oauth/codex/cancel")
+@router.delete("/oauth/codex/cancel", response_model=OkResponse)
 async def cancel_codex_oauth(
     pending_id: str = Query(..., min_length=16, max_length=64),
     service: CodexOAuthService = Depends(get_codex_oauth_service),
     user: AuthenticatedUser = Depends(get_current_user),
-) -> dict:
+) -> OkResponse:
     try:
         await service.cancel(pending_id=pending_id, user_id=user.id)
     except CodexOAuthUnknownFlowError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
-    return {"ok": True}
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    return OkResponse()
 
 
 # ---------------- linked identities ----------------
@@ -159,13 +163,13 @@ async def start_link_google(
     return LinkGoogleStartResponse(auth_url=url)
 
 
-@router.delete("/identities/{provider}")
+@router.delete("/identities/{provider}", response_model=OkResponse)
 async def unlink_identity(
     provider: str,
     request: Request,
     user: AuthenticatedUser = Depends(get_current_user),
     service: GoogleOAuthService = Depends(get_google_oauth_service),
-):
+) -> OkResponse:
     if provider not in {GOOGLE}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown provider")
     try:
@@ -174,4 +178,4 @@ async def unlink_identity(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     except GoogleOAuthLinkConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
-    return {"ok": True}
+    return OkResponse()

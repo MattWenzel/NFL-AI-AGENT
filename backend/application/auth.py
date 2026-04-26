@@ -41,6 +41,14 @@ class AuthValidationError(AuthServiceError):
     pass
 
 
+class AuthInviteCodeError(AuthValidationError):
+    """The caller's invite code didn't match REGISTRATION_INVITE_CODE.
+
+    Subclass of AuthValidationError so existing handlers still catch it; the
+    route layer matches this first to surface a 403 instead of a 400.
+    """
+
+
 class AuthCredentialsError(AuthServiceError):
     pass
 
@@ -100,7 +108,7 @@ class AuthService:
         if REGISTRATION_INVITE_CODE is not None:
             provided = (invite_code or "").strip()
             if not provided or not secrets.compare_digest(provided, REGISTRATION_INVITE_CODE):
-                raise AuthValidationError("Invalid invite code")
+                raise AuthInviteCodeError("Invalid invite code")
         normalized = self.validate_email(email)
         user = await create_user_account(
             self.store,
@@ -151,7 +159,7 @@ class AuthService:
             await asyncio.sleep(delay)
 
         if not verify_password(password, target_hash) or user is None:
-            await self._record_login_failure(normalized, audit)
+            await self._record_login_failure(normalized, audit, user=user)
             raise AuthCredentialsError("Invalid email or password")
 
         if EMAIL_VERIFICATION_REQUIRED and user.email_verified_at is None:
@@ -273,9 +281,13 @@ class AuthService:
                 f"Try again in {retry_after} seconds.",
             )
 
-    async def _record_login_failure(self, email: str, audit: AuditContext) -> None:
+    async def _record_login_failure(
+        self, email: str, audit: AuditContext, *, user: object | None
+    ) -> None:
         """Record a failed attempt, roll over the counter if the window
-        elapsed, and set lockout when the threshold is hit."""
+        elapsed, and set lockout when the threshold is hit. `user` is the
+        already-resolved record from `login` — None when the email doesn't
+        match an account, which still gets audited (password-spray detection)."""
         existing = await self.store.get_login_failures(email)
         now = datetime.now(timezone.utc)
         reset_count = False
@@ -295,10 +307,6 @@ class AuthService:
         await self.store.record_login_failure(
             email, locked_until=locked_until, reset_count=reset_count
         )
-        # Audit regardless of whether the email exists — enumeration timing
-        # is already mitigated by the dummy-hash fallback, and the entry lets
-        # us spot password-spray attacks across multiple unknown emails.
-        user = await self.store.get_user_by_email(email)
         meta = {"email": email, "failure_count": projected_count, "locked": locked_until is not None}
         event_type = AuditEvent.LOGIN_LOCKED if locked_until else AuditEvent.LOGIN_FAILURE
         await audit_log(self.store, event_type, user.id if user else None, audit, meta)

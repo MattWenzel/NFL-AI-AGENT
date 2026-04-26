@@ -32,7 +32,6 @@ from backend.api.dependencies import (
 from backend.server.request_context import audit_from_request
 from backend.server.process_state import AppProcessState
 from backend.api.schemas.auth import (
-    AuthOkResponse,
     AuthStatusResponse,
     AuthTokenResponse,
     AuthUser,
@@ -44,14 +43,16 @@ from backend.api.schemas.auth import (
     ResendVerificationRequest,
     VerifyEmailRequest,
 )
+from backend.api.schemas.common import OkResponse
 from backend.domain.auth.errors import AuthConflictError
 from backend.application.auth import (
     AuthCredentialsError,
     AuthEmailUnverifiedError,
+    AuthInviteCodeError,
     AuthLockedError,
+    AuthService,
     AuthValidationError,
 )
-from backend.application.auth import AuthService
 
 logger = logging.getLogger(__name__)
 
@@ -88,10 +89,10 @@ async def register(
         )
     except AuthConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    except AuthInviteCodeError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
     except AuthValidationError as exc:
-        message = str(exc)
-        status_code = status.HTTP_403_FORBIDDEN if message == "Invalid invite code" else status.HTTP_400_BAD_REQUEST
-        raise HTTPException(status_code=status_code, detail=message)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
     if result.session is None:
         # Verification required — no cookies set, client shows "check email" UI.
@@ -162,17 +163,17 @@ async def verify_email(
     )
 
 
-@router.post("/resend-verification", response_model=AuthOkResponse)
+@router.post("/resend-verification", response_model=OkResponse)
 async def resend_verification(
     payload: ResendVerificationRequest,
     request: Request,
     service: AuthService = Depends(get_auth_service),
     process_state: AppProcessState = Depends(get_process_state),
-) -> AuthOkResponse:
+) -> OkResponse:
     process_state.register_limiter.check(request)
     # Always return ok=True to avoid leaking which emails are registered.
     await service.resend_verification(payload.email, audit=audit_from_request(request))
-    return AuthOkResponse(ok=True)
+    return OkResponse(ok=True)
 
 
 @router.post("/logout", dependencies=[Depends(verify_csrf)])
@@ -191,7 +192,7 @@ async def logout(
     return {"ok": True}
 
 
-@router.put("/password", response_model=AuthOkResponse, dependencies=[Depends(verify_csrf)])
+@router.put("/password", response_model=OkResponse, dependencies=[Depends(verify_csrf)])
 async def change_password(
     payload: PasswordChangeRequest,
     request: Request,
@@ -199,7 +200,7 @@ async def change_password(
     service: AuthService = Depends(get_auth_service),
     process_state: AppProcessState = Depends(get_process_state),
     user: AuthenticatedUser = Depends(get_current_user),
-) -> AuthOkResponse:
+) -> OkResponse:
     process_state.account_limiter.check(request)
     try:
         await service.change_password(
@@ -214,10 +215,10 @@ async def change_password(
     # Rotate the CSRF cookie — any in-flight CSRF attack's stolen token is
     # now stale. The session cookie stays (current session is the keep_token).
     rotate_csrf_cookie(response, request)
-    return AuthOkResponse(ok=True)
+    return OkResponse(ok=True)
 
 
-@router.delete("/me", response_model=AuthOkResponse, dependencies=[Depends(verify_csrf)])
+@router.delete("/me", response_model=OkResponse, dependencies=[Depends(verify_csrf)])
 async def delete_account(
     payload: DeleteAccountRequest,
     request: Request,
@@ -225,7 +226,7 @@ async def delete_account(
     service: AuthService = Depends(get_auth_service),
     process_state: AppProcessState = Depends(get_process_state),
     user: AuthenticatedUser = Depends(get_current_user),
-) -> AuthOkResponse:
+) -> OkResponse:
     process_state.account_limiter.check(request)
     try:
         deleted_files = await service.delete_account(
@@ -237,4 +238,4 @@ async def delete_account(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
     logger.info("Deleted user %d (%s); %d CSV file(s) removed", user.id, user.email, deleted_files)
     clear_auth_cookies(response, request)
-    return AuthOkResponse(ok=True)
+    return OkResponse(ok=True)
