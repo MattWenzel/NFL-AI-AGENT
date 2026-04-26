@@ -9,6 +9,7 @@ import { EmptyThread } from '@/components/thread/EmptyThread'
 import { ThemeProvider } from '@/components/theme/ThemeProvider'
 import { Toaster } from '@/components/ui/sonner'
 import { AuthWall } from '@/components/auth/AuthWall'
+import { CommandPalette } from '@/components/command/CommandPalette'
 import { SettingsModal } from '@/components/settings/SettingsModal'
 import { CsvViewer } from '@/components/exports/CsvViewer'
 import { useAuth, type AuthUser } from '@/lib/auth'
@@ -38,6 +39,7 @@ export default function App() {
 function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   const chat = useChatContext()
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const [activeExportId, setActiveExportId] = useState<string | null>(null)
 
   const openExport = (id: string) => {
@@ -107,6 +109,17 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
           setSettingsOpen(false)
           onLogout()
         }}
+      />
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        onNewChat={() => {
+          setActiveExportId(null)
+          chat.newConversation()
+        }}
+        onPickConversation={openConversation}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onSignOut={onLogout}
       />
     </>
   )

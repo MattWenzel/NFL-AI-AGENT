@@ -101,6 +101,19 @@ export function AuthWall({ onLogin, onRegister, errorMessage }: AuthWallProps) {
           </Button>
         </form>
 
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center" aria-hidden>
+            <span className="w-full border-t border-border" />
+          </div>
+          <div className="relative flex justify-center text-2xs uppercase tracking-[0.14em] text-muted-foreground">
+            <span className="bg-background px-2">or</span>
+          </div>
+        </div>
+
+        <Button variant="secondary" className="w-full" asChild>
+          <a href="/auth/oauth/google/start">Continue with Google</a>
+        </Button>
+
         <div className="text-center text-xs text-muted-foreground">
           {mode === 'signin' ? (
             <button
