@@ -25,7 +25,7 @@ def _skip_if_stats_db_locked():
 # ---------------------------------------------------------------------------
 # 1. OFFSET preserved when LIMIT is capped
 # ---------------------------------------------------------------------------
-from backend.domain.tools.sandbox import _ensure_limit
+from backend.domain.tools.sandbox.runner import _ensure_limit
 
 
 class TestEnsureLimit:
@@ -150,7 +150,7 @@ class TestClampLimitParam:
     """Tests for _clamp_limit_param — bind-time row-cap enforcement."""
 
     def test_clamps_above_max(self):
-        from backend.domain.tools.sandbox import _clamp_limit_param
+        from backend.domain.tools.sandbox.runner import _clamp_limit_param
         # SQL: one placeholder before the LIMIT, LIMIT itself is `?`.
         out = _clamp_limit_param(
             "SELECT * FROM players WHERE position = ? LIMIT ?",
@@ -160,7 +160,7 @@ class TestClampLimitParam:
         assert out == ("QB", 500)
 
     def test_leaves_values_under_max(self):
-        from backend.domain.tools.sandbox import _clamp_limit_param
+        from backend.domain.tools.sandbox.runner import _clamp_limit_param
         out = _clamp_limit_param(
             "SELECT * FROM players WHERE position = ? LIMIT ?",
             ("QB", 5),
@@ -169,7 +169,7 @@ class TestClampLimitParam:
         assert out == ("QB", 5)
 
     def test_no_limit_clause_passthrough(self):
-        from backend.domain.tools.sandbox import _clamp_limit_param
+        from backend.domain.tools.sandbox.runner import _clamp_limit_param
         out = _clamp_limit_param(
             "SELECT * FROM players WHERE position = ?",
             ("QB",),
@@ -179,7 +179,7 @@ class TestClampLimitParam:
 
     def test_numeric_limit_not_clamped_here(self):
         """Numeric LIMITs are clamped in _ensure_limit, not here."""
-        from backend.domain.tools.sandbox import _clamp_limit_param
+        from backend.domain.tools.sandbox.runner import _clamp_limit_param
         out = _clamp_limit_param(
             "SELECT * FROM players LIMIT 999999",
             (),
