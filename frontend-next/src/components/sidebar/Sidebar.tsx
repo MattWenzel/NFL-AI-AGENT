@@ -9,6 +9,8 @@ import { UserWidget } from '@/components/sidebar/UserWidget'
 import { ExportRow } from '@/components/exports/ExportRow'
 import { useChatContext } from '@/lib/chatContext'
 import { useExports } from '@/lib/exportsStore'
+import { ageDays } from '@/lib/datetime'
+import type { ConversationInfo } from '@/lib/types'
 import type { AuthUser } from '@/lib/auth'
 
 interface SidebarProps {
@@ -46,11 +48,7 @@ export function Sidebar({
     return exportsStore.exports.filter((e) => e.title.toLowerCase().includes(q))
   }, [exportsStore.exports, query])
 
-  const { pinned, recent } = useMemo(() => {
-    const p = filtered.filter((c) => !!c.pinned_at)
-    const r = filtered.filter((c) => !c.pinned_at)
-    return { pinned: p, recent: r }
-  }, [filtered])
+  const groupedChats = useMemo(() => groupConversations(filtered), [filtered])
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -105,17 +103,15 @@ export function Sidebar({
           ) : filtered.length === 0 ? (
             <SidebarMessage label={query ? 'No matches' : 'No conversations yet'} />
           ) : (
-            <>
-              {pinned.length > 0 ? (
-                <SidebarGroup label="Pinned" items={pinned} activeId={chat.conversationId} onPick={onOpenConversation} />
-              ) : null}
+            groupedChats.map((g) => (
               <SidebarGroup
-                label={pinned.length > 0 ? 'Recent' : undefined}
-                items={recent}
+                key={g.label}
+                label={g.label}
+                items={g.items}
                 activeId={chat.conversationId}
                 onPick={onOpenConversation}
               />
-            </>
+            ))
           )}
         </TabsContent>
         <TabsContent
@@ -190,4 +186,32 @@ function SidebarMessage({ label }: { label: string }) {
       <p className="text-xs text-muted-foreground">{label}</p>
     </div>
   )
+}
+
+function groupConversations(items: ConversationInfo[]): { label: string; items: ConversationInfo[] }[] {
+  const pinned: ConversationInfo[] = []
+  const today: ConversationInfo[] = []
+  const week: ConversationInfo[] = []
+  const month: ConversationInfo[] = []
+  const older: ConversationInfo[] = []
+
+  for (const c of items) {
+    if (c.pinned_at) {
+      pinned.push(c)
+      continue
+    }
+    const age = ageDays(c.updated_at)
+    if (age < 1) today.push(c)
+    else if (age < 7) week.push(c)
+    else if (age < 30) month.push(c)
+    else older.push(c)
+  }
+
+  return [
+    { label: 'Pinned', items: pinned },
+    { label: 'Today', items: today },
+    { label: 'This week', items: week },
+    { label: 'This month', items: month },
+    { label: 'Older', items: older },
+  ].filter((g) => g.items.length > 0)
 }

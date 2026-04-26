@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Menu, PanelRightClose, PanelRightOpen } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -9,12 +9,20 @@ interface AppShellProps {
   sidebar: ReactNode
   main: ReactNode
   inspector: ReactNode
+  /** Inspector defaults open only when the parent has something worth showing. */
+  inspectorAvailable?: boolean
 }
 
-export function AppShell({ sidebar, main, inspector }: AppShellProps) {
+export function AppShell({ sidebar, main, inspector, inspectorAvailable = false }: AppShellProps) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false)
-  const [desktopInspectorOpen, setDesktopInspectorOpen] = useState(true)
+  const [desktopInspectorOpen, setDesktopInspectorOpen] = useState(false)
+
+  // Auto-open the desktop inspector once a transcript is loaded; user can
+  // still close it manually after.
+  useEffect(() => {
+    if (inspectorAvailable) setDesktopInspectorOpen(true)
+  }, [inspectorAvailable])
 
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-background text-foreground">

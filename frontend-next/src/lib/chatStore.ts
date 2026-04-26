@@ -57,6 +57,40 @@ function lastAssistantTurnId(t: ConversationTranscript): string | null {
   return null
 }
 
+/**
+ * The backend persists each text-delta as its own AssistantPartRecord, so a
+ * single agent paragraph arrives as N small parts in `order_index` order. If
+ * we render each one as its own block, prose staircases vertically and any
+ * markdown table that spans multiple deltas falls apart at the slice
+ * boundaries. Merge consecutive same-turn text parts into one before
+ * rendering — tool_use parts break the run, which is correct (they delimit
+ * agent reasoning around tool calls).
+ */
+function mergeTextParts(transcript: ConversationTranscript): ConversationTranscript {
+  const byTurn = new Map<string, AssistantPartRecord[]>()
+  for (const p of transcript.parts) {
+    const list = byTurn.get(p.turn_id) ?? []
+    list.push(p)
+    byTurn.set(p.turn_id, list)
+  }
+  const merged: AssistantPartRecord[] = []
+  for (const list of byTurn.values()) {
+    list.sort((a, b) => a.order_index - b.order_index)
+    let bucket: AssistantPartRecord | null = null
+    for (const p of list) {
+      if (p.kind === 'text' && bucket !== null && bucket.kind === 'text') {
+        const prev: AssistantPartRecord = bucket
+        bucket = { ...prev, content: prev.content + p.content }
+      } else {
+        if (bucket !== null) merged.push(bucket)
+        bucket = { ...p }
+      }
+    }
+    if (bucket !== null) merged.push(bucket)
+  }
+  return { ...transcript, parts: merged }
+}
+
 function reduce(state: ChatState, action: Action): ChatState {
   switch (action.type) {
     case 'conversations-loading':
@@ -65,14 +99,16 @@ function reduce(state: ChatState, action: Action): ChatState {
       return { ...state, conversations: action.conversations, conversationsStatus: 'ready' }
     case 'conversations-error':
       return { ...state, conversationsStatus: 'error' }
-    case 'set-transcript':
+    case 'set-transcript': {
+      const merged = action.transcript ? mergeTextParts(action.transcript) : null
       return {
         ...state,
-        transcript: action.transcript,
-        conversationId: action.transcript?.session_id ?? null,
+        transcript: merged,
+        conversationId: merged?.session_id ?? null,
         streamStatus: state.streamStatus === 'streaming' ? 'streaming' : 'idle',
         streamError: null,
       }
+    }
     case 'new-conversation':
       return {
         ...state,

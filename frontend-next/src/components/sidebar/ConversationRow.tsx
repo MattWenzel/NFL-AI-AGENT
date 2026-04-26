@@ -20,7 +20,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useChatContext } from '@/lib/chatContext'
-import { relativeTime } from '@/lib/datetime'
+import { absoluteTime } from '@/lib/datetime'
 import { cn } from '@/lib/utils'
 import type { ConversationInfo } from '@/lib/types'
 
@@ -59,25 +59,33 @@ export function ConversationRow({ item, active, onPick }: ConversationRowProps) 
         type="button"
         onClick={() => onPick?.(item.id)}
         className={cn(
-          'flex w-full flex-col gap-0.5 rounded-md px-2 py-2 pr-9 text-left transition-colors',
+          'flex w-full flex-col gap-1 rounded-md px-2 py-2 pr-9 text-left transition-colors',
           'hover:bg-sidebar-accent focus-visible:bg-sidebar-accent focus-visible:outline-none',
-          active && 'bg-sidebar-accent',
+          active && 'bg-accent/15 ring-1 ring-inset ring-accent/30',
         )}
       >
-        <span className="line-clamp-1 text-sm font-medium text-sidebar-foreground">
-          {item.title}
-        </span>
-        <span className="flex items-center gap-1.5 text-2xs text-muted-foreground">
-          {item.provider ? <span className="capitalize">{item.provider}</span> : null}
-          {item.provider && item.updated_at ? <span aria-hidden>·</span> : null}
-          {item.updated_at ? <span className="tabular">{relativeTime(item.updated_at)}</span> : null}
+        <div className="flex items-start gap-1.5">
+          <span className="line-clamp-2 flex-1 text-sm font-medium leading-snug text-sidebar-foreground">
+            {item.title}
+          </span>
           {isPinned ? (
+            <Pin className="size-3 shrink-0 mt-0.5 text-accent" aria-label="Pinned" />
+          ) : null}
+        </div>
+        <div className="flex items-center gap-1.5 text-2xs text-muted-foreground">
+          <span className="tabular">{item.message_count} {item.message_count === 1 ? 'turn' : 'turns'}</span>
+          {item.model ? (
             <>
               <span aria-hidden>·</span>
-              <Pin className="size-3 text-accent" aria-label="Pinned" />
+              <span className="truncate">{item.model}</span>
             </>
           ) : null}
-        </span>
+        </div>
+        {item.updated_at ? (
+          <span className="text-2xs text-muted-foreground tabular">
+            {absoluteTime(item.updated_at)}
+          </span>
+        ) : null}
       </button>
 
       <DropdownMenu>

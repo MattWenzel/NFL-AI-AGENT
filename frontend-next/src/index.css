@@ -102,7 +102,7 @@
  * LIGHT MODE — paper-warm off-white, sage-teal accent.
  * ---------------------------------------------------------------- */
 :root {
-    --radius: 1rem; /* 16px base radius — generous, Apple-leaning */
+    --radius: 0.75rem; /* 12px base radius — Apple-leaning but tighter than initial 16px */
 
     /* Surfaces — warm off-white paper, not pure white. */
     --background: oklch(0.985 0.003 85);
@@ -184,8 +184,8 @@
     --success: oklch(0.7 0.1 155);
     --warning: oklch(0.78 0.13 75);
 
-    --border: oklch(1 0 0 / 0.08);
-    --input: oklch(1 0 0 / 0.1);
+    --border: oklch(1 0 0 / 0.14);
+    --input: oklch(1 0 0 / 0.18);
     --ring: oklch(0.7 0.06 175 / 0.55);
 
     --chart-1: oklch(0.7 0.06 175);
@@ -200,7 +200,7 @@
     --sidebar-primary-foreground: oklch(0.18 0.008 60);
     --sidebar-accent: oklch(0.25 0.005 65);
     --sidebar-accent-foreground: oklch(0.95 0.005 85);
-    --sidebar-border: oklch(1 0 0 / 0.08);
+    --sidebar-border: oklch(1 0 0 / 0.14);
     --sidebar-ring: oklch(0.7 0.06 175 / 0.55);
 }
 

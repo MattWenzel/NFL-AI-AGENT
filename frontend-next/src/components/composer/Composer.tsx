@@ -76,8 +76,8 @@ export function Composer({ disabled = false, streaming = false, onSend, onStop }
   const models = MODELS_BY_PROVIDER[provider] ?? []
 
   return (
-    <div className="border-t border-border bg-background/95 px-4 pb-4 pt-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-      <div className="mx-auto max-w-3xl">
+    <div className="border-t border-border bg-background/95 px-6 pb-4 pt-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 lg:px-10">
+      <div className="mx-auto max-w-5xl">
         <div className="rounded-2xl border border-border bg-card shadow-sm focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-0">
           <textarea
             ref={textareaRef}

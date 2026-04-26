@@ -55,6 +55,7 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
   return (
     <>
       <AppShell
+        inspectorAvailable={!!chat.transcript && chat.transcript.turns.length > 0}
         sidebar={
           <Sidebar
             user={user}

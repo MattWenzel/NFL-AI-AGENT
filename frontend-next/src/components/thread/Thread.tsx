@@ -29,17 +29,7 @@ export function Thread({ transcript }: ThreadProps) {
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-3xl px-6 py-10 space-y-10 lg:px-10">
-        {transcript.title ? (
-          <header className="space-y-1 pb-2">
-            <p className="text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-              Conversation
-            </p>
-            <h1 className="font-display text-3xl font-medium tracking-tight text-foreground">
-              {transcript.title}
-            </h1>
-          </header>
-        ) : null}
+      <div className="space-y-8 px-6 py-6 lg:px-10">
         {visibleTurns.map((turn) =>
           turn.role === 'user' ? (
             <UserTurn key={turn.id} turn={turn} />
