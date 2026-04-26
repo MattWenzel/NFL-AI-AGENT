@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 import { AppShell } from '@/components/layout/AppShell'
 import { Sidebar } from '@/components/sidebar/Sidebar'
 import { Inspector } from '@/components/inspector/Inspector'
@@ -7,7 +9,8 @@ import { EmptyThread } from '@/components/thread/EmptyThread'
 import { ThemeProvider } from '@/components/theme/ThemeProvider'
 import { Toaster } from '@/components/ui/sonner'
 import { AuthWall } from '@/components/auth/AuthWall'
-import { useAuth } from '@/lib/auth'
+import { SettingsModal } from '@/components/settings/SettingsModal'
+import { useAuth, type AuthUser } from '@/lib/auth'
 import { ChatProvider, useChatContext } from '@/lib/chatContext'
 
 export default function App() {
@@ -31,34 +34,47 @@ export default function App() {
   )
 }
 
-function ChatWorkspace({ user, onLogout }: { user: import('@/lib/auth').AuthUser; onLogout: () => void }) {
+function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   const chat = useChatContext()
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   return (
-    <AppShell
-      sidebar={
-        <Sidebar
-          user={user}
-          onLogout={onLogout}
-          onNewChat={chat.newConversation}
-          onOpenConversation={chat.loadConversation}
-        />
-      }
-      inspector={<Inspector />}
-      main={
-        <>
-          {chat.transcript && chat.transcript.turns.length > 0 ? (
-            <Thread transcript={chat.transcript} />
-          ) : (
-            <EmptyThread />
-          )}
-          <Composer
-            streaming={chat.streamStatus === 'streaming'}
-            onSend={(message, opts) => chat.send(message, opts)}
-            onStop={chat.stop}
+    <>
+      <AppShell
+        sidebar={
+          <Sidebar
+            user={user}
+            onLogout={onLogout}
+            onOpenSettings={() => setSettingsOpen(true)}
+            onNewChat={chat.newConversation}
+            onOpenConversation={chat.loadConversation}
           />
-        </>
-      }
-    />
+        }
+        inspector={<Inspector />}
+        main={
+          <>
+            {chat.transcript && chat.transcript.turns.length > 0 ? (
+              <Thread transcript={chat.transcript} />
+            ) : (
+              <EmptyThread />
+            )}
+            <Composer
+              streaming={chat.streamStatus === 'streaming'}
+              onSend={(message, opts) => chat.send(message, opts)}
+              onStop={chat.stop}
+            />
+          </>
+        }
+      />
+      <SettingsModal
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        user={user}
+        onAccountDeleted={() => {
+          setSettingsOpen(false)
+          onLogout()
+        }}
+      />
+    </>
   )
 }
