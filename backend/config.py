@@ -55,6 +55,11 @@ LOGIN_LOCKOUT_MAX_FAILURES = int(os.environ.get("LOGIN_LOCKOUT_MAX_FAILURES", "1
 LOGIN_LOCKOUT_WINDOW_SECONDS = int(os.environ.get("LOGIN_LOCKOUT_WINDOW_SECONDS", "900"))
 LOGIN_LOCKOUT_DURATION_SECONDS = int(os.environ.get("LOGIN_LOCKOUT_DURATION_SECONDS", "900"))
 
+# Max concurrent /chat/stream connections per user. The chat runtime is
+# expensive (LLM + tool execution); this guards against a single account
+# hogging the server with parallel streams.
+CHAT_STREAM_MAX_PER_USER = int(os.environ.get("CHAT_STREAM_MAX_PER_USER", "3"))
+
 # Email verification (Resend).
 RESEND_API_KEY: str | None = os.environ.get("RESEND_API_KEY") or None
 EMAIL_FROM_ADDRESS: str | None = os.environ.get("EMAIL_FROM_ADDRESS") or None

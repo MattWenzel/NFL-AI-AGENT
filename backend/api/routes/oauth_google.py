@@ -29,10 +29,10 @@ from backend.application.oauth.google import (
     GoogleOAuthDisabledError,
     GoogleOAuthEmailUnverifiedError,
     GoogleOAuthInvalidStateError,
+    GoogleOAuthService,
     GoogleOAuthServiceError,
+    SignInOutcome,
 )
-from backend.application.oauth.google import GoogleOAuthService
-from backend.application.oauth.google import SignInOutcome
 
 logger = logging.getLogger(__name__)
 
@@ -54,10 +54,9 @@ async def start(
     process_state: AppProcessState = Depends(get_process_state),
 ):
     # Rate-limit start requests per IP so a script can't spam state rows.
-    try:
-        process_state.register_limiter.check(request)
-    except Exception:  # noqa: BLE001 — RateLimiter raises HTTPException
-        return _redirect_error("rate_limited")
+    # `check` raises HTTPException(429) on quota; let it propagate so the
+    # client sees a proper 429 (matches every other limited endpoint).
+    process_state.register_limiter.check(request)
     try:
         auth_url = await service.begin_signin(audit_from_request(request))
     except GoogleOAuthDisabledError:

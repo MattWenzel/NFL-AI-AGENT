@@ -7,7 +7,12 @@ import logging
 from dataclasses import dataclass
 
 from backend.data import AuditEvent, RuntimeStore
-from backend.domain.providers import ProviderInfo, get_provider, list_providers
+from backend.domain.providers import (
+    ProviderInfo,
+    get_provider,
+    list_providers,
+    provider_is_available,
+)
 from backend.domain.auth import codex_oauth, encryption
 
 logger = logging.getLogger(__name__)
@@ -62,6 +67,25 @@ class SettingsService:
     async def list_api_key_status(self, user_id: int) -> list[dict]:
         existing = {rec.provider: rec for rec in await self.store.list_api_keys(user_id)}
         return [self._build_status(info, existing.get(info.name)) for info in list_providers()]
+
+    async def list_provider_status(self, user_id: int) -> list[dict]:
+        """Return one row per registered LLM provider, marked `available` when
+        the user has stored a key OR the server has the provider's env-var
+        fallback set."""
+        existing_keys = {rec.provider for rec in await self.store.list_api_keys(user_id)}
+        return [
+            {
+                "name": info.name,
+                "display_name": info.display_name,
+                "models": info.models,
+                "default_model": info.default_model,
+                "available": provider_is_available(info) or info.name in existing_keys,
+                "context_window": info.context_window,
+                "supports_streaming": info.supports_streaming,
+                "supports_tools": info.supports_tools,
+            }
+            for info in list_providers()
+        ]
 
     async def update_api_key(
         self,

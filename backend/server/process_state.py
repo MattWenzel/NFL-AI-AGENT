@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from backend.config import CHAT_STREAM_MAX_PER_USER
 from backend.server.rate_limit import ConcurrencyLimiter, RateLimiter
 from backend.runtime_state import (
     PendingCodexOAuthFlows,
@@ -29,7 +30,7 @@ class AppProcessState:
         default_factory=lambda: RateLimiter(max_attempts=5, window_seconds=60 * 60)
     )
     chat_stream_limiter: ConcurrencyLimiter = field(
-        default_factory=lambda: ConcurrencyLimiter(max_active=3)
+        default_factory=lambda: ConcurrencyLimiter(max_active=CHAT_STREAM_MAX_PER_USER)
     )
     codex_pending_flows: PendingCodexOAuthFlows = field(
         default_factory=PendingCodexOAuthFlows

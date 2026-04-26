@@ -62,10 +62,6 @@ class RateLimiter:
             )
         bucket.append(now)
 
-    def reset(self) -> None:
-        """Clear all recorded hits — test helper."""
-        self._hits.clear()
-
 
 class ConcurrencyLimiter:
     """Process-local concurrency cap keyed by an arbitrary identifier.
@@ -95,6 +91,3 @@ class ConcurrencyLimiter:
                 self._active[key] = remaining
             else:
                 self._active.pop(key, None)
-
-    def reset(self) -> None:
-        self._active.clear()
