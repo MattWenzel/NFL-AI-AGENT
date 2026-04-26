@@ -6,9 +6,9 @@ The 2.3GB nflverse and pbp SQLite files are a separate concern — they're read-
 
 ## File map
 
-`backend/lib/db/` is split into two sibling subtrees so the SQL boundary is grep-checkable:
+`backend/data/` is split into two sibling subtrees so the SQL boundary is grep-checkable:
 
-- `backend/lib/db/sql/` — every file imports SQLAlchemy or SQLModel.
+- `backend/data/` — every file imports SQLAlchemy or SQLModel.
   - `store.py` — `RuntimeStore` facade, composed from per-domain mixins (`UsersMixin`, `SessionStoreMixin`, `TranscriptStoreMixin`, `ExportsMixin`, `UserIdentitiesMixin`, `LoginFailuresMixin`, `EmailVerificationMixin`, `SecurityEventsMixin`). Holds sync + async engines, per-session `asyncio.Lock` registry, startup hooks (apply migrations, reconcile interrupted runs).
   - `tables.py` — SQLModel table classes (`SessionRecord`, `TurnRecord`, `AssistantPartRecord`, `ToolRunRecord`, `CompactionSummaryRecord`, `ExportRecord`, `UserRecord`, `UserApiKeyRecord`, `AuthSessionRecord`, `EmailVerificationRecord`, `LoginFailureRecord`, `UserIdentityRecord`, `SecurityEventRecord`) and helpers (`utcnow`, `new_id`).
   - `projections.py` — composite/projection types returned by reads (`SessionListEntry`, `SessionTranscript`). Reference SQLModel records, so they live next to the tables.
@@ -16,14 +16,14 @@ The 2.3GB nflverse and pbp SQLite files are a separate concern — they're read-
   - `column_types.py` — `TolerantJSONList` / `ToolInputJSON` TypeDecorators: malformed rows log and fall back to `[]` / `{}` instead of raising. `ToolInputJSON` writes with `sort_keys=True` so the doom-loop detector's string-fingerprint of recent tool calls stays stable.
   - `users/`, `conversations/`, `exports/` — async mixins; every method opens its own `AsyncSession` from the store's sessionmaker. `users/` is split per-mixin (one file each).
   - `migrations.py` — in-house migration runner. Uses `PRAGMA user_version` as the tracker. Migrations are plain Python callables that take a sync `Connection`; `apply_migrations(engine)` runs any pending steps in a single transaction on startup. A one-shot seam reads `alembic_version` when present (DBs that predate the 2026-04-23 Alembic removal) and seeds `user_version` so no migration re-runs.
-- `backend/lib/db/types/` — plain-Python value types with zero SQL imports.
+- `backend/data/types/` — plain-Python value types with zero SQL imports.
   - `audit_events.py` — `AuditEvent` enum used as a column value type.
   - `errors.py` — `IdentityConflictError` and friends.
 - `config.py` — `RUNTIME_DB_PATH` (env-overridable).
 
 ## `RuntimeStore`
 
-`backend/lib/db/sql/store.py`. One class with one dependency (a `Path`). Responsibilities:
+`backend/data/store.py`. One class with one dependency (a `Path`). Responsibilities:
 
 - Own the DB file (create if missing).
 - Build the sync engine (for schema migration apply + `reconcile_interrupted_runs`) and the async engine (`sqlite+aiosqlite://`) used by every CRUD method.
@@ -44,13 +44,13 @@ async with self._async_session() as session:
     return result.scalar_one_or_none()
 ```
 
-The sessionmaker is built with `expire_on_commit=False` so returned ORM objects remain usable after the context closes. WAL mode and `PRAGMA foreign_keys=ON` are applied on every DBAPI connect via a SQLAlchemy `connect` event hook (`backend/lib/db/sql/engine.py`); without them, `ON DELETE CASCADE` on `auth_sessions` / `user_api_keys` silently wouldn't fire.
+The sessionmaker is built with `expire_on_commit=False` so returned ORM objects remain usable after the context closes. WAL mode and `PRAGMA foreign_keys=ON` are applied on every DBAPI connect via a SQLAlchemy `connect` event hook (`backend/data/database.py`); without them, `ON DELETE CASCADE` on `auth_sessions` / `user_api_keys` silently wouldn't fire.
 
 There's no pool sizing to tune — `aiosqlite` runs each connection on its own worker thread, and SQLite's file-level concurrency (one writer at a time in WAL) is what actually bounds throughput. For a personal deployment that's fine.
 
 ## Schema
 
-All 9 tables are declared as SQLModel classes in `backend/lib/db/sql/tables.py`. Column names, defaults, indexes, and FKs are chosen to match the DB schema byte-for-byte (modulo SQLite's dynamic typing — `VARCHAR` and `TEXT` are equivalent) so existing `runtime.sqlite3` files open without migration.
+All 9 tables are declared as SQLModel classes in `backend/data/models.py`. Column names, defaults, indexes, and FKs are chosen to match the DB schema byte-for-byte (modulo SQLite's dynamic typing — `VARCHAR` and `TEXT` are equivalent) so existing `runtime.sqlite3` files open without migration.
 
 ### Chat data
 
@@ -65,7 +65,7 @@ sessions                              ── one row per conversation
 turns                                 ── one row per user/assistant/summary message
 ├─ id, session_id, role, status
 ├─ text, error
-├─ input_tokens, output_tokens        ── from backend.lib.providers usage; drives compaction
+├─ input_tokens, output_tokens        ── from backend.domain.providers usage; drives compaction
 ├─ compacted                          ── 0 active, 1 dropped from prompt
 └─ created_at, updated_at
 
@@ -134,17 +134,17 @@ Indexes defined on the model classes:
 
 ## Migrations
 
-Schema evolves via **in-house migration callables** in `backend/lib/db/sql/migrations.py`. On startup, `RuntimeStore.__init__` calls `apply_migrations(sync_engine)`:
+Schema evolves via **in-house migration callables** in `backend/data/migrations.py`. On startup, `RuntimeStore.__init__` calls `apply_migrations(sync_engine)`:
 
 - **Fresh DB** (`PRAGMA user_version = 0`, no `alembic_version` table): every migration runs. The baseline migration's `SQLModel.metadata.create_all` creates all tables in their post-migration shape; later migrations are idempotent (`CREATE TABLE IF NOT EXISTS`, guarded column renames) so they run as no-ops. `user_version` ends at `len(MIGRATIONS)`.
 - **Pre-existing DB with `alembic_version`** (predates the 2026-04-23 Alembic removal): the one-shot seam reads `alembic_version.version_num`, maps it via `_ALEMBIC_VERSION_MAP`, and sets `user_version` accordingly. Pending migrations run; already-applied ones skip.
 - **Steady-state DB** (`PRAGMA user_version > 0`): the seam short-circuits on the `user_version` read — the `alembic_version` table (if still present) is ignored.
 
-All paths are idempotent. To add a new schema change: define a new `_migration_NNNN_<topic>` function that takes a `Connection`, append it to `MIGRATIONS`, and update `SQLModel` in `backend/lib/db/sql/tables.py` to match the post-migration shape. Keep migrations idempotent (guard with `CREATE TABLE IF NOT EXISTS` or `PRAGMA table_info` checks) so fresh DBs — where `metadata.create_all` already produces the final shape — run them as no-ops.
+All paths are idempotent. To add a new schema change: define a new `_migration_NNNN_<topic>` function that takes a `Connection`, append it to `MIGRATIONS`, and update `SQLModel` in `backend/data/models.py` to match the post-migration shape. Keep migrations idempotent (guard with `CREATE TABLE IF NOT EXISTS` or `PRAGMA table_info` checks) so fresh DBs — where `metadata.create_all` already produces the final shape — run them as no-ops.
 
 ## Startup reconciliation
 
-`_reconcile_interrupted_runs_sync` (`backend/lib/db/sql/store.py`), called at the end of `RuntimeStore.__init__`. Two updates via the sync engine (once per process, so sync is simpler than async here):
+`_reconcile_interrupted_runs_sync` (`backend/data/store.py`), called at the end of `RuntimeStore.__init__`. Two updates via the sync engine (once per process, so sync is simpler than async here):
 
 ```python
 UPDATE tool_runs  SET status = 'interrupted',
@@ -155,7 +155,7 @@ UPDATE turns      SET status = 'interrupted',
                   WHERE role = 'assistant' AND status = 'running';
 ```
 
-If the server dies mid-turn — SIGKILL, OOM, power loss — the loop's `finally` cleanup (`backend/lib/agent/runtime.py:251`) doesn't run. These rows would otherwise appear "running" forever in the UI. On startup, the store sweeps them to `interrupted`, logs a warning with the count, and moves on.
+If the server dies mid-turn — SIGKILL, OOM, power loss — the loop's `finally` cleanup (`backend/domain/agent/runtime.py:251`) doesn't run. These rows would otherwise appear "running" forever in the UI. On startup, the store sweeps them to `interrupted`, logs a warning with the count, and moves on.
 
 The warning matters: a restart that orphans nothing is healthy; one that orphans dozens of rows points at a crash.
 
@@ -199,25 +199,25 @@ Every event the runtime yields has a corresponding write. The transcript is appe
 
 ## Three roles of `create_turn`
 
-`backend/lib/db/sql/conversations/transcripts.py:25`. Creates a turn row with the given role/status/text. Used for:
+`backend/data/repositories/conversations/transcripts.py:25`. Creates a turn row with the given role/status/text. Used for:
 
 - `role='user'` with `status='completed'` — immediate write when a user message arrives.
 - `role='assistant'` with `status='running'` — opened at the top of each iteration; updated to `'completed'` when the stream ends.
 - `role='summary'` with `status='completed'` — by `record_compaction` and `seed_summary`. Summary turns have `compacted=0` by default; the source turns they replace are flipped to `compacted=1` in the same transaction.
 
-There is no "streaming turn" abstraction — the turn is just a row, and `append_assistant_text` (`backend/lib/db/sql/conversations/transcripts.py:70`) concatenates chunks into the `text` column in place. If the process dies mid-stream, the partial text is preserved.
+There is no "streaming turn" abstraction — the turn is just a row, and `append_assistant_text` (`backend/data/repositories/conversations/transcripts.py:70`) concatenates chunks into the `text` column in place. If the process dies mid-stream, the partial text is preserved.
 
 ## Recovering the active prompt
 
-`build_model_messages` (`backend/lib/agent/message_builder.py:12`). Walks the transcript and emits a `list[Message]` (see [providers.md](providers.md#canonical-types)) for the next model call:
+`build_model_messages` (`backend/domain/agent/message_builder.py:12`). Walks the transcript and emits a `list[Message]` (see [providers.md](providers.md#canonical-types)) for the next model call:
 
-1. **Summary turns first.** All non-compacted `role='summary'` turns become a single synthetic assistant message via `_wrap_summaries_for_prompt` (`backend/lib/agent/message_builder.py`).
+1. **Summary turns first.** All non-compacted `role='summary'` turns become a single synthetic assistant message via `_wrap_summaries_for_prompt` (`backend/domain/agent/message_builder.py`).
 2. **Then user/assistant turns in chronological order**, skipping compacted ones. For assistant turns, `tool_calls` are attached from `tool_runs_by_turn`.
 3. **Then tool results** as separate `Message(role='tool_result', tool_use_id, tool_content)` entries.
 
 Why summaries go first unconditionally is covered in [compaction.md](compaction.md#re-injecting-summaries-into-the-next-model-call).
 
-Trailing whitespace on the final assistant content is stripped (`backend/lib/agent/message_builder.py:44`) — Anthropic rejects messages whose final assistant block ends with trailing whitespace, and models stream `\n` endings frequently.
+Trailing whitespace on the final assistant content is stripped (`backend/domain/agent/message_builder.py:44`) — Anthropic rejects messages whose final assistant block ends with trailing whitespace, and models stream `\n` endings frequently.
 
 Note: `build_model_messages` lives in the agent module, not the storage module, because it's a pure transform over `SessionTranscript` that doesn't touch SQLite — the runtime owns provider-message construction; storage owns raw persistence.
 
@@ -236,7 +236,7 @@ Passing `user_id=None` bypasses the filter. This is a **trust boundary** — the
 
 ## `SessionTranscript`
 
-`backend/lib/db/sql/tables.py`. Single-shot snapshot returned by `get_transcript`:
+`backend/data/models.py`. Single-shot snapshot returned by `get_transcript`:
 
 ```python
 @dataclass
@@ -254,7 +254,7 @@ The four reads share one `AsyncSession` but issue as separate autocommit stateme
 
 ## Exports and the `ctx` callback
 
-`register_export` (`backend/lib/db/sql/exports/crud.py:13`) takes the values `create_csv_export` produces and inserts an `exports` row. The owning `user_id` is resolved by looking up the session that produced the export:
+`register_export` (`backend/data/repositories/exports.py:13`) takes the values `create_csv_export` produces and inserts an `exports` row. The owning `user_id` is resolved by looking up the session that produced the export:
 
 ```python
 if source_session_id:

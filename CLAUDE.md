@@ -8,7 +8,7 @@ NFL player stats database built from [nflverse](https://github.com/nflverse/nflv
 |----------|------|--------|------|-------|
 | `nflverse.duckdb` | ~1.2 GB | 25 + 1 view | ~5M | 1999-2025 |
 
-Single DuckDB file with **78 FK constraints** enforced at build time. Accessed read-only by the chat agent via `backend/lib/tools/sandbox/runner.py` (raw `duckdb.connect(..., read_only=True)`); no ORM involvement.
+Single DuckDB file with **78 FK constraints** enforced at build time. Accessed read-only by the chat agent via `backend/domain/tools/sandbox/runner.py` (raw `duckdb.connect(..., read_only=True)`); no ORM involvement.
 
 **Full schema**: `../NFLVERSE/docs/CONSUMER_GUIDE.md` (short, gotcha-focused) + `../NFLVERSE/docs/DATABASE.md` (full reference). Sibling repo.
 
@@ -58,39 +58,49 @@ The chat runtime is transcript-backed: sessions, turns, assistant parts, tool ru
 
 ### Architecture
 
-Top-level split: `backend/` holds the Python server, `frontend/` holds the browser UI. Inside `backend/`, the layering is: `server/` is the FastAPI HTTP boundary, `services/` holds application services (one per HTTP feature — each subfolder exports a `FooService` class), and `lib/` holds the framework-free libraries those services consume (`agent/`, `providers/`, `tools/`, `db/`, `auth/`). Inside `lib/db/` the SQL boundary is explicit: `lib/db/sql/` contains every file that imports SQLAlchemy/SQLModel (tables, RuntimeStore, per-domain query mixins, engine, migrations); `lib/db/types/` contains plain-Python value types (enums, exceptions) with zero SQL imports. `services/` itself is FastAPI-free — verifiable: `grep -rE "fastapi|starlette" backend/services/` returns empty. The frontend mirrors the feature-slice convention for its JS modules.
+Top-level split: `backend/` holds the Python server, `frontend/` holds the browser UI. Inside `backend/`, the layering is onion-style: `api/` is the FastAPI HTTP boundary (routes + Pydantic wire DTOs + `Depends` factories), `application/` holds the use-case services (one package per HTTP feature, each exporting a `FooService` class), `domain/` holds the framework-free libraries those services consume (`agent/`, `providers/`, `tools/`, `auth/`), and `data/` holds persistence — the SQL boundary. `data/` itself imports SQLAlchemy/SQLModel; `data/types/` contains plain-Python value types (enums, exceptions) with zero SQL imports. `server/` is pure HTTP infrastructure (middleware, logging, csrf, session, sse, startup) — no routes, those moved to `api/`. `application/` itself is FastAPI-free — verifiable: `grep -rE "fastapi|starlette" backend/application/` returns empty. The frontend mirrors the feature-slice convention for its JS modules.
 
 ```
 backend/
-├── server/                       # FastAPI HTTP boundary
-│   ├── app.py                    #   app factory + lifespan; uvicorn entry (backend.server.app:app)
-│   ├── routes/                   #   HTTP handlers by app process
-│   ├── dependencies.py           #   FastAPI Depends factories (get_store, get_runtime, ...)
-│   ├── csrf.py                   #   double-submit CSRF dependency
-│   ├── session.py                #   session token parsing + browser auth cookie behavior
-│   ├── request_context.py        #   request → audit/client context helpers
-│   ├── middleware.py             #   SecurityHeadersMiddleware (CSP / HSTS / etc.)
-│   ├── sse.py                    #   RuntimeEvent → SSE dict serialization
-│   ├── startup.py                #   DB validation, runtime wiring, housekeeping
-│   ├── logging.py                #   setup_logging + secret-redacting filter
-│   ├── process_state.py          #   AppProcessState + API-facing limiters
-│   └── rate_limit.py             #   per-IP RateLimiter + concurrency limiter
-├── services/                     # Application services (one per HTTP feature) — services, DTOs, schemas, errors
+├── api/                          # HTTP layer — FastAPI routes + wire DTOs
+│   ├── routes/                   #   HTTP handlers per feature
+│   ├── schemas/                  #   Pydantic request/response models
+│   └── dependencies.py           #   FastAPI Depends factories (get_store, get_runtime, ...)
+├── application/                  # Use-case services (one package per HTTP feature)
 │   ├── auth/                     #   register / login / logout / password / delete / verify / resend
 │   ├── chat/                     #   chat orchestration and response aggregation
 │   ├── conversations/            #   list / transcript / patch / delete orchestration
 │   ├── exports/                  #   CSV library CRUD
 │   ├── oauth/                    #   provider_credentials.py plus Codex/Google flow packages
-│   ├── providers.py              #   provider response models
 │   └── settings.py               #   per-user API key CRUD + linked identity services
-├── lib/                          # Framework-free libraries consumed by server/ + services/
-│   ├── agent/                    #   Chat runtime loop, events, prompt, compaction
-│   ├── auth/                     #   Auth primitives, encryption, OAuth protocol helpers, audit log, lifecycle
-│   ├── db/                       #   SQLite persistence — the SQL boundary
-│   │   ├── sql/                  #     SQLAlchemy/SQLModel imports live here (tables, store, mixins, migrations)
-│   │   └── types/                #     Plain-Python value types — no SQL imports (audit_events, errors)
+├── domain/                       # Framework-free libraries consumed by application/
+│   ├── agent/                    #   chat runtime loop, events, prompt, compaction
+│   ├── auth/                     #   auth primitives, encryption, OAuth protocol helpers, audit log, lifecycle
 │   ├── providers/                #   LLM provider registry, types, errors, clients
-│   └── tools/                    #   Tool definitions, registry, handlers, SQL sandbox, guides
+│   └── tools/                    #   tool definitions, registry, handlers, SQL sandbox, guides
+├── data/                         # Persistence layer — the SQL boundary
+│   ├── models.py                 #   SQLModel table classes
+│   ├── projections.py            #   composite read shapes (SessionListEntry, SessionTranscript)
+│   ├── store.py                  #   RuntimeStore facade composing per-domain mixins
+│   ├── migrations.py             #   schema migrations
+│   ├── database.py               #   engine + sessionmaker construction
+│   ├── column_types.py           #   custom SQLAlchemy types
+│   ├── repositories/             #   per-domain query mixins
+│   │   ├── conversations/        #     sessions + transcripts mixins
+│   │   ├── exports.py            #     exports CRUD mixin
+│   │   └── users/                #     users + identities + login_failures + email_verification + security_events
+│   └── types/                    #   plain-Python value types — no SQL imports (audit_events, errors)
+├── server/                       # HTTP infrastructure (no routes — those live in api/)
+│   ├── app.py                    #   app factory + lifespan; uvicorn entry (backend.server.app:app)
+│   ├── csrf.py                   #   double-submit CSRF dependency
+│   ├── session.py                #   session token parsing + browser auth cookie behavior
+│   ├── request_context.py        #   request → audit/client context helpers + request_id contextvar
+│   ├── middleware.py             #   RequestIDMiddleware + SecurityHeadersMiddleware (CSP / HSTS / etc.)
+│   ├── sse.py                    #   RuntimeEvent → SSE dict serialization
+│   ├── startup.py                #   DB validation, runtime wiring, housekeeping
+│   ├── logging.py                #   setup_logging + request-id filter + secret-redacting filter
+│   ├── process_state.py          #   AppProcessState + API-facing limiters
+│   └── rate_limit.py             #   per-IP RateLimiter + concurrency limiter
 ├── runtime_state.py              # Framework-free lock registries + pending OAuth flows
 └── config.py                     # DB paths, env loading, runtime settings
 
@@ -130,7 +140,7 @@ python3 -m pytest tests/          # Run tests
 # which this app reads via DB_PATH in .env.
 ```
 
-**Note**: Restart the API server (`python3 run.py`) after changing `backend/lib/agent/system_prompt.py` or `backend/lib/tools/*` — the running server caches imports.
+**Note**: Restart the API server (`python3 run.py`) after changing `backend/domain/agent/system_prompt.py` or `backend/domain/tools/*` — the running server caches imports.
 
 ## Auth & multi-user
 
@@ -140,7 +150,7 @@ Multi-user password auth with open signup. First registrant becomes `role='admin
 
 **Password handling**: bcrypt cost 12. Failed logins tracked per-email with progressive delay (0s → 0.25s → 0.5s → 1s → 2s → 4s cap) and hard lockout after `LOGIN_LOCKOUT_MAX_FAILURES` (default 10) attempts for `LOGIN_LOCKOUT_DURATION_SECONDS` (default 900s). Layered on top of the per-IP rate limiter.
 
-**Email verification**: optional (`EMAIL_VERIFICATION_REQUIRED=1`). When on, `/auth/register` returns 202 `{status: "verification_pending"}` instead of a session, a verification link is mailed via Resend, and `/auth/login` rejects unverified accounts until `/auth/verify-email` consumes the token. OAuth-verified identities skip this gate via `create_user_account(..., verified=True)` in `backend/lib/auth/lifecycle.py`.
+**Email verification**: optional (`EMAIL_VERIFICATION_REQUIRED=1`). When on, `/auth/register` returns 202 `{status: "verification_pending"}` instead of a session, a verification link is mailed via Resend, and `/auth/login` rejects unverified accounts until `/auth/verify-email` consumes the token. OAuth-verified identities skip this gate via `create_user_account(..., verified=True)` in `backend/domain/auth/lifecycle.py`.
 
 **API keys**: Per-user, Fernet-encrypted at rest with the master key in `SETTINGS_ENCRYPTION_KEY`. Plaintext is never returned by any endpoint; ciphertext is decrypted only server-side when invoking the LLM.
 
@@ -172,7 +182,7 @@ Shipped 2026-04-23. Users can sign up / sign in with Google, and existing passwo
 - Both routes are GETs (browser navigation) and CSRF-exempt by the usual safe-method rule — the `state` parameter is the anti-CSRF for the callback. Session cookies from the rest of the app still travel (SameSite=Lax), which is how the callback can tell a link flow (user_id in pending row) from a sign-in flow.
 - `security_events` gains `oauth_signin_started`, `oauth_signin_succeeded`, `oauth_signin_failed`, `oauth_link_started`, `oauth_linked`, `oauth_unlinked`, `oauth_link_rejected`.
 
-**Files:** `backend/lib/auth/google_oauth.py` (OAuth primitives + ID-token verification), `backend/lib/db/sql/users/identities.py::UserIdentitiesMixin` (storage), `backend/services/oauth/google/service.py` (flow orchestration), `backend/server/routes/oauth_google.py` (endpoints), `backend/server/routes/settings.py` (link/unlink + list), and `backend/server/session.py` for shared session cookie behavior.
+**Files:** `backend/domain/auth/google_oauth.py` (OAuth primitives + ID-token verification), `backend/data/repositories/users/identities.py::UserIdentitiesMixin` (storage), `backend/application/oauth/google/service.py` (flow orchestration), `backend/api/routes/oauth_google.py` (endpoints), `backend/api/routes/settings.py` (link/unlink + list), and `backend/server/session.py` for shared session cookie behavior.
 
 **Env vars:**
 - `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` — set via Google Cloud Console. The "Continue with Google" button and `/auth/oauth/google/*` routes only appear when both are set.

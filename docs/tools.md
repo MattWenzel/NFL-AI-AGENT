@@ -6,32 +6,32 @@ The runtime's role in tool calls (concurrent dispatch under `asyncio.gather`, re
 
 ## File map
 
-The `backend/lib/tools/` package is flat — infrastructure modules and handlers sit side by side, one file per tool:
+The `backend/domain/tools/` package is flat — infrastructure modules and handlers sit side by side, one file per tool:
 
-- `backend/lib/tools/__init__.py` — public surface: `TOOLS`, `TOOL_DEFINITIONS`, `execute_tool`, `execute_tool_structured`.
-- `backend/lib/tools/definitions.py` — Anthropic-format tool schemas + typed `TOOLS` list.
-- `backend/lib/tools/registry.py` — dispatch table, execution helpers (`execute_tool`, `execute_tool_structured`), drift guard.
-- `backend/lib/tools/validation.py` — JSON-Schema input validation, error-hint injection.
-- `backend/lib/tools/sandbox/runner.py` — read-only SQL runner with row/op caps and PBP auto-attach.
-- `backend/lib/tools/truncate.py` — shared `truncate_text` / `truncate_rows` helpers for result formatting.
-- `backend/lib/tools/sandbox/schema_metadata.py` — `TABLE_ALIASES` (hand-coded) and `JOIN_EDGES` (auto-derived from DuckDB's `duckdb_constraints()` at import time; one hand-coded supplement for the `v_depth_charts` view which can't carry an FK). Used by `get_schema` for join-graph hints.
-- `backend/lib/tools/guide_registry.py` — `GUIDE_TOPICS` tuple + `GUIDE_INDEX_ROWS` shown in the system prompt's guide index.
-- Handlers, one per tool: `backend/lib/tools/handlers/execute_sql.py`, `backend/lib/tools/handlers/player_lookup.py` (both `_search_players` and `_get_player_info`), `backend/lib/tools/handlers/get_schema.py`, `backend/lib/tools/handlers/get_guide.py`, `backend/lib/tools/handlers/create_chart.py`, `backend/lib/tools/handlers/create_csv_export.py`.
-- `backend/lib/tools/guides/*.md` — seven markdown guides loaded by `get_guide`: `fantasy.md`, `player_stats.md`, `play_by_play.md`, `drives.md`, `postseason.md`, `player_profile.md`, `games.md`.
+- `backend/domain/tools/__init__.py` — public surface: `TOOLS`, `TOOL_DEFINITIONS`, `execute_tool`, `execute_tool_structured`.
+- `backend/domain/tools/definitions.py` — Anthropic-format tool schemas + typed `TOOLS` list.
+- `backend/domain/tools/registry.py` — dispatch table, execution helpers (`execute_tool`, `execute_tool_structured`), drift guard.
+- `backend/domain/tools/validation.py` — JSON-Schema input validation, error-hint injection.
+- `backend/domain/tools/sandbox/runner.py` — read-only SQL runner with row/op caps and PBP auto-attach.
+- `backend/domain/tools/truncate.py` — shared `truncate_text` / `truncate_rows` helpers for result formatting.
+- `backend/domain/tools/sandbox/schema_metadata.py` — `TABLE_ALIASES` (hand-coded) and `JOIN_EDGES` (auto-derived from DuckDB's `duckdb_constraints()` at import time; one hand-coded supplement for the `v_depth_charts` view which can't carry an FK). Used by `get_schema` for join-graph hints.
+- `backend/domain/tools/guide_registry.py` — `GUIDE_TOPICS` tuple + `GUIDE_INDEX_ROWS` shown in the system prompt's guide index.
+- Handlers, one per tool: `backend/domain/tools/handlers/execute_sql.py`, `backend/domain/tools/handlers/player_lookup.py` (both `_search_players` and `_get_player_info`), `backend/domain/tools/handlers/get_schema.py`, `backend/domain/tools/handlers/get_guide.py`, `backend/domain/tools/handlers/create_chart.py`, `backend/domain/tools/handlers/create_csv_export.py`.
+- `backend/domain/tools/guides/*.md` — seven markdown guides loaded by `get_guide`: `fantasy.md`, `player_stats.md`, `play_by_play.md`, `drives.md`, `postseason.md`, `player_profile.md`, `games.md`.
 
 ## The seven tools
 
-Declared in `backend/lib/tools/definitions.py`:
+Declared in `backend/domain/tools/definitions.py`:
 
 | Tool | Handler | Purpose |
 |------|---------|---------|
-| `search_players` | `backend/lib/tools/handlers/player_lookup.py` (`_search_players`) | Fuzzy name/position/team lookup; returns candidates with `gsis_id`. |
-| `get_player_info` | `backend/lib/tools/handlers/player_lookup.py` (`_get_player_info`) | Detailed bio + cross-platform IDs for a given `gsis_id`. |
-| `get_guide` | `backend/lib/tools/handlers/get_guide.py` | Load a topic-specific markdown guide (fantasy, play_by_play, …). |
-| `get_schema` | `backend/lib/tools/handlers/get_schema.py` | Table columns + join edges; loaded on demand to save prompt tokens. |
-| `execute_sql` | `backend/lib/tools/handlers/execute_sql.py` | Arbitrary `SELECT`/`WITH` against nflverse.db (500 rows, ~30s). |
-| `create_csv_export` | `backend/lib/tools/handlers/create_csv_export.py` | Export query results to a downloadable CSV (10k rows, ~60s). |
-| `create_chart` | `backend/lib/tools/handlers/create_chart.py` | Render an inline chart spec (bar/line/scatter/pie) from a query. |
+| `search_players` | `backend/domain/tools/handlers/player_lookup.py` (`_search_players`) | Fuzzy name/position/team lookup; returns candidates with `gsis_id`. |
+| `get_player_info` | `backend/domain/tools/handlers/player_lookup.py` (`_get_player_info`) | Detailed bio + cross-platform IDs for a given `gsis_id`. |
+| `get_guide` | `backend/domain/tools/handlers/get_guide.py` | Load a topic-specific markdown guide (fantasy, play_by_play, …). |
+| `get_schema` | `backend/domain/tools/handlers/get_schema.py` | Table columns + join edges; loaded on demand to save prompt tokens. |
+| `execute_sql` | `backend/domain/tools/handlers/execute_sql.py` | Arbitrary `SELECT`/`WITH` against nflverse.db (500 rows, ~30s). |
+| `create_csv_export` | `backend/domain/tools/handlers/create_csv_export.py` | Export query results to a downloadable CSV (10k rows, ~60s). |
+| `create_chart` | `backend/domain/tools/handlers/create_chart.py` | Render an inline chart spec (bar/line/scatter/pie) from a query. |
 
 Schemas use Anthropic's `tool_use` input_schema format (JSON Schema). The OpenAI adapter translates these at the boundary — see [providers.md](providers.md).
 
@@ -40,7 +40,7 @@ Schemas use Anthropic's `tool_use` input_schema format (JSON Schema). The OpenAI
 ## Data flow for one tool call
 
 ```
-Turn._execute_one_tool(tool_run)                      backend/lib/agent/turn.py
+Turn._execute_one_tool(tool_run)                      backend/domain/agent/turn.py
     │
     ├─ persistence.begin_tool_execution (running + tool_status part)
     │
@@ -65,7 +65,7 @@ execute_tool_structured(name, input, ctx)             registry.py:86
 persistence.complete_tool_execution (status + result_part)
 ```
 
-`Turn` (in `backend/lib/agent/turn.py`, not here) persists the envelope to the store and the runtime yields a `tool_completed` or `tool_failed` event. The **`content` string** (not the parsed dict) is what the model sees on the next turn — so tools must be careful that the JSON they return is legible to the LLM, not just to code.
+`Turn` (in `backend/domain/agent/turn.py`, not here) persists the envelope to the store and the runtime yields a `tool_completed` or `tool_failed` event. The **`content` string** (not the parsed dict) is what the model sees on the next turn — so tools must be careful that the JSON they return is legible to the LLM, not just to code.
 
 ## The dispatch table
 
@@ -116,15 +116,15 @@ This is a prompt-engineering shortcut, not a substitute for the system prompt �
 
 ## The SQL sandbox
 
-`sandbox.py`. Four pieces:
+`sandbox/runner.py`. Four pieces:
 
 ### Validation
 
-`validate_sql` (`sandbox.py:66`) — regex whitelist. Only `SELECT` or `WITH` at the start of the statement (tolerating leading whitespace and `--` / `/* */` comments). Anything else raises `SQLValidationError`. Multi-statement inputs are rejected by SQLite's `sqlite3.Warning` at execute time, not by the regex.
+`validate_sql` (`sandbox/runner.py:66`) — regex whitelist. Only `SELECT` or `WITH` at the start of the statement (tolerating leading whitespace and `--` / `/* */` comments). Anything else raises `SQLValidationError`. Multi-statement inputs are rejected by SQLite's `sqlite3.Warning` at execute time, not by the regex.
 
 ### Read-only connection
 
-`execute_safe_sql` (`sandbox.py:159`) opens the DB with `file:{DB_PATH}?mode=ro`. SQLite enforces read-only at the driver level — any whitelist bypass still can't write. `check_same_thread=False` is safe because each tool call opens its own connection on its own thread.
+`execute_safe_sql` (`sandbox/runner.py:159`) opens the DB with `file:{DB_PATH}?mode=ro`. SQLite enforces read-only at the driver level — any whitelist bypass still can't write. `check_same_thread=False` is safe because each tool call opens its own connection on its own thread.
 
 ### Limits
 
@@ -133,21 +133,21 @@ This is a prompt-engineering shortcut, not a substitute for the system prompt �
 | Row cap | `MAX_ROWS = 500` | `EXPORT_MAX_ROWS = 10_000` |
 | Op budget | `QUERY_TIMEOUT_OPS = 300M` (~30s) | `EXPORT_TIMEOUT_OPS = 600M` (~60s) |
 
-The op budget is enforced via `conn.set_progress_handler` (`sandbox.py:120`): SQLite calls the handler every N VM instructions; returning non-zero aborts. This is more robust than wall-clock timeout because it runs inside SQLite's vdbe loop.
+The op budget is enforced via `conn.set_progress_handler` (`sandbox/runner.py:120`): SQLite calls the handler every N VM instructions; returning non-zero aborts. This is more robust than wall-clock timeout because it runs inside SQLite's vdbe loop.
 
-The row cap is enforced by `_ensure_limit` (`sandbox.py:169`), which either appends `LIMIT N` or rewrites a too-high numeric `LIMIT` in-place. Parameterized `LIMIT ?` is passed through unchanged — the caller is trusted.
+The row cap is enforced by `_ensure_limit` (`sandbox/runner.py:169`), which either appends `LIMIT N` or rewrites a too-high numeric `LIMIT` in-place. Parameterized `LIMIT ?` is passed through unchanged — the caller is trusted.
 
 ### PBP auto-attach
 
-`sandbox.py:19`. Queries matching `\bplay_by_play\b` or `\bpbp\.` trigger `ATTACH DATABASE file:{PBP_DB_PATH}?mode=ro AS pbp` (`sandbox.py:114`). On function exit, the database is detached in a `finally` block. The model references `play_by_play` naturally; it doesn't know `pbp.db` is a separate file.
+`sandbox/runner.py:19`. Queries matching `\bplay_by_play\b` or `\bpbp\.` trigger `ATTACH DATABASE file:{PBP_DB_PATH}?mode=ro AS pbp` (`sandbox/runner.py:114`). On function exit, the database is detached in a `finally` block. The model references `play_by_play` naturally; it doesn't know `pbp.db` is a separate file.
 
-If `pbp.db` is missing and the query references it, `SQLValidationError` is raised with a clear message (`sandbox.py:110`) — no cryptic SQLite error reaches the model.
+If `pbp.db` is missing and the query references it, `SQLValidationError` is raised with a clear message (`sandbox/runner.py:110`) — no cryptic SQLite error reaches the model.
 
 ## The `ctx` side-channel
 
 Handlers have a uniform `(input_data, ctx)` signature, but most ignore `ctx`. It exists so handlers can reach runtime services without importing them. Right now only `create_csv_export` uses it.
 
-`Turn._execute_one_tool` (`backend/lib/agent/turn.py`) builds `ctx`:
+`Turn._execute_one_tool` (`backend/domain/agent/turn.py`) builds `ctx`:
 
 ```python
 ctx = {
@@ -159,7 +159,7 @@ ctx = {
 }
 ```
 
-`create_csv_export` (`backend/lib/tools/handlers/create_csv_export.py:53`) pulls the callback, calls it after writing the CSV, and unlinks the file if registration fails so orphan files don't accumulate. If `ctx` is `None` (e.g., calling the tool from a test), the handler still returns the download info but skips library registration — this is what makes handlers independently testable.
+`create_csv_export` (`backend/domain/tools/handlers/create_csv_export.py:53`) pulls the callback, calls it after writing the CSV, and unlinks the file if registration fails so orphan files don't accumulate. If `ctx` is `None` (e.g., calling the tool from a test), the handler still returns the download info but skips library registration — this is what makes handlers independently testable.
 
 Adding a new side-channel means: (1) build it in `Turn._execute_one_tool`, (2) read it in the handler, (3) handle the `None` case for tests. No registry to touch.
 
@@ -168,16 +168,16 @@ Adding a new side-channel means: (1) build it in `Turn._execute_one_tool`, (2) r
 Every handler returns a JSON string. The shape is tool-specific but two conventions are enforced:
 
 - **Error envelope.** On expected failure, return `{"error": "message"}`. `execute_tool` also wraps any uncaught `SQLValidationError` or `Exception` in this shape, so handlers don't need defensive `try` blocks around known error sources.
-- **Truncation note.** When row caps hit, include a `note` field so the model can warn the user. Helpers in `backend/lib/tools/truncate.py` (`truncate_rows`, `truncate_text`) do this automatically — handlers like `execute_sql.py` just pass their rows through.
+- **Truncation note.** When row caps hit, include a `note` field so the model can warn the user. Helpers in `backend/domain/tools/truncate.py` (`truncate_rows`, `truncate_text`) do this automatically — handlers like `execute_sql.py` just pass their rows through.
 
 `execute_tool_structured` (`registry.py:86`) parses the result looking for `error` and `hint` keys; the presence of `error` flips `status` to `"error"` in the envelope. Handlers should not set `status` themselves — the dispatcher derives it.
 
 ## Adding a new tool
 
 1. Add the schema dict to `TOOL_DEFINITIONS` in `definitions.py`.
-2. Write the handler in `backend/lib/tools/<name>.py` with signature `(input_data, ctx) -> str`.
+2. Write the handler in `backend/domain/tools/<name>.py` with signature `(input_data, ctx) -> str`.
 3. Import the handler in `registry.py` and add it to `_TOOL_DISPATCH`. The drift-guard assert will fail otherwise.
-4. If the handler needs runtime state, extend `ctx` in `Turn._execute_one_tool` (`backend/lib/agent/turn.py`). Otherwise ignore `ctx`.
+4. If the handler needs runtime state, extend `ctx` in `Turn._execute_one_tool` (`backend/domain/agent/turn.py`). Otherwise ignore `ctx`.
 5. If tool output can produce novel error strings users should correct, add a `(pattern, hint)` pair to `_ERROR_HINTS` in `validation.py`.
 
 No test fixtures, no registration decorators, no boot-time side effects. The drift-guard assert and the uniform handler signature are the only contracts.

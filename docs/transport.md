@@ -5,16 +5,16 @@ The HTTP layer is three thin bands: **routes** parse requests and translate exce
 ## File map
 
 - `backend/server/app.py` — FastAPI factory, CORS, lifespan, router includes, static mount.
-- `backend/server/routes/*.py` — FastAPI routers by app process.
-- `backend/server/dependencies.py` — FastAPI dependency factories.
+- `backend/api/routes/*.py` — FastAPI routers by feature.
+- `backend/api/schemas/*.py` — Pydantic wire models by feature.
+- `backend/api/dependencies.py` — FastAPI dependency factories.
 - `backend/server/csrf.py`, `backend/server/session.py`, `backend/server/request_context.py` — HTTP boundary helpers.
 - `backend/server/sse.py` — `RuntimeEvent` → SSE dict serialization.
-- `backend/services/*/service.py` — application services by app process.
-- `backend/services/*/schemas.py` — Pydantic wire models by app process.
+- `backend/application/*/service.py` — application services by feature.
 - `backend/server/` — startup, API-owned process state, rate limiting, and logging.
 - `backend/runtime_state.py` — framework-free lock registries and pending OAuth flow registries.
-- `backend/lib/auth/primitives.py` — password hashing and token generation.
-- `backend/lib/auth/types.py` — auth/OAuth value objects.
+- `backend/domain/auth/primitives.py` — password hashing and token generation.
+- `backend/domain/auth/types.py` — auth/OAuth value objects.
 - `run.py` — uvicorn launcher.
 
 ## App factory
@@ -46,24 +46,24 @@ The store, runtime, and process state survive across requests for the life of th
 
 ## Services layer
 
-Routes in `backend/server/routes/` are thin shells — parse the request, call one service method, translate service exceptions to HTTP status codes. Everything cross-subsystem lives in `backend/services/`. Each service is a class instantiated per-request via a `Depends(...)` factory (see below) with whatever it needs from the store, runtime, and process state.
+Routes in `backend/api/routes/` are thin shells — parse the request, call one service method, translate service exceptions to HTTP status codes. Everything cross-subsystem lives in `backend/application/`. Each service is a class instantiated per-request via a `Depends(...)` factory (see below) with whatever it needs from the store, runtime, and process state.
 
 | Service | File | What it does |
 |---------|------|--------------|
-| `ChatService` | `backend/services/chat/service.py` | `prepare_chat` (IDOR, decrypt credential, build client, prepare session), `run_message` (buffered response), `stream_events` (SSE event source). |
-| `ConversationService` | `backend/services/conversations.py` | List / get-transcript / update-title-or-pin / delete for the authenticated user's conversations. |
-| `AuthService` | `backend/services/auth/service.py` | Register, login, logout, password change, delete account. Password hashing + token issuance live here; routes only translate exceptions. |
-| `ProviderCredentialService` | `backend/services/oauth/credentials.py` | Resolves the per-user API key for one provider. Dispatches Codex OAuth to the Codex credential helper; plain API keys are decrypted directly. |
-| `CodexOAuthService` | `backend/services/oauth/codex/service.py` | Device-code flow: `start`, `status`, `cancel`. Spawns a background task that polls OpenAI's device endpoint and stores the encrypted bundle on success. |
-| `ExportService` | `backend/services/exports.py` | List / preview / rename / delete CSV exports + seed a new conversation from one. IDOR at each entry point. |
-| `ProviderService` | `backend/services/providers.py` | Provider availability (server config ∪ user keys). |
-| `SettingsService` | `backend/services/settings.py` | Per-provider API-key status and set/clear key operations. |
+| `ChatService` | `backend/application/chat/service.py` | `prepare_chat` (IDOR, decrypt credential, build client, prepare session), `run_message` (buffered response), `stream_events` (SSE event source). |
+| `ConversationService` | `backend/application/conversations/service.py` | List / get-transcript / update-title-or-pin / delete for the authenticated user's conversations. |
+| `AuthService` | `backend/application/auth/service.py` | Register, login, logout, password change, delete account. Password hashing + token issuance live here; routes only translate exceptions. |
+| `ProviderCredentialService` | `backend/application/oauth/provider_credentials.py` | Resolves the per-user API key for one provider. Dispatches Codex OAuth to the Codex credential helper; plain API keys are decrypted directly. |
+| `CodexOAuthService` | `backend/application/oauth/codex/service.py` | Device-code flow: `start`, `status`, `cancel`. Spawns a background task that polls OpenAI's device endpoint and stores the encrypted bundle on success. |
+| `ExportService` | `backend/application/exports/service.py` | List / preview / rename / delete CSV exports + seed a new conversation from one. IDOR at each entry point. |
+| `ProviderService` | `backend/application/providers.py` | Provider availability (server config ∪ user keys). |
+| `SettingsService` | `backend/application/settings.py` | Per-provider API-key status and set/clear key operations. |
 
 Services own **IDOR enforcement** — every one that accepts an id passes the authenticated user's id through to the store so unowned records return `None` and surface as 404. Routes rely on this; they don't re-check.
 
 ## Dependency injection
 
-`backend/server/dependencies.py`. Every request dependency lives here.
+`backend/api/dependencies.py`. Every request dependency lives here.
 
 **Core** (pull from `app.state`; raise `RuntimeError` if the lifespan didn't run):
 
@@ -87,7 +87,7 @@ Routes that need rate limits or process-local coordination depend on
 
 ## Chat endpoints
 
-Routes live in `backend/server/routes/chat.py` and delegate to `ChatService` in `backend/services/chat/service.py`.
+Routes live in `backend/api/routes/chat.py` and delegate to `ChatService` in `backend/application/chat/service.py`.
 
 ### `POST /chat/message` — buffered response
 
@@ -170,7 +170,7 @@ The route also emits three events outside the mapper:
 
 ## Other routes
 
-Routes are in `backend/server/routes/`. Every user-scoped endpoint depends on `get_current_user`; auth, health, and root do not.
+Routes are in `backend/api/routes/`. Every user-scoped endpoint depends on `get_current_user`; auth, health, and root do not.
 
 **Auth** (`routes/auth.py`). `GET /auth/status` (optional auth), `POST /auth/register`, `POST /auth/login`, `POST /auth/logout`, `PUT /auth/password`, `DELETE /auth/me`. Rate-limited per IP (see below). Full flow in [auth.md](auth.md).
 
@@ -225,7 +225,7 @@ Once connected, `codex_credentials.resolve_access_token(user_id)` handles refres
 Every user-scoped endpoint's ownership check happens inside the **service**, not in the route:
 
 ```python
-# backend/services/chat/service.py
+# backend/application/chat/service.py
 if (
     body.conversation_id
     and await self.store.get_session(body.conversation_id, user_id=user.id) is None
