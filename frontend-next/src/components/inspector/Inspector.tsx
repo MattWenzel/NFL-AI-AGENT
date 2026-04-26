@@ -1,9 +1,10 @@
-import { Database } from 'lucide-react'
+import { Database, X } from 'lucide-react'
 
+import { Button } from '@/components/ui/button'
 import { useChatContext } from '@/lib/chatContext'
 import { relativeTime } from '@/lib/datetime'
 import { cn } from '@/lib/utils'
-import type { ConversationTranscript, ToolRunRecord } from '@/lib/types'
+import type { AssistantPartRecord, ConversationTranscript, ToolRunRecord, TurnRecord } from '@/lib/types'
 
 export function Inspector() {
   const chat = useChatContext()
@@ -21,6 +22,22 @@ export function Inspector() {
     )
   }
 
+  if (chat.selectedExchangeId) {
+    const slice = sliceForExchange(transcript, chat.selectedExchangeId)
+    if (slice) {
+      return (
+        <div className="space-y-7 p-5">
+          <ExchangeMeta
+            slice={slice}
+            transcript={transcript}
+            onClear={() => chat.selectExchange(null)}
+          />
+          <ExchangeToolRuns slice={slice} />
+        </div>
+      )
+    }
+  }
+
   return (
     <div className="space-y-7 p-5">
       <SessionMeta transcript={transcript} />
@@ -30,12 +47,61 @@ export function Inspector() {
   )
 }
 
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
+interface ExchangeSlice {
+  userTurn: TurnRecord | null
+  assistantTurns: TurnRecord[]
+  parts: AssistantPartRecord[]
+  toolRuns: ToolRunRecord[]
+}
+
+function sliceForExchange(
+  transcript: ConversationTranscript,
+  exchangeId: string,
+): ExchangeSlice | null {
+  const visibleTurns = transcript.turns.filter((t) => !t.compacted)
+  const idx = visibleTurns.findIndex((t) => t.id === exchangeId)
+  if (idx < 0) return null
+  const anchor = visibleTurns[idx]
+
+  let userTurn: TurnRecord | null = null
+  let firstAgentIdx: number
+  if (anchor.role === 'user') {
+    userTurn = anchor
+    firstAgentIdx = idx + 1
+  } else {
+    // Walk back to the user turn that triggered this assistant block.
+    firstAgentIdx = idx
+    for (let i = idx - 1; i >= 0; i--) {
+      if (visibleTurns[i].role === 'user') {
+        userTurn = visibleTurns[i]
+        break
+      }
+      firstAgentIdx = i
+    }
+  }
+
+  const assistantTurns: TurnRecord[] = []
+  for (let i = firstAgentIdx; i < visibleTurns.length; i++) {
+    const t = visibleTurns[i]
+    if (t.role === 'user') break
+    assistantTurns.push(t)
+  }
+
+  const turnIds = new Set(assistantTurns.map((t) => t.id))
+  const parts = transcript.parts.filter((p) => turnIds.has(p.turn_id))
+  const toolRuns = transcript.tool_runs.filter((r) => turnIds.has(r.turn_id))
+  return { userTurn, assistantTurns, parts, toolRuns }
+}
+
+function Section({ label, action, children }: { label: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <section className="space-y-3">
-      <p className="text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-        {label}
-      </p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+          {label}
+        </p>
+        {action}
+      </div>
       {children}
     </section>
   )
@@ -76,6 +142,61 @@ function SessionMeta({ transcript }: { transcript: ConversationTranscript }) {
   )
 }
 
+function ExchangeMeta({
+  slice,
+  transcript,
+  onClear,
+}: {
+  slice: ExchangeSlice
+  transcript: ConversationTranscript
+  onClear: () => void
+}) {
+  const totalIn = slice.assistantTurns.reduce((s, t) => s + (t.input_tokens || 0), 0)
+  const totalOut = slice.assistantTurns.reduce((s, t) => s + (t.output_tokens || 0), 0)
+  const status = slice.assistantTurns.some((t) => t.status === 'streaming' || t.status === 'pending')
+    ? 'streaming'
+    : slice.assistantTurns.some((t) => t.error)
+      ? 'error'
+      : 'complete'
+  const lastTurn = slice.assistantTurns[slice.assistantTurns.length - 1]
+
+  return (
+    <Section
+      label="Selected exchange"
+      action={
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          onClick={onClear}
+          aria-label="Clear selection"
+        >
+          <X className="size-3.5" />
+        </Button>
+      }
+    >
+      {slice.userTurn ? (
+        <p className="line-clamp-3 rounded-md bg-muted/40 px-3 py-2 text-sm">{slice.userTurn.text}</p>
+      ) : null}
+      <dl className="space-y-1.5 text-sm">
+        <MetaRow term="Status" detail={<span className="capitalize">{status}</span>} />
+        <MetaRow term="Iterations" detail={<span className="tabular">{slice.assistantTurns.length}</span>} />
+        <MetaRow term="Provider" detail={transcript.provider ?? '—'} />
+        <MetaRow term="Model" detail={transcript.model ?? '—'} />
+        {lastTurn ? <MetaRow term="When" detail={relativeTime(lastTurn.updated_at)} /> : null}
+        <MetaRow
+          term="Tokens"
+          detail={
+            <span className="tabular">
+              {totalIn.toLocaleString()} in · {totalOut.toLocaleString()} out
+            </span>
+          }
+        />
+      </dl>
+    </Section>
+  )
+}
+
 function MetaRow({ term, detail }: { term: string; detail: React.ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-3 text-sm">
@@ -98,6 +219,25 @@ function ToolRuns({ transcript }: { transcript: ConversationTranscript }) {
     <Section label={`Tool runs · ${runs.length}`}>
       <ul className="space-y-1.5">
         {runs.map((run) => (
+          <ToolRunRow key={run.id} run={run} />
+        ))}
+      </ul>
+    </Section>
+  )
+}
+
+function ExchangeToolRuns({ slice }: { slice: ExchangeSlice }) {
+  if (slice.toolRuns.length === 0) {
+    return (
+      <Section label="Tool runs">
+        <p className="text-sm text-muted-foreground">No tool calls in this exchange.</p>
+      </Section>
+    )
+  }
+  return (
+    <Section label={`Tool runs · ${slice.toolRuns.length}`}>
+      <ul className="space-y-1.5">
+        {slice.toolRuns.map((run) => (
           <ToolRunRow key={run.id} run={run} />
         ))}
       </ul>

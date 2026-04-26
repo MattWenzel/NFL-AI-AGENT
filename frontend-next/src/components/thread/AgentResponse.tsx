@@ -16,6 +16,10 @@ interface AgentResponseProps {
   parts: AssistantPartRecord[]
   /** All ToolRunRecords across those turns, in chronological order. */
   toolRuns: ToolRunRecord[]
+  /** True when the inspector is currently scoped to this exchange. */
+  selected?: boolean
+  /** Click anywhere on the response to scope the inspector to this exchange. */
+  onSelect?: () => void
 }
 
 /**
@@ -24,7 +28,13 @@ interface AgentResponseProps {
  * single collapsible "Thinking" disclosure at the top, matching the
  * vanilla frontend's pattern. Text parts render as Markdown beneath.
  */
-export function AgentResponse({ turns, parts, toolRuns }: AgentResponseProps) {
+export function AgentResponse({
+  turns,
+  parts,
+  toolRuns,
+  selected = false,
+  onSelect,
+}: AgentResponseProps) {
   // Streaming if ANY of the turns is still active.
   const isStreaming = turns.some((t) => t.status === 'pending' || t.status === 'streaming')
 
@@ -57,7 +67,23 @@ export function AgentResponse({ turns, parts, toolRuns }: AgentResponseProps) {
   }
 
   return (
-    <div className="space-y-2">
+    <div
+      role={onSelect ? 'button' : undefined}
+      tabIndex={onSelect ? 0 : undefined}
+      onClick={onSelect}
+      onKeyDown={(e) => {
+        if (!onSelect) return
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onSelect()
+        }
+      }}
+      className={cn(
+        '-mx-3 space-y-2 rounded-xl px-3 py-2 transition-colors',
+        onSelect && 'cursor-pointer hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        selected && 'bg-muted/30 ring-1 ring-accent/40',
+      )}
+    >
       <p className="text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
         Agent
       </p>
@@ -152,6 +178,10 @@ function ThinkingBlock({ runs }: { runs: ToolRunRecord[] }) {
 
 function ToolRunRow({ run }: { run: ToolRunRecord }) {
   const summary = summarizeInput(run.tool_name, run.input)
+  // Only execute_sql carries payloads worth surfacing inline — guides, schemas,
+  // and other helpers are pure prep work the user shouldn't have to read.
+  const showInlineDetails =
+    run.tool_name === 'execute_sql' && (!!run.result || !!run.error || !!run.hint)
   return (
     <li className="px-3 py-2">
       <div className="flex items-center gap-2">
@@ -167,7 +197,7 @@ function ToolRunRow({ run }: { run: ToolRunRecord }) {
           ) : null}
         </div>
       </div>
-      {run.result || run.error || run.hint ? (
+      {showInlineDetails ? (
         <details className="mt-2">
           <summary className="cursor-pointer text-2xs text-muted-foreground hover:text-foreground">
             Show details

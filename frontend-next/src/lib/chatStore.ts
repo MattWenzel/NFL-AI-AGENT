@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 
 import { apiDelete, apiGet, apiPatch, ApiError } from '@/lib/api'
 import { openSseStream } from '@/lib/sse'
@@ -264,9 +264,19 @@ export interface SendOptions {
 
 export function useChat() {
   const [state, dispatch] = useReducer(reduce, INITIAL)
+  const [selectedExchangeId, setSelectedExchangeId] = useState<string | null>(null)
   const stateRef = useRef(state)
   stateRef.current = state
   const abortRef = useRef<AbortController | null>(null)
+
+  // Selecting an exchange should not survive a conversation switch.
+  useEffect(() => {
+    setSelectedExchangeId(null)
+  }, [state.conversationId])
+
+  const selectExchange = useCallback((id: string | null) => {
+    setSelectedExchangeId(id)
+  }, [])
 
   const refreshConversations = useCallback(async () => {
     dispatch({ type: 'conversations-loading' })
@@ -453,6 +463,8 @@ export function useChat() {
 
   return {
     ...state,
+    selectedExchangeId,
+    selectExchange,
     refreshConversations,
     loadConversation,
     newConversation,

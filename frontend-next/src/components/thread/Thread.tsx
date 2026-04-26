@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 
 import { AgentResponse } from '@/components/thread/AgentResponse'
 import { UserTurn } from '@/components/thread/UserTurn'
+import { useChatContext } from '@/lib/chatContext'
 import type {
   AssistantPartRecord,
   ConversationTranscript,
@@ -14,10 +15,17 @@ interface ThreadProps {
 }
 
 type ThreadGroup =
-  | { kind: 'user'; turn: TurnRecord }
-  | { kind: 'agent'; turns: TurnRecord[]; parts: AssistantPartRecord[]; toolRuns: ToolRunRecord[] }
+  | { kind: 'user'; turn: TurnRecord; exchangeId: string }
+  | {
+      kind: 'agent'
+      turns: TurnRecord[]
+      parts: AssistantPartRecord[]
+      toolRuns: ToolRunRecord[]
+      exchangeId: string
+    }
 
 export function Thread({ transcript }: ThreadProps) {
+  const { selectedExchangeId, selectExchange } = useChatContext()
   const groups = useMemo<ThreadGroup[]>(() => {
     const partsByTurn = new Map<string, AssistantPartRecord[]>()
     const runsByTurn = new Map<string, ToolRunRecord[]>()
@@ -35,6 +43,10 @@ export function Thread({ transcript }: ThreadProps) {
     const visibleTurns = transcript.turns.filter((t) => !t.compacted)
     const out: ThreadGroup[] = []
     let agent: Extract<ThreadGroup, { kind: 'agent' }> | null = null
+    // The most recent user turn anchors the exchange; an agent group inherits
+    // its preceding user turn's id so clicking either side of a Q/A pair
+    // selects the same slice in the inspector.
+    let currentExchangeId: string | null = null
 
     for (const turn of visibleTurns) {
       if (turn.role === 'user') {
@@ -42,9 +54,13 @@ export function Thread({ transcript }: ThreadProps) {
           out.push(agent)
           agent = null
         }
-        out.push({ kind: 'user', turn })
+        currentExchangeId = turn.id
+        out.push({ kind: 'user', turn, exchangeId: turn.id })
       } else {
-        if (!agent) agent = { kind: 'agent', turns: [], parts: [], toolRuns: [] }
+        const anchor = currentExchangeId ?? turn.id
+        if (!agent) {
+          agent = { kind: 'agent', turns: [], parts: [], toolRuns: [], exchangeId: anchor }
+        }
         agent.turns.push(turn)
         const parts = (partsByTurn.get(turn.id) ?? [])
           .slice()
@@ -62,13 +78,20 @@ export function Thread({ transcript }: ThreadProps) {
       <div className="mx-auto w-full max-w-5xl space-y-8 px-6 py-6 lg:px-10">
         {groups.map((g, i) =>
           g.kind === 'user' ? (
-            <UserTurn key={g.turn.id} turn={g.turn} />
+            <UserTurn
+              key={g.turn.id}
+              turn={g.turn}
+              selected={selectedExchangeId === g.exchangeId}
+              onSelect={() => selectExchange(g.exchangeId)}
+            />
           ) : (
             <AgentResponse
               key={g.turns[0]?.id ?? `agent-${i}`}
               turns={g.turns}
               parts={g.parts}
               toolRuns={g.toolRuns}
+              selected={selectedExchangeId === g.exchangeId}
+              onSelect={() => selectExchange(g.exchangeId)}
             />
           ),
         )}
