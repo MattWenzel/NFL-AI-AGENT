@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Plus, Search } from 'lucide-react'
+import { PanelLeftClose, Plus, Search } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -7,6 +7,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { ConversationRow } from '@/components/sidebar/ConversationRow'
 import { UserWidget } from '@/components/sidebar/UserWidget'
 import { ExportRow } from '@/components/exports/ExportRow'
+import { useLayout } from '@/components/layout/AppShell'
 import { useChatContext } from '@/lib/chatContext'
 import { useExports } from '@/lib/exportsStore'
 import { ageDays } from '@/lib/datetime'
@@ -34,6 +35,7 @@ export function Sidebar({
 }: SidebarProps) {
   const chat = useChatContext()
   const exportsStore = useExports()
+  const layout = useLayout()
   const [query, setQuery] = useState('')
 
   const filtered = useMemo(() => {
@@ -60,6 +62,15 @@ export function Sidebar({
           <span className="font-display text-sm font-semibold tracking-tight">NFL Stats</span>
           <span className="text-2xs text-muted-foreground">analytical chat</span>
         </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="ml-auto hidden size-8 md:flex"
+          onClick={layout.toggleDesktopSidebar}
+          aria-label="Collapse sidebar"
+        >
+          <PanelLeftClose className="size-4" />
+        </Button>
       </div>
 
       <div className="px-3 py-2">
