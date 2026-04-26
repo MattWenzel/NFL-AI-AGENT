@@ -28,7 +28,7 @@ backend/lib/providers/ LLM provider registry, shared provider types, concrete cl
 backend/lib/tools/     Tool definitions, handlers, SQL sandbox, guide docs
 backend/lib/db/ Runtime SQLite store, models, migrations
 backend/lib/auth/ Auth/security primitives, encryption, OAuth protocol helpers
-frontend/          Browser UI, grouped by app/core/process/component ownership
+frontend/          Browser UI, grouped by app/core/feature/component ownership
 ```
 
 Dependencies flow from `backend/server/routes/*.py` (entry point) → `backend/services/*/service.py` (orchestration) → `backend/*` (reusable capabilities). Services are where cross-subsystem wiring lives — decrypting a user credential, building a client, preparing a session, refreshing a Codex bundle — so routes and the agent stay focused on their own concerns.
