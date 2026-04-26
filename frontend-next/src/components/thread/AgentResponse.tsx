@@ -2,6 +2,7 @@ import { ChevronRight, Database, AlertCircle, AlertTriangle, CheckCircle2, Loade
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Markdown } from '@/components/thread/Markdown'
+import { ToolPayload, prettyJson } from '@/components/thread/ToolPayload'
 import { cn } from '@/lib/utils'
 import type {
   AssistantPartRecord,
@@ -207,10 +208,10 @@ function ToolRunRow({ run }: { run: ToolRunRecord }) {
             Show details
           </summary>
           <div className="mt-2 space-y-2">
-            <Payload label="Input" value={JSON.stringify(run.input, null, 2)} />
-            {run.result ? <Payload label="Result" value={prettyJson(run.result)} /> : null}
-            {run.error ? <Payload label="Error" value={run.error} variant="error" /> : null}
-            {run.hint ? <Payload label="Hint" value={run.hint} variant="muted" /> : null}
+            <ToolPayload label="Input" value={JSON.stringify(run.input, null, 2)} />
+            {run.result ? <ToolPayload label="Result" value={prettyJson(run.result)} /> : null}
+            {run.error ? <ToolPayload label="Error" value={run.error} variant="error" /> : null}
+            {run.hint ? <ToolPayload label="Hint" value={run.hint} variant="muted" /> : null}
           </div>
         </details>
       ) : null}
@@ -228,33 +229,6 @@ function StatusDot({ status }: { status: string }) {
   return <CheckCircle2 className="size-3 text-accent" />
 }
 
-function Payload({
-  label,
-  value,
-  variant = 'default',
-}: {
-  label: string
-  value: string
-  variant?: 'default' | 'error' | 'muted'
-}) {
-  return (
-    <div className="space-y-1">
-      <p className="text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-        {label}
-      </p>
-      <pre
-        className={cn(
-          'overflow-x-auto whitespace-pre-wrap rounded-md bg-card px-3 py-2 font-mono text-xs leading-relaxed',
-          variant === 'error' && 'text-destructive',
-          variant === 'muted' && 'text-muted-foreground',
-        )}
-      >
-        {value}
-      </pre>
-    </div>
-  )
-}
-
 function summarizeInput(toolName: string, input: Record<string, unknown>): string {
   if (toolName === 'execute_sql' || toolName === 'run_sql') {
     if (typeof input.sql === 'string') {
@@ -269,10 +243,3 @@ function summarizeInput(toolName: string, input: Record<string, unknown>): strin
     .join(', ')
 }
 
-function prettyJson(raw: string): string {
-  try {
-    return JSON.stringify(JSON.parse(raw), null, 2)
-  } catch {
-    return raw
-  }
-}

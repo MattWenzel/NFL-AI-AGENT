@@ -1,6 +1,7 @@
 import { Database, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { ToolPayload, prettyJson } from '@/components/thread/ToolPayload'
 import { useChatContext } from '@/lib/chatContext'
 import { relativeTime } from '@/lib/datetime'
 import { cn } from '@/lib/utils'
@@ -253,6 +254,10 @@ function ToolRunRow({ run }: { run: ToolRunRecord }) {
       : status === 'error'
         ? 'bg-destructive'
         : 'bg-muted-foreground/60'
+  // Mirror the in-thread thinking block: only execute_sql carries payloads
+  // worth surfacing — guides and schema lookups have no useful detail.
+  const showDetails =
+    run.tool_name === 'execute_sql' && (!!run.result || !!run.error || !!run.hint)
   return (
     <li className="rounded-md border border-border bg-background px-3 py-2">
       <div className="flex items-center gap-2">
@@ -269,6 +274,19 @@ function ToolRunRow({ run }: { run: ToolRunRecord }) {
           </>
         ) : null}
       </div>
+      {showDetails ? (
+        <details className="mt-2">
+          <summary className="cursor-pointer text-2xs text-muted-foreground hover:text-foreground">
+            Show details
+          </summary>
+          <div className="mt-2 space-y-2">
+            <ToolPayload label="Input" value={JSON.stringify(run.input, null, 2)} />
+            {run.result ? <ToolPayload label="Result" value={prettyJson(run.result)} /> : null}
+            {run.error ? <ToolPayload label="Error" value={run.error} variant="error" /> : null}
+            {run.hint ? <ToolPayload label="Hint" value={run.hint} variant="muted" /> : null}
+          </div>
+        </details>
+      ) : null}
     </li>
   )
 }
