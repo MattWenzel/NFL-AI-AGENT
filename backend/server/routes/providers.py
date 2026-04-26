@@ -9,8 +9,8 @@ from fastapi import APIRouter, Depends
 
 from backend.lib.auth.types import AuthenticatedUser
 from backend.server.dependencies import get_current_user, get_provider_service
-from backend.features.providers import ProviderResponse
-from backend.features.providers import ProviderService
+from backend.services.providers import ProviderResponse
+from backend.services.providers import ProviderService
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 

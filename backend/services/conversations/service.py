@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from backend.features.conversations.errors import ConversationNotFoundError
-from backend.features.conversations.schemas import (
+from backend.services.conversations.errors import ConversationNotFoundError
+from backend.services.conversations.schemas import (
     ConversationInfo,
     ConversationTranscriptResponse,
 )

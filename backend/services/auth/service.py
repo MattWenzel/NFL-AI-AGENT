@@ -21,13 +21,13 @@ from backend.config import (
     REGISTRATION_INVITE_CODE,
     google_oauth_enabled,
 )
-from backend.features.auth.schemas import (
+from backend.services.auth.schemas import (
     AuthStatusResponse,
     AuthTokenResponse,
     AuthUser,
     RegistrationPendingResponse,
 )
-from backend.features.auth.errors import (
+from backend.services.auth.errors import (
     AuthConflictError,
     AuthCredentialsError,
     AuthEmailUnverifiedError,
@@ -38,7 +38,7 @@ from backend.features.auth.errors import (
 from backend.lib.auth.types import PASSWORD
 from backend.lib.auth.audit import AuditContext, audit_log
 from backend.lib.auth.lifecycle import IdentitySeed, create_user_account, issue_session
-from backend.features.auth.types import IssuedSession, RegistrationResult
+from backend.services.auth.types import IssuedSession, RegistrationResult
 from backend.lib.db import AuditEvent, RuntimeStore
 
 logger = logging.getLogger(__name__)

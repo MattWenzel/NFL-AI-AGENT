@@ -25,8 +25,8 @@ from backend.server.csrf import verify_csrf
 from backend.server.dependencies import get_chat_service, get_current_user, get_process_state
 from backend.server.process_state import AppProcessState
 from backend.server.rate_limit import ConcurrencyLimiter
-from backend.features.chat.schemas import ChatRequest, ChatResponse
-from backend.features.chat.service import (
+from backend.services.chat.schemas import ChatRequest, ChatResponse
+from backend.services.chat.service import (
     ChatConfigurationError,
     ChatNotFoundError,
     ChatService,

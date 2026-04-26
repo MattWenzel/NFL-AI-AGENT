@@ -12,17 +12,17 @@ from backend.lib.auth import encryption
 from backend.lib.auth.types import AuthenticatedUser
 from backend.server.dependencies import get_chat_service, get_current_user
 from backend.server.process_state import AppProcessState
-from backend.features.chat.schemas import ChatResponse
+from backend.services.chat.schemas import ChatResponse
 from backend.lib.db import RuntimeStore, SessionRecord
 from backend.server.routes import chat as chat_router
 from backend.server.routes.chat import router as chat_router_module
-from backend.features.chat.service import (
+from backend.services.chat.service import (
     ChatConfigurationError,
     ChatNotFoundError,
     ChatService,
     ChatServiceError,
 )
-from backend.features.chat.types import PreparedChat
+from backend.services.chat.types import PreparedChat
 from tests.app_factory import build_test_app, managed_test_client
 
 

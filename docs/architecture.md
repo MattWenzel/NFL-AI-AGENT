@@ -22,7 +22,7 @@ Top-level folders are organized by product surface, then by process/capability:
 
 ```
 backend/server/       FastAPI shell, dependency wiring, and feature-sliced routes
-backend/features/ App-process services, schemas, DTOs, and errors
+backend/services/ App-process services, schemas, DTOs, and errors
 backend/lib/agent/     Chat runtime loop, turn state, events, prompts, compaction
 backend/lib/providers/ LLM provider registry, shared provider types, concrete clients
 backend/lib/tools/     Tool definitions, handlers, SQL sandbox, guide docs
@@ -31,12 +31,12 @@ backend/lib/auth/ Auth/security primitives, encryption, OAuth protocol helpers
 frontend/          Browser UI, grouped by app/core/process/component ownership
 ```
 
-Dependencies flow from `backend/server/routes/*.py` (entry point) → `backend/features/*/service.py` (orchestration) → `backend/*` (reusable capabilities). Services are where cross-subsystem wiring lives — decrypting a user credential, building a client, preparing a session, refreshing a Codex bundle — so routes and the agent stay focused on their own concerns.
+Dependencies flow from `backend/server/routes/*.py` (entry point) → `backend/services/*/service.py` (orchestration) → `backend/*` (reusable capabilities). Services are where cross-subsystem wiring lives — decrypting a user credential, building a client, preparing a session, refreshing a Codex bundle — so routes and the agent stay focused on their own concerns.
 
 | Dir | Contents | Doc |
 |-----|----------|-----|
 | `backend/server/` | FastAPI app factory, dependency wiring, middleware, routes, HTTP helpers | [transport.md](transport.md) |
-| `backend/features/` | Process services, schemas, DTOs, and errors | [transport.md](transport.md), [auth.md](auth.md) |
+| `backend/services/` | Process services, schemas, DTOs, and errors | [transport.md](transport.md), [auth.md](auth.md) |
 | `backend/lib/agent/` | `ChatRuntime`, event types, compaction, system prompt, guides | [runtime.md](runtime.md), [compaction.md](compaction.md), [prompts.md](prompts.md) |
 | `backend/lib/tools/` | Tool definitions, registry/dispatch, validation, SQL sandbox, handlers | [tools.md](tools.md) |
 | `backend/lib/auth/` | Password hashing, bearer-token issuance, Fernet encryption, OAuth protocol helpers | [auth.md](auth.md) |
@@ -67,7 +67,7 @@ Following a single message from the browser back to the browser:
  └───────────────────────────────────┘
                 │
                 ▼
- ┌── backend/features/chat/service.py ┐
+ ┌── backend/services/chat/service.py ┐
  │ ChatService.prepare_chat          │        chat.py:101
  │  ├─ IDOR check                    │
  │  ├─ resolve + decrypt API key     │
@@ -126,7 +126,7 @@ Common "where does X happen" questions:
 | Question | Where |
 |----------|-------|
 | User message arrives → HTTP | `backend/server/routes/chat.py` ([transport.md](transport.md)) |
-| Who owns this conversation? | IDOR guard in `ChatService.prepare_chat`, `backend/features/chat/service.py` ([transport.md](transport.md#idor-protection)) |
+| Who owns this conversation? | IDOR guard in `ChatService.prepare_chat`, `backend/services/chat/service.py` ([transport.md](transport.md#idor-protection)) |
 | Which API key to use? | `ProviderCredentialService.get_api_key` → `encryption.decrypt` ([auth.md](auth.md#api-keys)) |
 | Model selects a tool | Streamed `ToolUseEvent` from the provider adapter ([providers.md](providers.md#streaming)) |
 | Tool call actually runs | `Turn._execute_one_tool` → `execute_tool_structured` ([tools.md](tools.md#data-flow-for-one-tool-call)) |

@@ -13,7 +13,7 @@ This doc covers the password flow, token scheme, rate limiting, Fernet-encrypted
 - `backend/lib/auth/codex_oauth.py` — ChatGPT device-code OAuth protocol (`request_device_code`, `poll_device_code`, `exchange_code`, `refresh_access_token`). Talks directly to `https://auth.openai.com`.
 - `backend/lib/auth/audit.py` — shared `AuditContext` and `audit_log` helper used by auth and OAuth services.
 
-**Services (`backend/features/`):**
+**Services (`backend/services/`):**
 - `auth/service.py` — `AuthService`: register, login, logout, change_password, delete_account.
 - `auth/lifecycle.py` — shared account creation + session issuance used by password auth and OAuth.
 - `auth/schemas.py` / `auth/types.py` / `auth/errors.py` — password-auth API shapes, DTOs, and service errors.
@@ -49,13 +49,13 @@ This doc covers the password flow, token scheme, rate limiting, Fernet-encrypted
 | `GET` | `/settings/oauth/codex/status` | Yes | — | Polls `pending` / `complete` / `expired` / `error` for an in-flight flow. |
 | `DELETE` | `/settings/oauth/codex/cancel` | Yes | — | Cancels the background polling task. |
 
-Routes are thin translators: parse the request, call the service, translate service exceptions to HTTP. The actual business logic lives in `backend/features/`; see [transport.md](transport.md#services-layer).
+Routes are thin translators: parse the request, call the service, translate service exceptions to HTTP. The actual business logic lives in `backend/services/`; see [transport.md](transport.md#services-layer).
 
 Protected endpoints depend on `get_current_user` (`backend/server/dependencies.py:59`) which resolves the bearer token or raises 401. `/auth/status` uses `get_current_user_optional` so an unauthenticated caller still gets a useful response.
 
 ## The password flow
 
-All password endpoints delegate to `AuthService` in `backend/features/auth/service.py`. Routes pass the user-provided body + (if authenticated) the current user.
+All password endpoints delegate to `AuthService` in `backend/services/auth/service.py`. Routes pass the user-provided body + (if authenticated) the current user.
 
 ### Registration — `AuthService.register` (`auth/service.py`)
 
@@ -66,7 +66,7 @@ All password endpoints delegate to `AuthService` in `backend/features/auth/servi
 5. `issue_session` (`backend/lib/auth/lifecycle.py`) — generate a token, write `auth_sessions` with `expires_at = now + AUTH_TOKEN_TTL_DAYS`.
 6. Return `{token, user: {id, email, role}}`.
 
-Pydantic (`RegisterRequest` in `backend/features/auth/schemas.py`) enforces password minimum length before the handler runs.
+Pydantic (`RegisterRequest` in `backend/services/auth/schemas.py`) enforces password minimum length before the handler runs.
 
 ### Login — `AuthService.login` (`auth/service.py`)
 

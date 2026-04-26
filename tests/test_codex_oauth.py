@@ -44,7 +44,7 @@ from backend.lib.auth.codex_oauth import (
     poll_device_code,
     refresh_access_token,
 )
-from backend.features.oauth.codex.service import CodexOAuthService
+from backend.services.oauth.codex.service import CodexOAuthService
 from backend.lib.db import RuntimeStore
 from backend.lib.providers.types import StopReason
 from backend.lib.providers.clients.codex import OpenAICodexClient

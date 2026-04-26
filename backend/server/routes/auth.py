@@ -31,7 +31,7 @@ from backend.server.dependencies import (
 )
 from backend.server.request_context import audit_from_request
 from backend.server.process_state import AppProcessState
-from backend.features.auth.schemas import (
+from backend.services.auth.schemas import (
     AuthOkResponse,
     AuthStatusResponse,
     AuthTokenResponse,
@@ -44,8 +44,8 @@ from backend.features.auth.schemas import (
     ResendVerificationRequest,
     VerifyEmailRequest,
 )
-from backend.features.auth.service import AuthService
-from backend.features.auth.errors import (
+from backend.services.auth.service import AuthService
+from backend.services.auth.errors import (
     AuthConflictError,
     AuthCredentialsError,
     AuthEmailUnverifiedError,

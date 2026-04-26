@@ -58,7 +58,7 @@ The chat runtime is transcript-backed: sessions, turns, assistant parts, tool ru
 
 ### Architecture
 
-Top-level split: `backend/` holds the Python server, `frontend/` holds the browser UI. Inside `backend/`, the layering is: `server/` is the FastAPI HTTP boundary, `features/` holds app-process services (one per HTTP feature), and `lib/` holds the framework-free libraries those features consume (`agent/`, `providers/`, `tools/`, `db/`, `auth/`). Inside `lib/db/` the SQL boundary is explicit: `lib/db/sql/` contains every file that imports SQLAlchemy/SQLModel (tables, RuntimeStore, per-domain query mixins, engine, migrations); `lib/db/types/` contains plain-Python value types (enums, exceptions) with zero SQL imports. The frontend mirrors the feature-slice convention for its JS modules.
+Top-level split: `backend/` holds the Python server, `frontend/` holds the browser UI. Inside `backend/`, the layering is: `server/` is the FastAPI HTTP boundary, `services/` holds application services (one per HTTP feature — each subfolder exports a `FooService` class), and `lib/` holds the framework-free libraries those services consume (`agent/`, `providers/`, `tools/`, `db/`, `auth/`). Inside `lib/db/` the SQL boundary is explicit: `lib/db/sql/` contains every file that imports SQLAlchemy/SQLModel (tables, RuntimeStore, per-domain query mixins, engine, migrations); `lib/db/types/` contains plain-Python value types (enums, exceptions) with zero SQL imports. `services/` itself is FastAPI-free — verifiable: `grep -rE "fastapi|starlette" backend/services/` returns empty. The frontend mirrors the feature-slice convention for its JS modules.
 
 ```
 backend/
@@ -75,7 +75,7 @@ backend/
 │   ├── logging.py                #   setup_logging + secret-redacting filter
 │   ├── process_state.py          #   AppProcessState + API-facing limiters
 │   └── rate_limit.py             #   per-IP RateLimiter + concurrency limiter
-├── features/                     # App-process modules/packages: services, DTOs, schemas, errors
+├── services/                     # Application services (one per HTTP feature) — services, DTOs, schemas, errors
 │   ├── auth/                     #   register / login / logout / password / delete / verify / resend
 │   ├── chat/                     #   chat orchestration and response aggregation
 │   ├── conversations/            #   list / transcript / patch / delete orchestration
@@ -83,7 +83,7 @@ backend/
 │   ├── oauth/                    #   provider_credentials.py plus Codex/Google flow packages
 │   ├── providers.py              #   provider response models
 │   └── settings.py               #   per-user API key CRUD + linked identity services
-├── lib/                          # Framework-free libraries consumed by server/ + features/
+├── lib/                          # Framework-free libraries consumed by server/ + services/
 │   ├── agent/                    #   Chat runtime loop, events, prompt, compaction
 │   ├── auth/                     #   Auth primitives, encryption, OAuth protocol helpers, audit log, lifecycle
 │   ├── db/                       #   SQLite persistence — the SQL boundary
@@ -105,7 +105,7 @@ frontend/                         # Browser UI (served at / by FastAPI; assets u
         ├── app/                  #     main.js (boot + event wiring), render.js (top-level render orchestrator)
         ├── core/                 #     api.js, state.js, utils.js, charts.js
         ├── components/           #     small reusable widgets (e.g. confirm dialog)
-        └── features/             #     mirrors backend features; UI-only siblings (inspector, navigation) live here too
+        └── features/             #     mirrors backend services; UI-only siblings (inspector, navigation) live here too
             ├── auth/             #       sign-in / sign-up flow
             ├── chat/             #       streaming + thread rendering
             ├── conversations/    #       sidebar list + open
@@ -172,7 +172,7 @@ Shipped 2026-04-23. Users can sign up / sign in with Google, and existing passwo
 - Both routes are GETs (browser navigation) and CSRF-exempt by the usual safe-method rule — the `state` parameter is the anti-CSRF for the callback. Session cookies from the rest of the app still travel (SameSite=Lax), which is how the callback can tell a link flow (user_id in pending row) from a sign-in flow.
 - `security_events` gains `oauth_signin_started`, `oauth_signin_succeeded`, `oauth_signin_failed`, `oauth_link_started`, `oauth_linked`, `oauth_unlinked`, `oauth_link_rejected`.
 
-**Files:** `backend/lib/auth/google_oauth.py` (OAuth primitives + ID-token verification), `backend/lib/db/sql/users/identities.py::UserIdentitiesMixin` (storage), `backend/features/oauth/google/service.py` (flow orchestration), `backend/server/routes/oauth_google.py` (endpoints), `backend/server/routes/settings.py` (link/unlink + list), and `backend/server/session.py` for shared session cookie behavior.
+**Files:** `backend/lib/auth/google_oauth.py` (OAuth primitives + ID-token verification), `backend/lib/db/sql/users/identities.py::UserIdentitiesMixin` (storage), `backend/services/oauth/google/service.py` (flow orchestration), `backend/server/routes/oauth_google.py` (endpoints), `backend/server/routes/settings.py` (link/unlink + list), and `backend/server/session.py` for shared session cookie behavior.
 
 **Env vars:**
 - `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` — set via Google Cloud Console. The "Continue with Google" button and `/auth/oauth/google/*` routes only appear when both are set.

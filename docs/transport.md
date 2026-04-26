@@ -9,8 +9,8 @@ The HTTP layer is three thin bands: **routes** parse requests and translate exce
 - `backend/server/dependencies.py` — FastAPI dependency factories.
 - `backend/server/csrf.py`, `backend/server/session.py`, `backend/server/request_context.py` — HTTP boundary helpers.
 - `backend/server/sse.py` — `RuntimeEvent` → SSE dict serialization.
-- `backend/features/*/service.py` — application services by app process.
-- `backend/features/*/schemas.py` — Pydantic wire models by app process.
+- `backend/services/*/service.py` — application services by app process.
+- `backend/services/*/schemas.py` — Pydantic wire models by app process.
 - `backend/server/` — startup, API-owned process state, rate limiting, and logging.
 - `backend/runtime_state.py` — framework-free lock registries and pending OAuth flow registries.
 - `backend/lib/auth/primitives.py` — password hashing and token generation.
@@ -46,18 +46,18 @@ The store, runtime, and process state survive across requests for the life of th
 
 ## Services layer
 
-Routes in `backend/server/routes/` are thin shells — parse the request, call one service method, translate service exceptions to HTTP status codes. Everything cross-subsystem lives in `backend/features/`. Each service is a class instantiated per-request via a `Depends(...)` factory (see below) with whatever it needs from the store, runtime, and process state.
+Routes in `backend/server/routes/` are thin shells — parse the request, call one service method, translate service exceptions to HTTP status codes. Everything cross-subsystem lives in `backend/services/`. Each service is a class instantiated per-request via a `Depends(...)` factory (see below) with whatever it needs from the store, runtime, and process state.
 
 | Service | File | What it does |
 |---------|------|--------------|
-| `ChatService` | `backend/features/chat/service.py` | `prepare_chat` (IDOR, decrypt credential, build client, prepare session), `run_message` (buffered response), `stream_events` (SSE event source). |
-| `ConversationService` | `backend/features/conversations.py` | List / get-transcript / update-title-or-pin / delete for the authenticated user's conversations. |
-| `AuthService` | `backend/features/auth/service.py` | Register, login, logout, password change, delete account. Password hashing + token issuance live here; routes only translate exceptions. |
-| `ProviderCredentialService` | `backend/features/oauth/credentials.py` | Resolves the per-user API key for one provider. Dispatches Codex OAuth to the Codex credential helper; plain API keys are decrypted directly. |
-| `CodexOAuthService` | `backend/features/oauth/codex/service.py` | Device-code flow: `start`, `status`, `cancel`. Spawns a background task that polls OpenAI's device endpoint and stores the encrypted bundle on success. |
-| `ExportService` | `backend/features/exports.py` | List / preview / rename / delete CSV exports + seed a new conversation from one. IDOR at each entry point. |
-| `ProviderService` | `backend/features/providers.py` | Provider availability (server config ∪ user keys). |
-| `SettingsService` | `backend/features/settings.py` | Per-provider API-key status and set/clear key operations. |
+| `ChatService` | `backend/services/chat/service.py` | `prepare_chat` (IDOR, decrypt credential, build client, prepare session), `run_message` (buffered response), `stream_events` (SSE event source). |
+| `ConversationService` | `backend/services/conversations.py` | List / get-transcript / update-title-or-pin / delete for the authenticated user's conversations. |
+| `AuthService` | `backend/services/auth/service.py` | Register, login, logout, password change, delete account. Password hashing + token issuance live here; routes only translate exceptions. |
+| `ProviderCredentialService` | `backend/services/oauth/credentials.py` | Resolves the per-user API key for one provider. Dispatches Codex OAuth to the Codex credential helper; plain API keys are decrypted directly. |
+| `CodexOAuthService` | `backend/services/oauth/codex/service.py` | Device-code flow: `start`, `status`, `cancel`. Spawns a background task that polls OpenAI's device endpoint and stores the encrypted bundle on success. |
+| `ExportService` | `backend/services/exports.py` | List / preview / rename / delete CSV exports + seed a new conversation from one. IDOR at each entry point. |
+| `ProviderService` | `backend/services/providers.py` | Provider availability (server config ∪ user keys). |
+| `SettingsService` | `backend/services/settings.py` | Per-provider API-key status and set/clear key operations. |
 
 Services own **IDOR enforcement** — every one that accepts an id passes the authenticated user's id through to the store so unowned records return `None` and surface as 404. Routes rely on this; they don't re-check.
 
@@ -87,7 +87,7 @@ Routes that need rate limits or process-local coordination depend on
 
 ## Chat endpoints
 
-Routes live in `backend/server/routes/chat.py` and delegate to `ChatService` in `backend/features/chat/service.py`.
+Routes live in `backend/server/routes/chat.py` and delegate to `ChatService` in `backend/services/chat/service.py`.
 
 ### `POST /chat/message` — buffered response
 
@@ -225,7 +225,7 @@ Once connected, `codex_credentials.resolve_access_token(user_id)` handles refres
 Every user-scoped endpoint's ownership check happens inside the **service**, not in the route:
 
 ```python
-# backend/features/chat/service.py
+# backend/services/chat/service.py
 if (
     body.conversation_id
     and await self.store.get_session(body.conversation_id, user_id=user.id) is None

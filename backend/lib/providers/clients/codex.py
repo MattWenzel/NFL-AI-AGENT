@@ -7,7 +7,7 @@ uses), not the public Chat Completions endpoint — so the request body,
 streaming event names, and tool-call shape all differ.
 
 Token refresh happens one layer up (in
-`backend/features/oauth/codex/credentials.py::resolve_access_token`),
+`backend/services/oauth/codex/credentials.py::resolve_access_token`),
 so the client here only ever sees a live access token string passed as
 `api_key`.
 """

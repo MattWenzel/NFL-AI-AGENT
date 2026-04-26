@@ -23,12 +23,12 @@ from backend.lib.providers import (
     provider_is_available,
 )
 from backend.lib.db import RuntimeStore
-from backend.features.chat.schemas import ChatRequest, ChatResponse, ToolCallPreview
-from backend.features.oauth.provider_credentials import (
+from backend.services.chat.schemas import ChatRequest, ChatResponse, ToolCallPreview
+from backend.services.oauth.provider_credentials import (
     CredentialServiceError,
     ProviderCredentialService,
 )
-from backend.features.chat.types import PreparedChat, ToolCallLogEntry
+from backend.services.chat.types import PreparedChat, ToolCallLogEntry
 from backend.runtime_state import PerUserLockRegistry
 
 

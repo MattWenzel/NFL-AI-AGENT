@@ -8,8 +8,8 @@ from datetime import datetime, timedelta, timezone
 
 from backend.config import AUTH_TOKEN_TTL_DAYS
 from backend.lib.db import RuntimeStore
-from backend.features.auth.errors import AuthConflictError
-from backend.features.auth.types import IssuedSession
+from backend.services.auth.errors import AuthConflictError
+from backend.services.auth.types import IssuedSession
 from backend.lib.auth.primitives import generate_token
 
 logger = logging.getLogger(__name__)

@@ -131,11 +131,11 @@ Clients are not cached. Every chat request builds a fresh one via `ChatService.p
 
 ```
 ChatService.prepare_chat
-    ├─ credentials.get_api_key(user_id, provider_name)   backend/features/oauth/credentials.py
+    ├─ credentials.get_api_key(user_id, provider_name)   backend/services/oauth/credentials.py
     │     ├─ api_key shape   → decrypt stored key
     │     └─ codex_oauth     → codex_credentials.resolve_access_token (refresh if near expiry)
     │
-    └─ create_client(provider, model, api_key=user_key)   backend/features/chat/service.py
+    └─ create_client(provider, model, api_key=user_key)   backend/services/chat/service.py
           └─ create_client(provider, model, api_key)                  backend/lib/providers/__init__.py:75
                 ├─ resolve provider (arg → env CHAT_PROVIDER → "anthropic")
                 ├─ resolve model (arg → provider default)
@@ -145,7 +145,7 @@ ChatService.prepare_chat
 
 Why no caching: the API key varies per user. The transport layer looks up the authenticated user's stored key (Fernet-decrypted from `user_api_keys`, or an OAuth-refreshed access token for Codex) and passes it down. Multi-user setups can't reuse a client across users without risking cross-user leakage. See [auth.md](auth.md#api-keys) for key storage and [transport.md](transport.md#codex-oauth-flow-overview) for the OAuth refresh path.
 
-Callers own cleanup: `close_client` (`backend/features/chat/service.py`) calls `client.aclose()` in a `try/finally`. Anthropic's SDK releases its httpx session; OpenAI's is a no-op; Codex closes its own httpx client.
+Callers own cleanup: `close_client` (`backend/services/chat/service.py`) calls `client.aclose()` in a `try/finally`. Anthropic's SDK releases its httpx session; OpenAI's is a no-op; Codex closes its own httpx client.
 
 ## Anthropic adapter
 
@@ -230,7 +230,7 @@ Usage is emitted in a trailing chunk when `stream_options={"include_usage": True
 
 ### Authentication
 
-`OpenAICodexClient.__init__` (`codex.py:80`). Takes the OAuth access token as `api_key`. Refuses to instantiate without one (no env-var fallback — this provider is always user-scoped). Extracts the `account_id` from the JWT (`codex.py:86`) and sends it as a header on every request. If the token's near expiry, `backend/features/oauth/codex/credentials.py` refreshes it under a per-user lock *before* this client is constructed; see [transport.md](transport.md#codex-oauth-flow-overview).
+`OpenAICodexClient.__init__` (`codex.py:80`). Takes the OAuth access token as `api_key`. Refuses to instantiate without one (no env-var fallback — this provider is always user-scoped). Extracts the `account_id` from the JWT (`codex.py:86`) and sends it as a header on every request. If the token's near expiry, `backend/services/oauth/codex/credentials.py` refreshes it under a per-user lock *before* this client is constructed; see [transport.md](transport.md#codex-oauth-flow-overview).
 
 ### Message format
 

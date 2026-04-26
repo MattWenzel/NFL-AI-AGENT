@@ -30,8 +30,8 @@ from backend.config import (
     google_oauth_redirect_uri,
 )
 from backend.lib.auth.audit import AuditContext, audit_log
-from backend.features.auth.errors import AuthConflictError
-from backend.features.oauth.google.errors import (
+from backend.services.auth.errors import AuthConflictError
+from backend.services.oauth.google.errors import (
     GoogleOAuthDisabledError,
     GoogleOAuthEmailUnverifiedError,
     GoogleOAuthInvalidStateError,
@@ -40,7 +40,7 @@ from backend.features.oauth.google.errors import (
     GoogleOAuthServiceError,
 )
 from backend.lib.auth.lifecycle import IdentitySeed, create_user_account, issue_session
-from backend.features.oauth.google.types import (
+from backend.services.oauth.google.types import (
     IdentitySummary,
     LinkOutcome,
     SignInOutcome,

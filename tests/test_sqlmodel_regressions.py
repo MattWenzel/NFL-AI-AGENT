@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from backend.features.conversations import ConversationService
+from backend.services.conversations import ConversationService
 from backend.lib.db import RuntimeStore
 
 

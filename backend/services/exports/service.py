@@ -9,8 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from backend.config import EXPORTS_DIR
-from backend.features.exports.errors import ExportNotFoundError, ExportServiceError
-from backend.features.exports.schemas import (
+from backend.services.exports.errors import ExportNotFoundError, ExportServiceError
+from backend.services.exports.schemas import (
     ExportDetail,
     ExportInfo,
     NewSessionFromExportResponse,
