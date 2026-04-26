@@ -308,6 +308,16 @@ export function useChat() {
     await refreshConversations()
   }, [refreshConversations])
 
+  const renameConversation = useCallback(async (id: string, title: string) => {
+    const trimmed = title.trim()
+    if (!trimmed) return
+    await apiPatch<ConversationInfo>(
+      `/chat/conversations/${encodeURIComponent(id)}`,
+      { title: trimmed },
+    )
+    await refreshConversations()
+  }, [refreshConversations])
+
   const removeConversation = useCallback(async (id: string) => {
     try {
       await apiDelete(`/chat/conversations/${encodeURIComponent(id)}`)
@@ -447,6 +457,7 @@ export function useChat() {
     loadConversation,
     newConversation,
     setPinned,
+    renameConversation,
     removeConversation,
     send,
     stop,

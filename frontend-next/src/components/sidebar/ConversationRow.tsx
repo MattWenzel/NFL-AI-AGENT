@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { MoreHorizontal, Pin, PinOff, Trash2 } from 'lucide-react'
+import { MoreHorizontal, Pencil, Pin, PinOff, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import {
@@ -12,6 +12,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,6 +43,9 @@ interface ConversationRowProps {
 export function ConversationRow({ item, active, onPick }: ConversationRowProps) {
   const chat = useChatContext()
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [renameOpen, setRenameOpen] = useState(false)
+  const [renameValue, setRenameValue] = useState(item.title)
+  const [renaming, setRenaming] = useState(false)
   const isPinned = !!item.pinned_at
 
   const togglePin = async () => {
@@ -50,6 +63,29 @@ export function ConversationRow({ item, active, onPick }: ConversationRowProps) 
       toast.success('Conversation deleted')
     } catch {
       toast.error('Could not delete')
+    }
+  }
+
+  const startRename = () => {
+    setRenameValue(item.title)
+    setRenameOpen(true)
+  }
+
+  const submitRename = async () => {
+    const next = renameValue.trim()
+    if (!next || next === item.title) {
+      setRenameOpen(false)
+      return
+    }
+    setRenaming(true)
+    try {
+      await chat.renameConversation(item.id, next)
+      toast.success('Renamed')
+      setRenameOpen(false)
+    } catch {
+      toast.error('Could not rename')
+    } finally {
+      setRenaming(false)
     }
   }
 
@@ -104,6 +140,10 @@ export function ConversationRow({ item, active, onPick }: ConversationRowProps) 
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44">
+          <DropdownMenuItem onSelect={startRename}>
+            <Pencil className="size-4" />
+            Rename
+          </DropdownMenuItem>
           <DropdownMenuItem onSelect={togglePin}>
             {isPinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
             {isPinned ? 'Unpin' : 'Pin'}
@@ -115,6 +155,39 @@ export function ConversationRow({ item, active, onPick }: ConversationRowProps) 
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Rename conversation</DialogTitle>
+            <DialogDescription>Give this conversation a clearer title.</DialogDescription>
+          </DialogHeader>
+          <Input
+            autoFocus
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                submitRename()
+              }
+            }}
+            maxLength={200}
+            placeholder="Conversation title"
+          />
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRenameOpen(false)} disabled={renaming}>
+              Cancel
+            </Button>
+            <Button
+              onClick={submitRename}
+              disabled={renaming || !renameValue.trim() || renameValue.trim() === item.title}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent>

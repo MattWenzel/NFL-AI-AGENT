@@ -58,7 +58,7 @@ export function AppShell({ sidebar, main, inspector, inspectorAvailable = false 
           aria-label="Conversations and reports"
           aria-hidden={!desktopSidebarOpen}
         >
-          <div className="w-[280px] shrink-0">{sidebar}</div>
+          <div className="h-full w-[280px] shrink-0">{sidebar}</div>
         </aside>
 
         <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
