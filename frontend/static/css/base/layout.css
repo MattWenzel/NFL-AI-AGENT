@@ -1,7 +1,14 @@
 
+:root {
+  /* Resizable panel widths — overridable inline via JS (saved to localStorage).
+     Hard min/max enforced in resize.js; CSS clamps as a safety net. */
+  --sidebar-width: 280px;
+  --inspector-width: 380px;
+}
+
 .shell {
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-columns: clamp(200px, var(--sidebar-width), 480px) minmax(0, 1fr);
   height: 100vh;
   position: relative;
 }
@@ -11,6 +18,8 @@
   background: var(--panel);
   border-right: 1px solid var(--border);
 }
+
+.sidebar { position: relative; }
 
 .inspector {
   border-right: none;
@@ -22,6 +31,45 @@
 .inspector {
   min-height: 0;
   overflow: hidden;
+}
+
+/* ---- Resize handles ---- */
+.sidebar-resizer,
+.inspector-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 5;
+  transition: background 0.15s ease;
+  touch-action: none;
+}
+.sidebar-resizer { right: -3px; }
+.inspector-resizer { left: -3px; z-index: 41; }
+
+.sidebar-resizer:hover,
+.sidebar-resizer.dragging,
+.inspector-resizer:hover,
+.inspector-resizer.dragging {
+  background: var(--accent);
+  opacity: 0.45;
+}
+
+.sidebar-resizer:focus-visible,
+.inspector-resizer:focus-visible {
+  outline: none;
+  background: var(--accent);
+  opacity: 0.6;
+}
+
+/* While dragging — disable text selection and force the col-resize cursor
+   even when the pointer leaves the handle. */
+body.is-resizing,
+body.is-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 
 
@@ -52,16 +100,20 @@
 }
 
 
+/* Narrow desktop default: smaller sidebar unless the user has dragged it.
+   Inline `style="--sidebar-width:..."` from resize.js wins over this. */
 @media (max-width: 1220px) {
-  .shell {
-    grid-template-columns: 260px minmax(0, 1fr);
-  }
+  :root { --sidebar-width: 240px; }
 }
 
 @media (max-width: 900px) {
   .shell {
     grid-template-columns: 1fr;
   }
+
+  /* Sidebar becomes an off-canvas drawer — disable resize handles. */
+  .sidebar-resizer,
+  .inspector-resizer { display: none; }
 
   /* Sidebar becomes an off-canvas drawer. Kept in the layout but shifted
      off-screen — sidebar.css's `display: flex` stays in effect. */

@@ -4,6 +4,7 @@ import { loadProviders, loadTranscript, refreshConversations, refreshCsvs } from
 import { renderCsvList } from "../features/exports/service.js";
 import { setInspectorOpen } from "../features/inspector/service.js";
 import { setSidebarView } from "../features/navigation/sidebar.js";
+import { initResizers } from "../features/navigation/resize.js";
 import { render } from "./render.js";
 import { renderConversationList, startNewSession } from "../features/conversations/sidebar.js";
 import { openSettingsModal, closeSettingsModal } from "../features/settings/service.js";
@@ -16,6 +17,8 @@ document.getElementById("themeToggle").addEventListener("click", () => {
   document.documentElement.dataset.theme = next;
   localStorage.setItem("nfl_theme", next);
 });
+
+initResizers();
 
 // --- Mobile sidebar drawer ---
 const sidebarEl = document.querySelector(".sidebar");

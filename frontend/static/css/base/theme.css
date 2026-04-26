@@ -1,3 +1,8 @@
+/* Webfont — IBM Plex Sans + Mono. The font stack already prefers IBM Plex
+   but no webfont was loaded, so users saw Avenir/Segoe. Loading via Google
+   Fonts so the brand type lands without bundling WOFF2s. */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
 :root {
   --bg: #E6EAF0;
   --panel: #F2F4F8;
@@ -25,6 +30,50 @@
   --code-text: #E2E8F0;
   --scrollbar-thumb: rgba(100, 116, 139, 0.35);
   --scrollbar-thumb-hover: rgba(100, 116, 139, 0.6);
+
+  /* Typography */
+  --font-sans: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+
+  --text-xs:   0.72rem;
+  --text-sm:   0.78rem;
+  --text-base: 0.82rem;
+  --text-md:   0.86rem;
+  --text-lg:   0.92rem;
+  --text-body: 0.96rem;
+  --text-h3:   1.00rem;
+  --text-h2:   1.30rem;
+  --text-h1:   2.00rem;
+
+  --weight-regular: 400;
+  --weight-medium:  500;
+  --weight-semi:    600;
+  --weight-bold:    700;
+
+  --leading-tight:  1.05;
+  --leading-snug:   1.25;
+  --leading-normal: 1.5;
+  --leading-loose:  1.7;
+
+  /* Radii */
+  --radius-xs:   6px;
+  --radius-sm:   8px;
+  --radius-md:   10px;
+  --radius-lg:   12px;
+  --radius-xl:   16px;
+  --radius-pill: 999px;
+
+  /* Spacing scale (4px base) */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  10px;
+  --space-4:  12px;
+  --space-5:  14px;
+  --space-6:  16px;
+  --space-7:  20px;
+  --space-8:  24px;
+  --space-9:  28px;
+  --space-10: 32px;
 }
 
 :root[data-theme="dark"] {
@@ -75,10 +124,27 @@ html, body { margin: 0; min-height: 100%; }
 ::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
 ::-webkit-scrollbar-corner { background: transparent; }
 body {
-  font-family: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
   color: var(--text);
   background: var(--bg);
+  -webkit-font-smoothing: antialiased;
 }
+
+code, pre, kbd, samp { font-family: var(--font-mono); }
+
+/* Uppercase eyebrow used for inspector card titles, panel-card h4s,
+   conversation group labels. */
+.eyebrow {
+  font-size: var(--text-md);
+  font-weight: var(--weight-semi);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+/* Tabular numerics — anywhere a digit could shift between renders
+   (durations, token counts, elapsed seconds). */
+.tabular { font-variant-numeric: tabular-nums; }
 
 .theme-toggle {
   display: inline-flex;
