@@ -15,10 +15,9 @@ import asyncio
 import json
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
-from backend.domain.tools import TOOLS
 from backend.domain.auth.types import AuthenticatedUser
 from backend.server.csrf import verify_csrf
 from backend.api.dependencies import get_chat_service, get_current_user, get_process_state
@@ -32,7 +31,7 @@ from backend.application.chat import (
     ChatServiceError,
     close_client,
 )
-from backend.server.sse import event_to_sse_payload
+from backend.server.sse import done_payload, error_to_sse_payload, event_to_sse_payload
 from backend.domain.providers.errors import LLMError
 
 logger = logging.getLogger(__name__)
@@ -74,22 +73,21 @@ async def chat_message(
             model=body.model,
             tool_choice=body.tool_choice,
             user=user,
-            tools=TOOLS,
         )
     except ChatNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except ChatConfigurationError as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
     except ChatServiceError as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
     except LLMError as e:
         logger.warning("LLM error in chat/message: %s", e)
-        raise HTTPException(status_code=502, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
         logger.exception("Unexpected runtime error in chat/message")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
     logger.debug("chat/message done  session=%s", response.get("conversation_id"))
     return response
@@ -125,6 +123,9 @@ async def chat_stream(
 
     stream_gate = process_state.chat_stream_limiter
 
+    def _sse_line(payload: dict) -> str:
+        return f"data: {json.dumps(payload)}\n\n"
+
     async def event_generator():
         slot_acquired = False
         prepared = None
@@ -133,8 +134,10 @@ async def chat_stream(
                 await _acquire_stream_slot(stream_gate, user.id)
                 slot_acquired = True
             except HTTPException as exc:
-                yield f"data: {json.dumps({'type': 'error', 'code': 'rate_limited', 'status': exc.status_code, 'message': exc.detail})}\n\n"
-                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                yield _sse_line(error_to_sse_payload(
+                    code="rate_limited", status=exc.status_code, message=exc.detail,
+                ))
+                yield _sse_line(done_payload())
                 return
 
             try:
@@ -145,12 +148,16 @@ async def chat_stream(
                     user=user,
                 )
             except ChatNotFoundError as exc:
-                yield f"data: {json.dumps({'type': 'error', 'code': 'not_found', 'status': 404, 'message': str(exc)})}\n\n"
-                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                yield _sse_line(error_to_sse_payload(
+                    code="not_found", status=status.HTTP_404_NOT_FOUND, message=str(exc),
+                ))
+                yield _sse_line(done_payload())
                 return
             except ChatConfigurationError as exc:
-                yield f"data: {json.dumps({'type': 'error', 'code': 'configuration', 'status': 503, 'message': str(exc)})}\n\n"
-                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                yield _sse_line(error_to_sse_payload(
+                    code="configuration", status=status.HTTP_503_SERVICE_UNAVAILABLE, message=str(exc),
+                ))
+                yield _sse_line(done_payload())
                 return
 
             session = prepared.session
@@ -165,7 +172,6 @@ async def chat_stream(
                 prepared,
                 message=body.message,
                 tool_choice=body.tool_choice,
-                tools=TOOLS,
             )
 
             async def producer():
@@ -180,7 +186,7 @@ async def chat_stream(
             producer_task = asyncio.create_task(producer())
 
             try:
-                yield f"data: {json.dumps({'type': 'conversation_id', 'id': session.id})}\n\n"
+                yield _sse_line({"type": "conversation_id", "id": session.id})
                 while True:
                     if await request.is_disconnected():
                         logger.info("Client disconnected, stopping stream  session=%s", session.id)
@@ -201,16 +207,16 @@ async def chat_stream(
                         raise item
                     payload = event_to_sse_payload(item)
                     if payload is not None:
-                        yield f"data: {json.dumps(payload)}\n\n"
-                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                        yield _sse_line(payload)
+                yield _sse_line(done_payload())
             except LLMError as e:
                 logger.warning("LLM error in chat/stream: %s", e)
-                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
-                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                yield _sse_line(error_to_sse_payload(message=str(e)))
+                yield _sse_line(done_payload())
             except Exception:
                 logger.exception("Unexpected error in chat/stream")
-                yield f"data: {json.dumps({'type': 'error', 'message': 'Internal error — check server logs'})}\n\n"
-                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                yield _sse_line(error_to_sse_payload(message="Internal error — check server logs"))
+                yield _sse_line(done_payload())
             finally:
                 # Stop the producer and close the runtime generator so its
                 # `finally` block runs now (releases the session lock,

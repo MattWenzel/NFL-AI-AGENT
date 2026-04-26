@@ -31,6 +31,27 @@ from backend.domain.agent.events import (
 logger = logging.getLogger(__name__)
 
 
+def error_to_sse_payload(
+    *,
+    message: str,
+    code: str | None = None,
+    status: int | None = None,
+) -> dict:
+    """Wire shape for SSE error events. The frontend treats `type: error` as
+    terminal; `code` distinguishes recoverable categories (rate_limited,
+    not_found, configuration) when set."""
+    payload: dict = {"type": "error", "message": message}
+    if code is not None:
+        payload["code"] = code
+    if status is not None:
+        payload["status"] = status
+    return payload
+
+
+def done_payload() -> dict:
+    return {"type": "done"}
+
+
 def event_to_sse_payload(event: RuntimeEvent) -> dict | None:
     if isinstance(event, AssistantStartedEvent):
         return {"type": "assistant_started", "turn_id": event.turn_id, "iterations": event.iterations}

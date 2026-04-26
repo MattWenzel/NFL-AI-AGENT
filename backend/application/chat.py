@@ -24,6 +24,7 @@ from backend.domain.providers import (
     provider_is_available,
 )
 from backend.domain.providers.types import ToolChoice
+from backend.domain.tools import TOOLS
 from backend.data import RuntimeStore, SessionRecord
 from backend.application.oauth.provider_credentials import (
     CredentialServiceError,
@@ -46,13 +47,18 @@ class ChatConfigurationError(ChatServiceError):
 
 @dataclass
 class PreparedChat:
+    """Return shape for `ChatService.prepare_chat`. Carries the LLM client,
+    the resolved provider, and the session record so the route layer can
+    drive the stream and own client cleanup."""
     client: BaseLLMClient
     provider_name: str
     session: SessionRecord
 
 
 @dataclass
-class ToolCallLogEntry:
+class _ToolCallLogEntry:
+    """Internal — accumulates tool-call previews while aggregating a turn's
+    response in `ChatService.run_message`. Not part of the public surface."""
     tool_run_id: str
     tool: str
     input: dict
@@ -67,19 +73,19 @@ async def close_client(client: BaseLLMClient) -> None:
         pass
 
 
+@dataclass
 class ChatService:
     """Owns chat request preparation and non-streaming response aggregation."""
 
-    def __init__(
-        self,
-        runtime: ChatRuntime,
-        store: RuntimeStore,
-        *,
-        refresh_locks: PerUserLockRegistry,
-    ):
-        self.runtime = runtime
-        self.store = store
-        self.credentials = ProviderCredentialService(store, refresh_locks)
+    runtime: ChatRuntime
+    store: RuntimeStore
+    refresh_locks: PerUserLockRegistry
+
+    def __post_init__(self) -> None:
+        # Composed sub-service — derived from injected store + refresh_locks,
+        # not itself injected. Keeping it on `self` avoids re-instantiating
+        # per request.
+        self.credentials = ProviderCredentialService(self.store, self.refresh_locks)
 
     async def prepare_chat(
         self,
@@ -141,7 +147,6 @@ class ChatService:
         *,
         message: str,
         tool_choice: ToolChoice | None,
-        tools,
     ) -> AsyncGenerator[RuntimeEvent, None]:
         """Return the runtime event source for a prepared chat turn.
 
@@ -156,7 +161,7 @@ class ChatService:
             prepared.session,
             message,
             prepared.client,
-            tools=tools,
+            tools=TOOLS,
             provider_name=prepared.provider_name,
             tool_choice=tool_choice,
         )
@@ -170,7 +175,6 @@ class ChatService:
         model: str | None,
         tool_choice: ToolChoice | None,
         user: AuthenticatedUser,
-        tools,
     ) -> dict:
         prepared = await self.prepare_chat(
             conversation_id=conversation_id,
@@ -179,7 +183,7 @@ class ChatService:
             user=user,
         )
         response_text = ""
-        tool_calls_log: list[ToolCallLogEntry] = []
+        tool_calls_log: list[_ToolCallLogEntry] = []
         hit_limit = False
         runtime_error = None
 
@@ -188,13 +192,12 @@ class ChatService:
                 prepared,
                 message=message,
                 tool_choice=tool_choice,
-                tools=tools,
             ):
                 if isinstance(event, TextDeltaEvent) and event.text:
                     response_text += event.text
                 elif isinstance(event, ToolPendingEvent):
                     tool_calls_log.append(
-                        ToolCallLogEntry(
+                        _ToolCallLogEntry(
                             tool_run_id=event.tool_run_id,
                             tool=event.name,
                             input=event.input,

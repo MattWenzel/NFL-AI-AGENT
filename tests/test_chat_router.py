@@ -46,7 +46,6 @@ async def test_chat_message_returns_error_for_runtime_failure_and_closes_client(
         model,
         tool_choice,
         user,
-        tools,
     ):
         raise ChatServiceError("Detected repeated tool loop on search_players with identical input")
 
@@ -105,7 +104,6 @@ async def test_chat_message_route_resolves_service_through_depends_chain(tmp_pat
         model,
         tool_choice,
         user,
-        tools,
     ):
         captured["service_class"] = type(self).__name__
         captured["caller_id"] = user.id
@@ -155,7 +153,6 @@ async def test_chat_message_forwards_tool_choice_to_service(monkeypatch):
         model,
         tool_choice,
         user,
-        tools,
     ):
         captured["tool_choice"] = tool_choice
         return {
@@ -289,7 +286,7 @@ async def test_chat_stream_releases_slot_and_client_on_normal_completion(monkeyp
             client=stub_client, provider_name="anthropic", session=_stub_session()
         )
 
-    def fake_stream_events(self, prepared, *, message, tool_choice, tools):
+    def fake_stream_events(self, prepared, *, message, tool_choice):
         async def _empty_events():
             if False:
                 yield  # makes this an async generator
@@ -438,7 +435,7 @@ async def test_chat_stream_cleans_up_runtime_source_and_client_on_early_close(mo
             client=stub_client, provider_name="anthropic", session=_stub_session()
         )
 
-    def fake_stream_events(self, prepared, *, message, tool_choice, tools):
+    def fake_stream_events(self, prepared, *, message, tool_choice):
         async def _slow_events():
             try:
                 # Hand control back once so the outer generator yields the
