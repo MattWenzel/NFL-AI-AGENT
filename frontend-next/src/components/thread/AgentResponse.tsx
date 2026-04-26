@@ -1,4 +1,4 @@
-import { ChevronRight, Database, AlertCircle, AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react'
+import { ChevronRight, AlertCircle, AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react'
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Markdown } from '@/components/thread/Markdown'
@@ -237,17 +237,16 @@ function ToolRunRow({
           selected && 'bg-accent/10',
         )}
       >
-        <Database className="size-3.5 shrink-0 text-muted-foreground" />
+        <StatusDot status={run.status} />
         <span className="font-mono text-xs font-medium text-foreground">{run.tool_name}</span>
         {summary ? (
           <span className="truncate font-mono text-xs text-muted-foreground">{summary}</span>
         ) : null}
-        <div className="ml-auto flex shrink-0 items-center gap-1.5 text-2xs text-muted-foreground">
-          <StatusDot status={run.status} />
-          {typeof run.duration_ms === 'number' ? (
-            <span className="tabular">{run.duration_ms}ms</span>
-          ) : null}
-        </div>
+        {typeof run.duration_ms === 'number' ? (
+          <span className="ml-auto shrink-0 tabular text-2xs text-muted-foreground">
+            {run.duration_ms}ms
+          </span>
+        ) : null}
       </button>
     </li>
   )
@@ -255,12 +254,17 @@ function ToolRunRow({
 
 function StatusDot({ status }: { status: string }) {
   if (status === 'pending' || status === 'running') {
-    return <Loader2 className="size-3 animate-spin" />
+    return <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground" />
   }
-  if (status === 'error') {
-    return <AlertCircle className="size-3 text-destructive" />
-  }
-  return <CheckCircle2 className="size-3 text-accent" />
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        'block size-2 shrink-0 rounded-full',
+        status === 'error' ? 'bg-destructive' : 'bg-success',
+      )}
+    />
+  )
 }
 
 function summarizeInput(toolName: string, input: Record<string, unknown>): string {

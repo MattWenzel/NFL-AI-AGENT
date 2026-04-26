@@ -297,7 +297,7 @@ function ToolRunRow({ run, onSelect }: { run: ToolRunRecord; onSelect?: () => vo
   const status = run.status
   const dotClass =
     status === 'completed'
-      ? 'bg-accent'
+      ? 'bg-success'
       : status === 'error'
         ? 'bg-destructive'
         : 'bg-muted-foreground/60'
