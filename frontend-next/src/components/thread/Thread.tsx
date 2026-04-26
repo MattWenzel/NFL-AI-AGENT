@@ -25,7 +25,7 @@ type ThreadGroup =
     }
 
 export function Thread({ transcript }: ThreadProps) {
-  const { selectedExchangeId, selectExchange } = useChatContext()
+  const { selectedExchangeId, selectedToolRunId, selectExchange, clearSelection } = useChatContext()
   const groups = useMemo<ThreadGroup[]>(() => {
     const partsByTurn = new Map<string, AssistantPartRecord[]>()
     const runsByTurn = new Map<string, ToolRunRecord[]>()
@@ -77,9 +77,9 @@ export function Thread({ transcript }: ThreadProps) {
     <div
       className="flex-1 overflow-y-auto"
       onClick={() => {
-        // Clicks that reach this far didn't hit a message — exchange-level
+        // Clicks that reach this far didn't hit a message — message and tool
         // clicks stopPropagation, so this only fires for empty thread space.
-        if (selectedExchangeId) selectExchange(null)
+        if (selectedExchangeId || selectedToolRunId) clearSelection()
       }}
     >
       <div className="mx-auto w-full max-w-5xl space-y-8 px-6 py-6 lg:px-10">

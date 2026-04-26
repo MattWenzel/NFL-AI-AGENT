@@ -70,9 +70,15 @@ export function AgentResponse({
     return null
   }
 
-  const handleSelectTool = (runId: string) => {
-    selectToolRun(runId)
+  const handleSelectTool = (run: ToolRunRecord) => {
     openDesktopInspector()
+    // Only execute_sql carries inspectable payloads — for guides, schemas, etc.
+    // we just scope the inspector to the surrounding exchange instead.
+    if (run.tool_name === 'execute_sql') {
+      selectToolRun(run.id)
+    } else if (onSelect) {
+      onSelect()
+    }
   }
 
   return (
@@ -152,7 +158,7 @@ export function AgentResponse({
 interface ThinkingBlockProps {
   runs: ToolRunRecord[]
   selectedToolRunId: string | null
-  onSelectTool: (runId: string) => void
+  onSelectTool: (run: ToolRunRecord) => void
 }
 
 function ThinkingBlock({ runs, selectedToolRunId, onSelectTool }: ThinkingBlockProps) {
@@ -198,7 +204,7 @@ function ThinkingBlock({ runs, selectedToolRunId, onSelectTool }: ThinkingBlockP
               key={run.id}
               run={run}
               selected={run.id === selectedToolRunId}
-              onSelect={() => onSelectTool(run.id)}
+              onSelect={() => onSelectTool(run)}
             />
           ))}
         </ul>

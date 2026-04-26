@@ -286,6 +286,11 @@ export function useChat() {
     setSelectedExchangeId(null)
   }, [])
 
+  const clearSelection = useCallback(() => {
+    setSelectedExchangeId(null)
+    setSelectedToolRunId(null)
+  }, [])
+
   const refreshConversations = useCallback(async () => {
     dispatch({ type: 'conversations-loading' })
     try {
@@ -475,6 +480,7 @@ export function useChat() {
     selectExchange,
     selectedToolRunId,
     selectToolRun,
+    clearSelection,
     refreshConversations,
     loadConversation,
     newConversation,

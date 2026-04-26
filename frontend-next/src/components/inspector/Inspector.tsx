@@ -44,7 +44,7 @@ export function Inspector() {
             transcript={transcript}
             onClear={() => chat.selectExchange(null)}
           />
-          <ExchangeToolRuns slice={slice} />
+          <ExchangeToolRuns slice={slice} transcript={transcript} />
         </div>
       )
     }
@@ -232,14 +232,18 @@ function ToolRuns({ transcript }: { transcript: ConversationTranscript }) {
     <Section label={`Tool runs · ${runs.length}`}>
       <ul className="space-y-1.5">
         {runs.map((run) => (
-          <ToolRunRow key={run.id} run={run} onSelect={() => chat.selectToolRun(run.id)} />
+          <ToolRunRow
+            key={run.id}
+            run={run}
+            onSelect={() => handleInspectorToolClick(run, transcript, chat)}
+          />
         ))}
       </ul>
     </Section>
   )
 }
 
-function ExchangeToolRuns({ slice }: { slice: ExchangeSlice }) {
+function ExchangeToolRuns({ slice, transcript }: { slice: ExchangeSlice; transcript: ConversationTranscript }) {
   const chat = useChatContext()
   if (slice.toolRuns.length === 0) {
     return (
@@ -252,11 +256,41 @@ function ExchangeToolRuns({ slice }: { slice: ExchangeSlice }) {
     <Section label={`Tool runs · ${slice.toolRuns.length}`}>
       <ul className="space-y-1.5">
         {slice.toolRuns.map((run) => (
-          <ToolRunRow key={run.id} run={run} onSelect={() => chat.selectToolRun(run.id)} />
+          <ToolRunRow
+            key={run.id}
+            run={run}
+            onSelect={() => handleInspectorToolClick(run, transcript, chat)}
+          />
         ))}
       </ul>
     </Section>
   )
+}
+
+function handleInspectorToolClick(
+  run: ToolRunRecord,
+  transcript: ConversationTranscript,
+  chat: ReturnType<typeof useChatContext>,
+) {
+  if (run.tool_name === 'execute_sql') {
+    chat.selectToolRun(run.id)
+    return
+  }
+  // Non-SQL tools have no inspectable payload — scope to the surrounding
+  // exchange instead so the user sees the message turn this came from.
+  const exchangeId = exchangeIdForTurn(transcript, run.turn_id)
+  if (exchangeId) chat.selectExchange(exchangeId)
+}
+
+function exchangeIdForTurn(transcript: ConversationTranscript, turnId: string): string | null {
+  const visibleTurns = transcript.turns.filter((t) => !t.compacted)
+  const idx = visibleTurns.findIndex((t) => t.id === turnId)
+  if (idx < 0) return null
+  if (visibleTurns[idx].role === 'user') return visibleTurns[idx].id
+  for (let i = idx - 1; i >= 0; i--) {
+    if (visibleTurns[i].role === 'user') return visibleTurns[i].id
+  }
+  return null
 }
 
 function ToolRunRow({ run, onSelect }: { run: ToolRunRecord; onSelect?: () => void }) {
