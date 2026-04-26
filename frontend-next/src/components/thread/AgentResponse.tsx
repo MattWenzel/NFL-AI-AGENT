@@ -70,7 +70,11 @@ export function AgentResponse({
     <div
       role={onSelect ? 'button' : undefined}
       tabIndex={onSelect ? 0 : undefined}
-      onClick={onSelect}
+      onClick={(e) => {
+        if (!onSelect) return
+        e.stopPropagation()
+        onSelect()
+      }}
       onKeyDown={(e) => {
         if (!onSelect) return
         if (e.key === 'Enter' || e.key === ' ') {

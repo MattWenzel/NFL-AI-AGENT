@@ -74,7 +74,14 @@ export function Thread({ transcript }: ThreadProps) {
   }, [transcript])
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div
+      className="flex-1 overflow-y-auto"
+      onClick={() => {
+        // Clicks that reach this far didn't hit a message — exchange-level
+        // clicks stopPropagation, so this only fires for empty thread space.
+        if (selectedExchangeId) selectExchange(null)
+      }}
+    >
       <div className="mx-auto w-full max-w-5xl space-y-8 px-6 py-6 lg:px-10">
         {groups.map((g, i) =>
           g.kind === 'user' ? (
