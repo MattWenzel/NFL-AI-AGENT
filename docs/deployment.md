@@ -1,6 +1,8 @@
 # Deployment
 
-The app is single-origin: FastAPI serves the UI (`GET /` → `frontend/index.html`, static assets at `/static/*`) and the API. One process, one domain. **TLS is mandatory** — passwords, bearer tokens, and user API keys all move over the wire; without HTTPS they leak.
+The app is single-origin: FastAPI serves the UI (`GET /` → `frontend-next/dist/index.html`, hashed bundles at `/assets/*`) and the API. One process, one domain. **TLS is mandatory** — passwords, bearer tokens, and user API keys all move over the wire; without HTTPS they leak.
+
+The UI is a Vite/React app under `frontend-next/`. The Dockerfile builds it in a Node 20 stage (`npm ci && npm run build`) and copies the resulting `dist/` into the Python runtime image — no Node ships in production. When `frontend-next/dist/` is missing (e.g. local `python3 run.py` runs without a build), the backend transparently falls back to the legacy vanilla-JS frontend at `frontend/`.
 
 Two documented paths: **Fly.io** (recommended, minimal ops overhead, TLS + volumes built-in) and **self-hosted VPS with Caddy** (more DIY, more control).
 
