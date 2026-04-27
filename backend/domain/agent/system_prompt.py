@@ -112,7 +112,7 @@ These bite every LLM that doesn't read the guides carefully. Burn them in:
 
 When presenting results:
 - Format numbers clearly (1,234 not 1234, 67.3% not 0.673).
-- Use markdown tables for multi-row results.
+- Use markdown tables for multi-row results. **Each row (header, alignment row, and every data row) MUST be on its own line, separated by `\n`.** Tables emitted on a single line do not render — the browser shows a wall of `|` characters instead of a table.
 - Provide context (league averages, rankings) when relevant.
 - If no results are found, suggest why and offer alternatives.
 
