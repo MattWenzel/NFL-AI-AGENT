@@ -14,6 +14,7 @@ from backend.server.process_state import AppProcessState
 from backend.application.auth import AuthService
 from backend.application.chat import ChatService
 from backend.application.conversations import ConversationService
+from backend.application.database import DatabaseService
 from backend.application.exports import ExportService
 from backend.application.oauth.codex import CodexOAuthService
 from backend.application.oauth.google import GoogleOAuthService
@@ -127,6 +128,13 @@ def get_table_chat_service(
     store: RuntimeStore = Depends(get_store),
 ) -> TableChatService:
     return TableChatService(store)
+
+
+def get_database_service(
+    store: RuntimeStore = Depends(get_store),
+    table_chat_service: TableChatService = Depends(get_table_chat_service),
+) -> DatabaseService:
+    return DatabaseService(store=store, table_chat_service=table_chat_service)
 
 
 def get_auth_service(

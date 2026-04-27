@@ -13,6 +13,7 @@ import { CommandPalette } from '@/components/command/CommandPalette'
 import { SettingsModal } from '@/components/settings/SettingsModal'
 import { TableChatView } from '@/components/tables/TableChatView'
 import { EmptyReportScreen } from '@/components/tables/EmptyReportScreen'
+import { DatabaseView } from '@/components/database/DatabaseView'
 import { useAuth, type AuthUser } from '@/lib/auth'
 import { ChatProvider, useChatContext } from '@/lib/chatContext'
 import { TablesProvider, useTablesContext } from '@/lib/tablesContext'
@@ -107,6 +108,12 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
   // message. While true the empty-report screen is shown and no
   // /chat/tables session has been created yet.
   const [pendingReport, setPendingReport] = useState(false)
+  // The Database browser is a separate top-level view — no sessions, no
+  // transcripts. `selectedDatabaseTable` is the table name the user picked
+  // from the sidebar, which the view turns into `SELECT * FROM <t> LIMIT 100`
+  // on first paint. `null` means the user opened the tab but hasn't picked.
+  const [databaseOpen, setDatabaseOpen] = useState(false)
+  const [selectedDatabaseTable, setSelectedDatabaseTable] = useState<string | null>(null)
   const didRestoreRef = useRef(false)
 
   // Lifted from TableChatView so `handleReportCreated` can call refetch the
@@ -160,20 +167,30 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
   const openConversation = (id: string) => {
     setActiveTableId(null)
     setPendingReport(false)
+    setDatabaseOpen(false)
     chat.loadConversation(id)
   }
 
   const openTable = (id: string) => {
     setActiveTableId(id)
     setPendingReport(false)
+    setDatabaseOpen(false)
     // The table-chat view reuses the chat transcript pipeline for the bottom
     // chat panel — load the same conversation so `chat.send` posts there.
     chat.loadConversation(id)
   }
 
+  const openDatabase = (tableName?: string) => {
+    setActiveTableId(null)
+    setPendingReport(false)
+    setDatabaseOpen(true)
+    if (tableName) setSelectedDatabaseTable(tableName)
+  }
+
   const switchToChats = () => {
     setActiveTableId(null)
     setPendingReport(false)
+    setDatabaseOpen(false)
     // The bottom panel of the report view shares the chat transcript
     // pipeline, so when the user came from a report the loaded transcript
     // belongs to a table-chat session and isn't in chat.conversations.
@@ -190,6 +207,7 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
   }
 
   const switchToTables = () => {
+    setDatabaseOpen(false)
     if (!activeTableId && tables.tables.length > 0) {
       openTable(tables.tables[0].id)
     } else if (!activeTableId) {
@@ -205,8 +223,16 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
     // and defer creation until the user sends the first message. Mirrors
     // the regular "New chat" flow.
     setActiveTableId(null)
+    setDatabaseOpen(false)
     chat.newConversation()
     setPendingReport(true)
+  }
+
+  // Called from the Database view's "Save as Report" success path — the
+  // route returns a fresh table_chat session id, navigate to it.
+  const handleDatabaseSaveAsReport = (conversationId: string) => {
+    tables.refresh()
+    openTable(conversationId)
   }
 
   // First-send handler from the empty-report screen: creates the table_chat
@@ -279,6 +305,7 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
         inspectorAvailable={
           !activeTableId &&
           !pendingReport &&
+          !databaseOpen &&
           !!chat.transcript &&
           chat.transcript.turns.length > 0
         }
@@ -290,6 +317,7 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
             onNewChat={() => {
               setActiveTableId(null)
               setPendingReport(false)
+              setDatabaseOpen(false)
               chat.newConversation()
             }}
             onOpenConversation={openConversation}
@@ -299,11 +327,20 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
             onOpenTable={openTable}
             onSwitchToTables={switchToTables}
             onNewTable={newTableChat}
+            databaseOpen={databaseOpen}
+            onOpenDatabase={openDatabase}
+            onSwitchToDatabase={() => openDatabase()}
           />
         }
         inspector={<Inspector />}
         main={
-          activeTableId ? (
+          databaseOpen ? (
+            <DatabaseView
+              selectedTable={selectedDatabaseTable}
+              onSelectedTableChange={setSelectedDatabaseTable}
+              onSaveAsReport={handleDatabaseSaveAsReport}
+            />
+          ) : activeTableId ? (
             <TableChatView
               key={activeTableId}
               activeTableId={activeTableId}
@@ -377,6 +414,7 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
         onNewChat={() => {
           setActiveTableId(null)
           setPendingReport(false)
+          setDatabaseOpen(false)
           chat.newConversation()
         }}
         onPickConversation={openConversation}

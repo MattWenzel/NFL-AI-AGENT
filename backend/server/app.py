@@ -16,6 +16,7 @@ from backend.server.startup import configure_runtime_state, log_environment_stat
 from backend.api.routes import auth
 from backend.api.routes import chat
 from backend.api.routes import conversations
+from backend.api.routes import database
 from backend.api.routes import exports
 from backend.api.routes import oauth_google
 from backend.api.routes import oauth_openai
@@ -102,6 +103,7 @@ def create_app() -> FastAPI:
     app.include_router(chat.router)
     app.include_router(conversations.router)
     app.include_router(tables.router)
+    app.include_router(database.router)
     app.include_router(providers.router)
     app.include_router(exports.download_router)
     app.include_router(exports.router)

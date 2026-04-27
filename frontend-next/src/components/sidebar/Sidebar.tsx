@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { PanelLeftClose, Plus, Search, Table2 } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Database, PanelLeftClose, Plus, Search, Table2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,6 +11,7 @@ import { UserWidget } from '@/components/sidebar/UserWidget'
 import { useLayout } from '@/components/layout/AppShell'
 import { useChatContext } from '@/lib/chatContext'
 import { useTablesContext } from '@/lib/tablesContext'
+import { fetchDatabaseTables, type DatabaseTableInfo } from '@/lib/database'
 import type { ConversationInfo } from '@/lib/types'
 import type { AuthUser } from '@/lib/auth'
 import { ageDays } from '@/lib/datetime'
@@ -32,6 +33,12 @@ interface SidebarProps {
   onOpenTable?: (id: string) => void
   onSwitchToTables?: () => void
   onNewTable?: () => void
+  /** True while the Database browser is open in the main view. */
+  databaseOpen?: boolean
+  /** Click a table in the Database tab → load it in the browser view. */
+  onOpenDatabase?: (tableName?: string) => void
+  /** Click the Database tab itself (no specific table). */
+  onSwitchToDatabase?: () => void
 }
 
 export function Sidebar({
@@ -46,13 +53,40 @@ export function Sidebar({
   onOpenTable,
   onSwitchToTables,
   onNewTable,
+  databaseOpen = false,
+  onOpenDatabase,
+  onSwitchToDatabase,
 }: SidebarProps) {
   const chat = useChatContext()
   const tablesStore = useTablesContext()
   const layout = useLayout()
   const [query, setQuery] = useState('')
 
-  const activeTab: 'chats' | 'reports' = activeTableId || pendingReport ? 'reports' : 'chats'
+  // Lazy-fetch the table list the first time the Database tab becomes
+  // active. The list rarely changes in practice (it's the nflverse schema)
+  // so a single fetch per session is fine.
+  const [dbTables, setDbTables] = useState<DatabaseTableInfo[] | null>(null)
+  const [dbTablesError, setDbTablesError] = useState(false)
+  useEffect(() => {
+    if (!databaseOpen || dbTables !== null || dbTablesError) return
+    let alive = true
+    fetchDatabaseTables()
+      .then((rows) => {
+        if (alive) setDbTables(rows)
+      })
+      .catch(() => {
+        if (alive) setDbTablesError(true)
+      })
+    return () => {
+      alive = false
+    }
+  }, [databaseOpen, dbTables, dbTablesError])
+
+  const activeTab: 'chats' | 'reports' | 'database' = databaseOpen
+    ? 'database'
+    : activeTableId || pendingReport
+      ? 'reports'
+      : 'chats'
 
   const filtered = useMemo(() => {
     if (!query.trim()) return chat.conversations
@@ -65,6 +99,27 @@ export function Sidebar({
     const q = query.trim().toLowerCase()
     return tablesStore.tables.filter((t) => t.title.toLowerCase().includes(q))
   }, [tablesStore.tables, query])
+
+  // Each entry pairs the table with the list of column names that matched
+  // the search (empty = matched by table name alone). We surface the
+  // matching columns inline so the user knows why a table is in the
+  // results when they searched for, say, `gsis_id`.
+  const filteredDbTables = useMemo(() => {
+    if (!dbTables) return null
+    const q = query.trim().toLowerCase()
+    if (!q) return dbTables.map((t) => ({ table: t, matchedColumns: [] as string[] }))
+    const matches: { table: DatabaseTableInfo; matchedColumns: string[] }[] = []
+    for (const t of dbTables) {
+      const nameMatches = t.name.toLowerCase().includes(q)
+      const matchedColumns = t.columns
+        .filter((c) => c.name.toLowerCase().includes(q))
+        .map((c) => c.name)
+      if (nameMatches || matchedColumns.length > 0) {
+        matches.push({ table: t, matchedColumns })
+      }
+    }
+    return matches
+  }, [dbTables, query])
 
   const groupedChats = useMemo(() => groupConversations(filtered), [filtered])
   const groupedTables = useMemo(() => groupConversations(filteredTables), [filteredTables])
@@ -133,16 +188,21 @@ export function Sidebar({
             onSwitchToTables?.()
           } else if (next === 'chats' && activeTab !== 'chats') {
             onSwitchToChats?.()
+          } else if (next === 'database' && activeTab !== 'database') {
+            onSwitchToDatabase?.()
           }
         }}
         className="flex min-h-0 flex-1 flex-col gap-0"
       >
-        <TabsList className="mx-3 mt-5 grid h-11 grid-cols-2 gap-1 bg-sidebar-accent/60 p-1">
-          <TabsTrigger value="chats" className="text-base font-medium">
+        <TabsList className="mx-3 mt-5 grid h-11 grid-cols-3 gap-1 bg-sidebar-accent/60 p-1">
+          <TabsTrigger value="chats" className="text-sm font-medium">
             Chats
           </TabsTrigger>
-          <TabsTrigger value="reports" className="text-base font-medium">
+          <TabsTrigger value="reports" className="text-sm font-medium">
             Reports
+          </TabsTrigger>
+          <TabsTrigger value="database" className="text-sm font-medium">
+            Database
           </TabsTrigger>
         </TabsList>
 
@@ -151,7 +211,13 @@ export function Sidebar({
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               type="search"
-              placeholder="Search conversations"
+              placeholder={
+                activeTab === 'database'
+                  ? 'Search tables'
+                  : activeTab === 'reports'
+                    ? 'Search reports'
+                    : 'Search conversations'
+              }
               className="h-8 pl-8 text-sm"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -203,6 +269,43 @@ export function Sidebar({
                 onPick={onOpenTable}
               />
             ))
+          )}
+        </TabsContent>
+        <TabsContent
+          value="database"
+          className="m-0 flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-2"
+        >
+          {dbTablesError ? (
+            <SidebarMessage label="Couldn't load tables" />
+          ) : filteredDbTables === null ? (
+            <SidebarMessage label="Loading…" />
+          ) : filteredDbTables.length === 0 ? (
+            <SidebarMessage label={query ? 'No matches' : 'No tables found'} />
+          ) : (
+            <ul className="space-y-px">
+              {filteredDbTables.map(({ table, matchedColumns }) => (
+                <li key={table.name}>
+                  <button
+                    type="button"
+                    onClick={() => onOpenDatabase?.(table.name)}
+                    className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm text-sidebar-foreground hover:bg-sidebar-accent"
+                  >
+                    <Database className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">{table.name}</span>
+                      {matchedColumns.length > 0 ? (
+                        <span className="block truncate text-2xs text-muted-foreground">
+                          {matchedColumns.slice(0, 4).join(', ')}
+                          {matchedColumns.length > 4
+                            ? ` +${matchedColumns.length - 4} more`
+                            : ''}
+                        </span>
+                      ) : null}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
         </TabsContent>
       </Tabs>
