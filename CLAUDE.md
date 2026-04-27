@@ -58,7 +58,9 @@ The chat runtime is transcript-backed: sessions, turns, assistant parts, tool ru
 
 ### Architecture
 
-Top-level split: `backend/` holds the Python server, `frontend/` holds the browser UI. Inside `backend/`, the layering is onion-style: `api/` is the FastAPI HTTP boundary (routes + Pydantic wire DTOs + `Depends` factories), `application/` holds the use-case services (one module per HTTP feature, each exporting a `FooService` class), `domain/` holds the framework-free libraries those services consume (`agent/`, `providers/`, `tools/`, `auth/`), and `data/` holds persistence — the SQL boundary. `data/` itself imports SQLAlchemy/SQLModel; `data/types/` contains plain-Python value types (enums, exceptions) with zero SQL imports. `server/` is pure HTTP infrastructure (middleware, logging, csrf, session, sse, startup) — no routes, those moved to `api/`. `application/` itself is FastAPI-free — verifiable: `grep -rE "fastapi|starlette" backend/application/` returns empty. The frontend mirrors the feature-slice convention for its JS modules.
+Top-level split: `backend/` holds the Python server, `frontend/` holds the browser UI (React + Vite + Tailwind + shadcn/ui). Inside `backend/`, the layering is onion-style: `api/` is the FastAPI HTTP boundary (routes + Pydantic wire DTOs + `Depends` factories), `application/` holds the use-case services (one module per HTTP feature, each exporting a `FooService` class), `domain/` holds the framework-free libraries those services consume (`agent/`, `providers/`, `tools/`, `auth/`), and `data/` holds persistence — the SQL boundary. `data/` itself imports SQLAlchemy/SQLModel; `data/types/` contains plain-Python value types (enums, exceptions) with zero SQL imports. `server/` is pure HTTP infrastructure (middleware, logging, csrf, session, sse, startup) — no routes, those moved to `api/`. `application/` itself is FastAPI-free — verifiable: `grep -rE "fastapi|starlette" backend/application/` returns empty. The frontend mirrors the feature-slice convention for its component / lib modules.
+
+The chat UI is one of three top-level surfaces in the React app: **Chat** (regular agent conversations, persistent), **Reports** (a Report is a session of `kind="table_chat"` — a pinned query result that the user can iterate on with the agent rewriting the SQL via `set_table`; lock-toggle on the toolbar freezes the SQL), and **Database** (read-only schema browser + SQL editor with a small ephemeral helper chat in the right pane, backed by a separate stateless agent loop in `backend/domain/agent/stateless.py`).
 
 ```
 backend/
@@ -70,6 +72,9 @@ backend/
 │   ├── auth.py                   #   register / login / logout / password / delete / verify / resend
 │   ├── chat.py                   #   chat orchestration and response aggregation
 │   ├── conversations.py          #   list / transcript / patch / delete orchestration
+│   ├── tables.py                 #   Reports (table_chat) CRUD + live-table state
+│   ├── database.py               #   read-only DuckDB schema/preview browser
+│   ├── db_helper_chat.py         #   ephemeral SQL helper chat (no persistence)
 │   ├── exports.py                #   CSV library CRUD
 │   ├── oauth/
 │   │   ├── provider_credentials.py  # ProviderCredentialService (api_key vs codex_oauth dispatch)
@@ -77,10 +82,11 @@ backend/
 │   │   └── google.py                # Google sign-in / sign-up / link / unlink
 │   └── settings.py               #   per-user API key CRUD + linked identity services
 ├── domain/                       # Framework-free libraries consumed by application/
-│   ├── agent/                    #   chat runtime loop, events, prompt, compaction
+│   ├── agent/                    #   chat runtime loop, events, prompt, compaction;
+│   │                             #   plus stateless.py — the helper-chat agent loop (no persistence)
 │   ├── auth/                     #   auth primitives, encryption, OAuth protocol helpers, audit log, lifecycle
 │   ├── providers/                #   LLM provider registry, types, errors, clients
-│   └── tools/                    #   tool definitions, registry, handlers, SQL sandbox, guides
+│   └── tools/                    #   tool definitions, registry, handlers, DuckDB SQL sandbox, guides
 ├── data/                         # Persistence layer — the SQL boundary
 │   ├── models.py                 #   SQLModel table classes
 │   ├── projections.py            #   composite read shapes (SessionListEntry, SessionTranscript)
@@ -107,25 +113,44 @@ backend/
 ├── runtime_state.py              # Framework-free lock registries + pending OAuth flows
 └── config.py                     # DB paths, env loading, runtime settings
 
-frontend/                         # Browser UI (served at / by FastAPI; assets under /static)
-├── index.html                    #   shell + ES-module entrypoint
-└── static/
-    ├── css/
-    │   ├── base/                 #     theme, layout
-    │   ├── components/           #     sidebar, composer
-    │   └── features/             #     chat, exports, inspector, settings
-    └── js/
-        ├── app/                  #     main.js (boot + event wiring), render.js (top-level render orchestrator)
-        ├── core/                 #     api.js, state.js, utils.js, charts.js
-        ├── components/           #     small reusable widgets (e.g. confirm dialog)
-        └── features/             #     mirrors backend services; UI-only siblings (inspector, navigation) live here too
-            ├── auth/             #       sign-in / sign-up flow
-            ├── chat/             #       streaming + thread rendering
-            ├── conversations/    #       sidebar list + open
-            ├── exports/          #       CSV library + viewer
-            ├── inspector/        #       right-pane tool-call details
-            ├── navigation/       #       sidebar view switcher
-            └── settings/         #       account + provider keys + identities
+frontend/                         # Browser UI — React + Vite + Tailwind + shadcn/ui
+├── index.html                    #   Vite entry
+├── vite.config.ts                #   build config — output goes to frontend/dist/
+└── src/
+    ├── App.tsx                   #   top-level shell: chat / reports / database routing + state
+    ├── main.tsx                  #   React entry
+    ├── components/
+    │   ├── auth/                 #     sign-in / sign-up
+    │   ├── chat/                 #     transcript renderer, streaming, exchange grouping
+    │   ├── command/              #     command palette
+    │   ├── composer/             #     message composer + provider/model/tool-choice dropdowns
+    │   ├── database/             #     Database tab — schema browser, SQL editor, helper chat
+    │   ├── inspector/            #     right-pane tool-call details
+    │   ├── layout/               #     AppShell (sidebar + main + inspector / alternateInspector)
+    │   ├── settings/             #     account + provider keys + linked identities
+    │   ├── sidebar/              #     conversation/report list with column-search
+    │   ├── tables/               #     Reports view — TableChatView, save flow
+    │   ├── theme/                #     theme tokens + provider
+    │   ├── thread/               #     legacy thread renderer (still used in places)
+    │   └── ui/                   #     shadcn primitives
+    └── lib/
+        ├── api.ts                #     apiFetch + CSRF plumbing
+        ├── chatStore.ts          #     central chat state (sessions, exchanges, streaming)
+        ├── chatContext.tsx       #     React context for the chat store
+        ├── dbHelperChat.ts       #     useDbHelperChat() — stateless helper hook
+        ├── tablesStore.ts        #     Reports/table_chat state
+        ├── tablesContext.tsx     #     context for the Reports view
+        ├── activeTable.ts        #     current Report selection
+        ├── database.ts           #     /database/* API client
+        ├── tables.ts             #     /reports + /tables API client
+        ├── sse.ts                #     openSseStream() — POST + EventSource reader
+        ├── auth.ts               #     /auth/* API client
+        ├── providers.ts          #     LLM provider registry mirror
+        ├── settings.ts           #     /settings/* API client
+        ├── csv.ts                #     CSV download helpers
+        ├── theme.ts              #     theme storage
+        ├── datetime.ts           #     formatting helpers
+        └── types.ts              #     shared TypeScript types
 
 run.py                            # uvicorn entry point → backend.server.app:app
 tests/                            # pytest test suite
@@ -135,10 +160,16 @@ data/                             # Runtime data (runtime.sqlite3 — ignored)
 ## Development
 
 ```bash
-python3 run.py                    # API server (port 8001) — UI served at /
-python3 -m pytest tests/          # Run tests
+python3 run.py                    # API server (port 8001) — serves frontend/dist if built;
+                                  #   `/` 404s until you've run `npm run build`
+python3 -m pytest tests/          # Run backend tests
 
-# Build scripts live in the sibling NFLVERSE repo (../NFLVERSE/).
+# Frontend (React + Vite). Two modes:
+cd frontend && npm install && npm run dev    # Vite dev server with HMR (separate port)
+cd frontend && npm run build                 # Production build → frontend/dist/
+                                             #   (then `python3 run.py` serves it at /)
+
+# Build scripts for the NFL data live in the sibling NFLVERSE repo (../NFLVERSE/).
 # Run them from that directory — they write to ../NFLVERSE/data/nflverse.duckdb,
 # which this app reads via DB_PATH in .env.
 ```

@@ -27,8 +27,8 @@ tests/
 # the multi-stage Dockerfile installs deps and runs `npm run build` itself,
 # producing /build/dist which is then COPY-ed into the runtime stage. Local
 # build artifacts could be stale or platform-specific.
-frontend-next/node_modules/
-frontend-next/dist/
+frontend/node_modules/
+frontend/dist/
 
 # Secrets + local state never ship in the image. The SQLite runtime DB
 # and the NFL DBs are on the volume; exports are regenerated.

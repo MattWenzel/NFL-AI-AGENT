@@ -11,8 +11,9 @@ The `backend/domain/agent/` package is split by concern. The runtime orchestrato
 - `backend/domain/agent/runtime.py` — `ChatRuntime`: the loop itself. Thin orchestrator that acquires the session lock, instantiates a `Turn`, and iterates.
 - `backend/domain/agent/turn.py` — `Turn`: per-user-message state owner. Holds iteration bookkeeping (counter, overflow retry one-shot, doom-loop fingerprint list, forced tool-choice), the active assistant iteration (its `TurnRecord`, text buffer, tool runs), lifecycle methods, and in-turn tool execution. Module-level `raise_if_doom_loop` + `DOOM_LOOP_MATCH` also live here.
 - `backend/domain/agent/events.py` — `RuntimeEvent` dataclass + `RuntimeLoopError` exception.
-- `backend/domain/agent/message_builder.py` — `build_model_messages`: `SessionTranscript` → wire-format `list[Message]` for the next provider call.
-- `backend/domain/agent/system_prompt.py` — `get_base_prompt`: the slim base system prompt (rules + guide index).
+- `backend/domain/agent/message_builder.py` — `build_model_messages`: `SessionTranscript` → wire-format `list[Message]` for the next provider call. Also exposes `build_messages_from_raw` for callers that already have a flat wire-list (used by the stateless helper loop).
+- `backend/domain/agent/system_prompt.py` — `get_base_prompt` (the slim base system prompt — rules + guide index) and `get_db_helper_prompt` (the focused prompt used by the Database tab's helper chat).
+- `backend/domain/agent/stateless.py` — `run_stateless_turn`: alternate agent loop that bypasses `ChatRuntime` and persistence entirely. Used by the Database tab's helper chat. See [database-browser.md](database-browser.md).
 - `backend/domain/agent/compaction/policy.py`, `backend/domain/agent/compaction/summarizer.py`, `backend/domain/agent/compaction/token_counting.py` — see [compaction.md](compaction.md).
 
 ## `ChatRuntime`
@@ -161,7 +162,7 @@ Transports serialize these differently. The SSE adapter (`backend/server/sse.py`
 
 1. `execute_tools` fans out to `_execute_one_tool` per tool run under `asyncio.gather`.
 2. Each `_execute_one_tool` calls `persistence.begin_tool_execution` — flips status to `running`, writes a `tool_status` part so the UI can show a spinner.
-3. It then calls the injected `execute_tool` callable (wired to `execute_tool_structured` — see [tools.md](tools.md)) with the tool name, input dict, and a `ctx` dict carrying a `register_export` callback. That callback is the **side-channel** handlers use to reach persistence without importing it (`create_csv_export` uses it to index generated files in the export library).
+3. It then calls the injected `execute_tool` callable (wired to `execute_tool_structured` — see [tools.md](tools.md)) with the tool name, input dict, and a `ctx` dict. The base `ctx` always carries `register_export` (used by `create_csv_export`); inside a Report (`kind="table_chat"` session), the runtime extends it with `persist_table` (for `set_table`) and `create_report` (for spawning a new Report from a chat). This `ctx` is the **side-channel** handlers use to reach persistence without importing it.
 4. Wraps the return value in a `ToolExecutionResult(status, content, error, hint, duration_ms)`.
 5. Calls `persistence.complete_tool_execution` — updates status/result/error/hint/duration and writes a `tool_result` part.
 
@@ -211,12 +212,28 @@ The `finally` block at the end of `run_session` calls `turn.cleanup_interrupted_
 
 On next startup, `RuntimeStore._reconcile_interrupted_runs_sync` (see [persistence.md](persistence.md#startup-reconciliation)) catches anything the `finally` block missed — e.g., process SIGKILL, OOM, power loss mid-turn. It sweeps any tool run in `pending`/`running` and any assistant turn in `running` to `interrupted`, then logs the count. Load-bearing for crash recovery: without it, killed-mid-turn rows would appear "running" forever in the UI.
 
+## The stateless helper loop
+
+Not every entry point needs `ChatRuntime`'s persistence + lock + compaction machinery. The Database tab's helper chat ([database-browser.md](database-browser.md)) wants none of it: the conversation is ephemeral, refresh wipes state by design, and there's no transcript to compact. `backend/domain/agent/stateless.py::run_stateless_turn` is the alternate path:
+
+```python
+async def run_stateless_turn(
+    *, messages, client, tools, system,
+    tool_choice=None, max_iterations=MAX_HELPER_ITERATIONS,  # = 8
+) -> AsyncGenerator[RuntimeEvent, None]
+```
+
+Caller passes the full wire-format message history each turn. The loop drives the same `client.stream_message → tool dispatch → tool result → …` cycle and yields the same `RuntimeEvent` types — but no `Turn`, no `RuntimeStore`, no doom-loop detector (the iteration cap is the only stop condition), and no overflow retry. Synthetic `_HELPER_SESSION_ID` / `_HELPER_TURN_ID` constants stamp each event so transports can route them, but they're never written anywhere.
+
+Tool dispatch goes through the same `execute_tool` registry as `ChatRuntime`, with `ctx=None` — handlers that need `ctx` keys (`set_table`, `create_report`, `create_csv_export`) are kept out of the helper's `ALLOWED_HELPER_TOOLS` whitelist. A model that emits a non-whitelisted tool gets a `ToolFailedEvent` without dispatch occurring.
+
 ## Where streaming vs buffering is decided
 
 Not here. `run_session` is always an async generator. Callers choose how to consume it:
 
 - `/chat/stream` — iterate and forward each event as SSE.
 - `/chat/message` — iterate, aggregate into a response object, return once `turn_finished` or `runtime_error` arrives.
+- `/database/helper-chat/stream` — iterates the stateless loop's events instead, but the same SSE framing.
 - any future non-HTTP caller — iterate and handle events directly.
 
 Streaming semantics (heartbeats, backpressure, disconnects) live in the transport layer, not in the runtime. See [transport.md](transport.md) for the producer/consumer queue that wraps this generator into SSE.

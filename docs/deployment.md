@@ -1,8 +1,8 @@
 # Deployment
 
-The app is single-origin: FastAPI serves the UI (`GET /` → `frontend-next/dist/index.html`, hashed bundles at `/assets/*`) and the API. One process, one domain. **TLS is mandatory** — passwords, bearer tokens, and user API keys all move over the wire; without HTTPS they leak.
+The app is single-origin: FastAPI serves the UI (`GET /` → `frontend/dist/index.html`, hashed bundles at `/assets/*`) and the API. One process, one domain. **TLS is mandatory** — passwords, bearer tokens, and user API keys all move over the wire; without HTTPS they leak.
 
-The UI is a Vite/React app under `frontend-next/`. The Dockerfile builds it in a Node 20 stage (`npm ci && npm run build`) and copies the resulting `dist/` into the Python runtime image — no Node ships in production. When `frontend-next/dist/` is missing (e.g. local `python3 run.py` runs without a build), the backend transparently falls back to the legacy vanilla-JS frontend at `frontend/`.
+The UI is a Vite/React app under `frontend/`. The Dockerfile builds it in a Node 20 stage (`npm ci && npm run build`) and copies the resulting `dist/` into the Python runtime image — no Node ships in production. If `frontend/dist/` is missing (e.g. local `python3 run.py` runs without a build), the backend logs a warning and `/` returns 404 — the API still works.
 
 Two documented paths: **Fly.io** (recommended, minimal ops overhead, TLS + volumes built-in) and **self-hosted VPS with Caddy** (more DIY, more control).
 
@@ -29,17 +29,33 @@ fly apps create <your-app-name>
 # CSV exports to grow.
 fly volumes create nfl_data --region iad --size 10 --yes
 
-# Secrets — env vars that aren't in fly.toml for security. Generate the
-# encryption key with the Fernet one-liner below if you don't already have one.
+# Required secrets — generate the encryption key with the Fernet one-liner below
+# if you don't already have one.
 fly secrets set \
     SETTINGS_ENCRYPTION_KEY='<your Fernet key>' \
     REGISTRATION_INVITE_CODE='<a secret code>'
+
+# Optional secrets — Google OAuth ("Continue with Google" button gated on both):
+fly secrets set \
+    GOOGLE_OAUTH_CLIENT_ID='<from Google Cloud Console>' \
+    GOOGLE_OAUTH_CLIENT_SECRET='<from Google Cloud Console>'
+
+# Optional secrets — email verification (RESEND_API_KEY drives /auth/verify-email
+# when EMAIL_VERIFICATION_REQUIRED=1; APP_BASE_URL is also used to build OAuth
+# redirect URLs, so set it whenever Google or Codex OAuth is on):
+fly secrets set \
+    EMAIL_VERIFICATION_REQUIRED='1' \
+    RESEND_API_KEY='<from Resend>' \
+    EMAIL_FROM_ADDRESS='no-reply@yourdomain' \
+    APP_BASE_URL='https://nfl-stats-agent.fly.dev'
 
 # Deploy — builds the Docker image, pushes to Fly's registry, starts a machine
 # with the volume attached. Healthcheck on /health must pass for the deploy
 # to succeed.
 fly deploy
 ```
+
+Sign-in with ChatGPT (Codex device flow) requires no extra secrets — it uses OpenAI's public Codex client ID baked into the codebase.
 
 Generate a Fernet key locally if needed:
 

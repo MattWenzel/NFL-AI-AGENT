@@ -23,10 +23,12 @@ The HTTP layer is three thin bands: **routes** parse requests and translate exce
 
 - Title + version for `/docs` and `/redoc`.
 - `lifespan` context manager (below).
-- CORS middleware (`app.py:65`) — `ALLOWED_ORIGINS` env var replaces the dev defaults wholesale. Local defaults cover `localhost:8001` and Chrome's `null` origin (for `file://` testing). `allow_credentials=False` — no cookies; the frontend sends `Authorization: Bearer <token>` on every request, so credentialed CORS isn't needed.
-- Eight router mounts (`app.py:74`): auth, settings, Google OAuth, chat, conversations, providers, CSV downloads, CSV library.
-- `/health` — single-line health endpoint (`app.py:83`).
-- Static mount (`app.py:91`): `/static/*` → `frontend/static/`; `/` → `FileResponse(frontend/index.html)`.
+- CORS middleware — `ALLOWED_ORIGINS` env var replaces the dev defaults wholesale. Local defaults cover `localhost:8001` and Chrome's `null` origin (for `file://` testing). The browser uses an `HttpOnly` session cookie; `Authorization: Bearer …` is still accepted for API clients and the `/docs` tester.
+- Router mounts: auth, settings, Google OAuth, OpenAI/Codex OAuth, chat, conversations, providers, CSV downloads, CSV library, **tables** (Reports CRUD), **database** (schema browser + helper-chat stream).
+- `SecurityHeadersMiddleware` — CSP, X-Content-Type-Options, Referrer-Policy, Permissions-Policy on every response; HSTS over HTTPS.
+- `RequestIDMiddleware` — adds a per-request id to every log line.
+- `/health` — single-line health endpoint.
+- Static mount: serves `frontend/dist/` when Vite has been built (`/assets/*` and `/` → `index.html`); if the build is missing, logs a warning and `/` 404s.
 
 Module-level `app = create_app()` is what uvicorn imports. One app instance per worker process.
 
@@ -38,7 +40,7 @@ Module-level `app = create_app()` is what uvicorn imports. One app instance per 
 2. **`validate_encryption()`** (`startup.py`). Calls `encryption.require_configured()` — fails fast if `SETTINGS_ENCRYPTION_KEY` is missing or malformed. Failing at startup is strictly better than at the first `PUT /settings/api-keys` an hour later.
 3. **`configure_runtime_state(app)`**. Builds `RuntimeStore(RUNTIME_DB_PATH)`, `ChatRuntime(store)`, and `AppProcessState()`; attaches them to `app.state` so request dependencies can pick them up.
 4. **`await run_housekeeping(app)`**. `purge_expired_auth_sessions`, `ensure_admin_exists` (promotes a user if the role was added to an already-seeded DB), and `count_orphan_rows` (logs a warning for any `NULL user_id` rows invisible to scoped queries).
-5. **`log_environment_state()`**. Logs DB paths + file sizes (nflverse.db, pbp.db, runtime DB) and which providers are configured, with masked key prefixes. Visible proof in logs that everything's in place.
+5. **`log_environment_state()`**. Logs DB paths + file sizes (`nflverse.duckdb`, `runtime.sqlite3`) and which providers are configured, with masked key prefixes. Visible proof in logs that everything's in place.
 
 Shutdown (`app.py:40`): `await app.state.process_state.aclose()` cancels any in-flight Codex OAuth device-flow background tasks so they don't leak past the worker's lifetime.
 
@@ -176,11 +178,22 @@ Routes are in `backend/api/routes/`. Every user-scoped endpoint depends on `get_
 
 **Conversations** (`routes/conversations.py`). `GET /chat/conversations`, `GET /chat/conversations/{id}/transcript`, `PATCH /chat/conversations/{id}` (title/pinned), `DELETE /chat/conversations/{id}`. Transcript endpoint flattens the nested `SessionTranscript` (see [persistence.md](persistence.md#sessiontranscript)) into a response shape the UI can iterate cleanly.
 
+**Reports / tables** (`routes/tables.py`). `GET /reports`, `GET /reports/{id}`, `POST /reports` (create from a SQL query), `PATCH /reports/{id}` (rename, pin, lock toggle), `DELETE /reports/{id}`, plus the streaming chat endpoint that drives the `set_table` / `create_report` flow. A Report is a `kind="table_chat"` session with a backing `TableStateRecord`; routes delegate to `TablesService` in `backend/application/tables.py`.
+
+**Database browser** (`routes/database.py`). `GET /database/tables` (list every table in `nflverse.duckdb` with row counts), `POST /database/query` (single read-only `SELECT`/`WITH`, 500-row cap), `POST /database/save-as-report` (persist a query result as a Report), `POST /database/helper-chat/stream` (the stateless helper-chat SSE stream — see [database-browser.md](database-browser.md)). All CSRF-protected and auth-gated.
+
 **Providers** (`routes/providers.py`). `GET /chat/providers` — returns the provider list with `available=true` iff the server has an env key **or** the calling user has a stored key. Drives the provider dropdown's enabled/disabled state in the UI.
 
 **Settings** (`routes/settings.py`). `GET /settings/api-keys`, `PUT /settings/api-keys/{provider}`, `DELETE /settings/api-keys/{provider}` — Fernet-encrypted per-user keys. `PUT` refuses to accept a raw Codex OAuth key (must go through the device flow).
 
-**Codex OAuth** (`routes/settings.py`). `POST /settings/oauth/codex/start` (rate-limited 5/hour/IP), `GET /settings/oauth/codex/status`, `DELETE /settings/oauth/codex/cancel`. Device-code flow — returns a `user_code` and verification URL, polls OpenAI's device endpoint in a background task, persists the encrypted OAuth bundle on success. See [auth.md](auth.md#chatgpt-oauth).
+**Codex OAuth (Sign in with ChatGPT)** (`routes/oauth_openai.py` + `routes/settings.py`). Device-code flow — returns a `user_code` and verification URL, polls OpenAI's device endpoint in a background task, persists the encrypted OAuth bundle on success. Two entry surfaces:
+
+- *Sign-in path* (`routes/oauth_openai.py`): `POST /auth/oauth/openai/start`, `GET /auth/oauth/openai/status`, `DELETE /auth/oauth/openai/cancel`. Used by the unauthenticated sign-in screen — completing the flow seeds a new account or signs in an existing one.
+- *Settings path* (`routes/settings.py`): `POST /settings/oauth/codex/start` (rate-limited 5/hour/IP), `GET /settings/oauth/codex/status`, `DELETE /settings/oauth/codex/cancel`. Used by an already-authenticated user from Settings → Connect ChatGPT.
+
+See [auth.md](auth.md#chatgpt-oauth).
+
+**Google OAuth** (`routes/oauth_google.py`). `GET /auth/oauth/google/start` (PKCE + state + nonce, 302s to Google), `GET /auth/oauth/google/callback` (verifies state, exchanges code, verifies ID token against Google's JWKS, issues session or attaches identity). Both routes are GETs and CSRF-exempt by the safe-method rule — the `state` parameter is the anti-CSRF for the callback. See [auth.md](auth.md#google-oauth-sign-in).
 
 **CSV library** (`routes/exports.py`). `GET /chat/exports`, `GET /chat/exports/{id}` (preview + metadata), `PATCH /chat/exports/{id}` (rename), `DELETE /chat/exports/{id}`, `POST /chat/exports/{id}/new-session` (seed a fresh conversation with rows from this export). All IDOR-scoped.
 
@@ -241,14 +254,11 @@ There's **no framework-level enforcement** — a new service method that accepts
 
 ## UI wiring
 
-Same FastAPI app serves the browser UI:
+Same FastAPI app serves the browser UI. When `frontend/dist/index.html` exists (production, or after `cd frontend && npm run build` locally): `/assets/*` → `StaticFiles(frontend/dist/assets)`, `/` → `FileResponse(frontend/dist/index.html)`. If the build is missing, the app factory logs a warning and skips both — the API still works, but `/` 404s until you build.
 
-- `/static/*` → `StaticFiles(directory=frontend/static)`.
-- `/` → `FileResponse(frontend/index.html)`.
+Single-origin deployment — no separate static server, no CORS between UI and API.
 
-Single-origin deployment. The UI's `<script src="static/js/app/main.js">` and `<link href="static/css/...">` tags resolve against the static mount. No separate static server, no CORS between UI and API.
-
-API routes registered above the static mount take precedence — `/health`, `/chat/*`, `/auth/*`, etc. all match before the root falls through to `frontend/index.html`.
+API routes registered above the static mount take precedence — `/health`, `/chat/*`, `/auth/*`, `/database/*`, etc. all match before the root falls through to the SPA's `index.html`.
 
 ## Running the server
 

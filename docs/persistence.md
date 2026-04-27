@@ -1,8 +1,8 @@
 # Persistence
 
-Everything the runtime sees between turns is in one SQLite file — `data/runtime.sqlite3`. Sessions, turns, assistant parts, tool runs, compaction summaries, exports, users, API keys, and auth tokens. This doc covers the schema, the lifecycle of a session/turn/tool_run, startup reconciliation, and user-scoping.
+Everything the runtime sees between turns is in one SQLite file — `data/runtime.sqlite3`. Sessions, turns, assistant parts, tool runs, compaction summaries, table state (Reports), exports, users, identities, API keys, auth tokens, email verification, login failures, and security events. This doc covers the schema, the lifecycle of a session/turn/tool_run, startup reconciliation, and user-scoping.
 
-The 2.3GB nflverse and pbp SQLite files are a separate concern — they're read-only reference data (see the [tools doc](tools.md#the-sql-sandbox)) and never mutate at runtime. Everything in this doc is about the runtime DB.
+The `nflverse.duckdb` reference file is a separate concern — it's read-only DuckDB reference data (see the [tools doc](tools.md#the-sql-sandbox)) and never mutates at runtime. Everything in this doc is about the runtime SQLite DB.
 
 ## File map
 
@@ -10,7 +10,7 @@ The 2.3GB nflverse and pbp SQLite files are a separate concern — they're read-
 
 - `backend/data/` — every file imports SQLAlchemy or SQLModel.
   - `store.py` — `RuntimeStore` facade, composed from per-domain mixins (`UsersMixin`, `SessionStoreMixin`, `TranscriptStoreMixin`, `ExportsMixin`, `UserIdentitiesMixin`, `LoginFailuresMixin`, `EmailVerificationMixin`, `SecurityEventsMixin`). Holds sync + async engines, per-session `asyncio.Lock` registry, startup hooks (apply migrations, reconcile interrupted runs).
-  - `tables.py` — SQLModel table classes (`SessionRecord`, `TurnRecord`, `AssistantPartRecord`, `ToolRunRecord`, `CompactionSummaryRecord`, `ExportRecord`, `UserRecord`, `UserApiKeyRecord`, `AuthSessionRecord`, `EmailVerificationRecord`, `LoginFailureRecord`, `UserIdentityRecord`, `SecurityEventRecord`) and helpers (`utcnow`, `new_id`).
+  - `models.py` — SQLModel table classes (`SessionRecord`, `TurnRecord`, `AssistantPartRecord`, `ToolRunRecord`, `CompactionSummaryRecord`, `TableStateRecord`, `ExportRecord`, `UserRecord`, `UserApiKeyRecord`, `AuthSessionRecord`, `EmailVerificationRecord`, `LoginFailureRecord`, `UserIdentityRecord`, `SecurityEventRecord`) and helpers (`utcnow`, `new_id`).
   - `projections.py` — composite/projection types returned by reads (`SessionListEntry`, `SessionTranscript`). Reference SQLModel records, so they live next to the tables.
   - `engine.py` — builder functions for the sync engine (for one-shot migration apply + reconcile), the async engine (`sqlite+aiosqlite://`), and the `async_sessionmaker`. Both engines share one `connect` listener that applies `PRAGMA foreign_keys=ON` + `PRAGMA journal_mode=WAL` + `PRAGMA busy_timeout=5000` on every DBAPI connection.
   - `column_types.py` — `TolerantJSONList` / `ToolInputJSON` TypeDecorators: malformed rows log and fall back to `[]` / `{}` instead of raising. `ToolInputJSON` writes with `sort_keys=True` so the doom-loop detector's string-fingerprint of recent tool calls stays stable.
@@ -50,16 +50,19 @@ There's no pool sizing to tune — `aiosqlite` runs each connection on its own w
 
 ## Schema
 
-All 9 tables are declared as SQLModel classes in `backend/data/models.py`. Column names, defaults, indexes, and FKs are chosen to match the DB schema byte-for-byte (modulo SQLite's dynamic typing — `VARCHAR` and `TEXT` are equivalent) so existing `runtime.sqlite3` files open without migration.
+All tables are declared as SQLModel classes in `backend/data/models.py`. Column names, defaults, indexes, and FKs are chosen to match the DB schema byte-for-byte (modulo SQLite's dynamic typing — `VARCHAR` and `TEXT` are equivalent) so existing `runtime.sqlite3` files open without migration.
 
 ### Chat data
 
 ```
-sessions                              ── one row per conversation
+sessions                              ── one row per conversation OR Report
 ├─ id, created_at, updated_at
 ├─ provider, model, title
 ├─ context_window                    ── from ProviderInfo.effective_context_window
-├─ pinned_at, source_csv_id          ── added post-v1 (schema_version migrations cover future moves)
+├─ kind                              ── "chat" (regular conversation) | "table_chat" (Report)
+├─ pinned_at, source_csv_id, source_session_id
+│                                    ── source_session_id links a Report back to the chat that
+│                                       created it via the create_report tool
 └─ user_id                           ── owner; FK to users(id)
 
 turns                                 ── one row per user/assistant/summary message
@@ -90,6 +93,15 @@ compaction_summaries                  ── one row per compaction event
 ├─ summary_turn_id                    ── FK to the synthetic role='summary' turn
 ├─ source_turn_ids                    ── JSON array of turn IDs compacted into this summary
 └─ created_at
+
+table_states                          ── one row per Report (kind="table_chat" session)
+├─ session_id (PK, FK ON DELETE CASCADE) ── the Report's session
+├─ columns                            ── JSON list of column names
+├─ rows                               ── JSON list of row dicts
+├─ row_count, truncated
+├─ last_sql                           ── the SQL that produced these rows (set_table writes; create_report seeds)
+├─ locked                             ── 1 = set_table calls are rejected; toolbar lock toggle flips this
+└─ updated_at
 
 exports                               ── one row per CSV generated by create_csv_export
 ├─ id, filename (UNIQUE), title, sql

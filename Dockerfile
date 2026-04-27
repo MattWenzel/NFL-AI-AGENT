@@ -5,10 +5,10 @@ WORKDIR /build
 
 # Cache npm install separately from source so deps only re-resolve on
 # package*.json changes.
-COPY frontend-next/package.json frontend-next/package-lock.json ./
+COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 
-COPY frontend-next/ ./
+COPY frontend/ ./
 RUN npm run build
 # Output: /build/dist (index.html + assets/)
 
@@ -33,9 +33,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Drop the built UI in alongside the source. The backend serves it from
-# frontend-next/dist (index.html + /assets/*). The legacy frontend/ tree
-# still ships in the image as a fallback for a quick rollback.
-COPY --from=frontend-builder /build/dist ./frontend-next/dist
+# frontend/dist (index.html + /assets/*).
+COPY --from=frontend-builder /build/dist ./frontend/dist
 
 # Create the volume mount points inside the image so a fresh container
 # (e.g. local docker run without a volume) has writable dirs. Fly's volume

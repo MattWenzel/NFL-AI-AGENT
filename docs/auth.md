@@ -1,8 +1,8 @@
 # Auth
 
-Open multi-user password auth. Register, log in, get an opaque session token, then authenticate either via the browser session cookie or `Authorization: Bearer <token>`. No JWT. First user becomes admin; subsequent users are regular users. Optional invite-code gate closes registration.
+Open multi-user authentication. Register with a password, sign in with Google, or sign in with ChatGPT (Codex device flow). Issued credential is an opaque session token, then authenticate via the browser session cookie or `Authorization: Bearer <token>`. No JWT. First user becomes admin; subsequent users are regular users. Optional invite-code gate closes password registration.
 
-This doc covers the password flow, token scheme, rate limiting, Fernet-encrypted per-user API keys, the Codex OAuth device-code flow (for ChatGPT users), and the planned Google OAuth migration path. Deployment-side env vars (`SETTINGS_ENCRYPTION_KEY`, `ALLOWED_ORIGINS`, etc.) are in [deployment.md](deployment.md).
+This doc covers the password flow, token scheme, rate limiting, browser session cookie + CSRF protection, Fernet-encrypted per-user API keys, the Codex OAuth device-code flow (for ChatGPT users — both as a credential for chat and as a sign-in method), and Google OAuth sign-in/linking. Deployment-side env vars (`SETTINGS_ENCRYPTION_KEY`, `ALLOWED_ORIGINS`, `GOOGLE_OAUTH_CLIENT_ID`, etc.) are in [deployment.md](deployment.md).
 
 ## File map
 
@@ -49,9 +49,16 @@ This doc covers the password flow, token scheme, rate limiting, Fernet-encrypted
 | `DELETE` | `/auth/me` | Yes | 20 / 15 min / IP | Cascade delete — user, sessions, keys, conversations, exports (incl. unlinking CSVs on disk). |
 | `GET` | `/settings/api-keys` | Yes | — | Per-provider `ApiKeyStatus` (has_key; for OAuth: email + expires_at). |
 | `PUT` | `/settings/api-keys/{provider}` | Yes | — | Set / clear an API key. Refuses a raw Codex OAuth key (use the device flow). |
-| `POST` | `/settings/oauth/codex/start` | Yes | 5 / 60 min / IP | Starts ChatGPT device-code flow; returns `user_code` + `verification_url`. |
+| `POST` | `/settings/oauth/codex/start` | Yes | 5 / 60 min / IP | Starts ChatGPT device-code flow from Settings; returns `user_code` + `verification_url`. |
 | `GET` | `/settings/oauth/codex/status` | Yes | — | Polls `pending` / `complete` / `expired` / `error` for an in-flight flow. |
 | `DELETE` | `/settings/oauth/codex/cancel` | Yes | — | Cancels the background polling task. |
+| `POST` | `/auth/oauth/openai/start` | No | 5 / 60 min / IP | Sign-in with ChatGPT — same device-code flow, but invoked from the unauthenticated sign-in screen. On success, creates a new account or signs in the existing one. |
+| `GET` | `/auth/oauth/openai/status` | No | — | Status poll for the sign-in flow. Issues a session on `complete`. |
+| `DELETE` | `/auth/oauth/openai/cancel` | No | — | Cancels the sign-in flow. |
+| `GET` | `/auth/oauth/google/start` | No | — | Begins Google OAuth (PKCE + state + nonce); 302s to Google. |
+| `GET` | `/auth/oauth/google/callback` | No | — | Handles Google's redirect; verifies state and ID token; issues session (sign-in flow) or attaches identity (link flow). |
+| `GET` | `/settings/identities` | Yes | — | Lists the user's linked auth identities. |
+| `DELETE` | `/settings/identities/{provider}` | Yes | — | Unlinks an identity. Refused when it would leave the user with no way to sign in. |
 
 Routes are thin translators: parse the request, call the service, translate service exceptions to HTTP. The actual business logic lives in `backend/application/`; see [transport.md](transport.md#services-layer).
 
@@ -138,6 +145,18 @@ Stored as the primary key of `auth_sessions` alongside `user_id`, `expires_at`, 
 
 Default 30 days (`AUTH_TOKEN_TTL_DAYS` env var). The lifespan purges expired sessions on startup (via `run_housekeeping` in `backend/server/startup.py`); the resolver cleans them up lazily on access. No background sweeper — the two together are enough.
 
+### Browser session cookie + CSRF
+
+The browser UI doesn't store the bearer token in JS — it rides an `HttpOnly`, `Secure`, `SameSite=Lax` cookie named `session`. `Authorization: Bearer …` is still accepted (API clients, the `/docs` tester) but the React app never sends it.
+
+Because cookies are auto-attached cross-origin, the cookie path needs CSRF protection. The implementation (`backend/server/csrf.py`, attached as a dependency by every router that mutates state) is **double-submit**:
+
+1. On any successful auth response (login, register, OAuth callback), the server sets a JS-readable `csrf_token` cookie alongside the `session` cookie.
+2. The browser reads `csrf_token` from `document.cookie` on each mutating request and echoes it in the `X-CSRF-Token` header.
+3. `verify_csrf` (the dependency) compares the cookie against the header and rejects mismatches with 403. Bearer-token requests (no cookie) skip the check — browsers can't auto-attach `Authorization` cross-origin, so CSRF doesn't apply.
+
+Safe-method requests (GET / HEAD / OPTIONS) skip the check by convention; mutating routes register the dependency explicitly.
+
 ## Rate limiting
 
 `backend/server/rate_limit.py`. In-memory sliding-window limiter, keyed by client IP. Four limiters live on `AppProcessState` (`backend/server/process_state.py`):
@@ -191,6 +210,11 @@ The `decrypt` error path deliberately treats this as "no key" rather than raisin
 ## Codex OAuth flow
 
 Some users don't have an OpenAI API key but do have a ChatGPT subscription. OpenAI's Codex CLI exposes a public client ID (`CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"`, `backend/domain/auth/codex_oauth.py:28`) that lets a third-party app stand up the same device-code flow Codex uses, talking to `https://auth.openai.com`.
+
+The same flow drives **two surfaces**: a *credential* path (already-authenticated user from Settings → Connect ChatGPT, providing a chat credential) and a *sign-in* path (unauthenticated user clicking "Sign in with ChatGPT" on the auth screen, which seeds an account on completion). Both pass through `CodexOAuthService` and `run_device_flow`; the difference is the route that starts them and what happens when the bundle returns:
+
+- *Credential path* (`/settings/oauth/codex/*`): on success, the encrypted bundle goes into `user_api_keys` for the current user.
+- *Sign-in path* (`/auth/oauth/openai/*`): on success, the email from the JWT is matched against existing users — found → sign in; not found → `create_user_account` with the OAuth password sentinel, seeding a `('openai-codex', <sub>)` identity row. Either way, `issue_session` sets the session + csrf cookies and the next page load is signed in.
 
 ### Protocol (`backend/domain/auth/codex_oauth.py`)
 
@@ -258,18 +282,21 @@ Three reasons:
 
 If the app ever needs true horizontal scale, moving to JWT + a denylist cache (Redis) is an option, but the current shape is right-sized for personal / small-team deployments.
 
-## Google OAuth path
+## Google OAuth sign-in
 
-The Codex OAuth flow and Google sign-in/linking paths are both live. The shared auth lifecycle helpers keep Google account creation aligned with password registration:
+Live since 2026-04-23. Users can sign up / sign in with Google, and existing password users can link their Google account from Settings → Account. The shared auth lifecycle helpers keep Google account creation aligned with password registration:
 
 - `create_user_account` (`backend/domain/auth/lifecycle.py`) takes an already-verified identity (`IdentitySeed` with the OAuth password sentinel and `verified=True`). Both the password registration path and the OAuth callback go through it.
-- `issue_session` is the same for both paths.
+- `issue_session` is the same for both paths — sets the same `session` + `csrf_token` cookies and stores the row in `auth_sessions`.
 
 The Google-specific pieces:
 
-- `user_identities` table linking `(user_id, provider, provider_subject)`, seeded with `('password', email)` rows for existing users.
-- `/auth/oauth/google/start` + `/auth/oauth/google/callback` endpoints doing the PKCE dance.
-- A Google button in the UI's reserved `.auth-alt` slot.
-- A settings-modal "Linked Accounts" section to unlink identities.
+- `user_identities` table linking `(user_id, provider, provider_subject)`. A user who registered with a password has one `('password', email)` row; signing in with Google later adds a second `('google', <google_sub>)` row (auto-link by verified email). Deleting the user cascades.
+- OAuth-only users (no password) get `users.password_hash = "!"` — a sentinel that bcrypt rejects, so `verify_password` is False for any attempt. Avoids a NOT NULL schema rebuild and keeps the password verification path uniform.
+- `/auth/oauth/google/start` (generates PKCE + state + nonce, 302s to Google) + `/auth/oauth/google/callback` (verifies state, exchanges code, verifies the ID token against Google's JWKS — cached 1h).
+- A "Continue with Google" button on the sign-in screen, gated on whether `GOOGLE_OAUTH_CLIENT_ID` + `GOOGLE_OAUTH_CLIENT_SECRET` are set.
+- Settings → **Account** lists every linked identity (password, google, openai-codex) and lets the user unlink any *non-final* one. Unlinking is refused if it would leave the user with no way to sign in (e.g. an OAuth-only user can't unlink their last identity).
 
-Follow-up work is tracked in `CLAUDE.md`.
+The OAuth `state` parameter is the anti-CSRF for the callback (it's a GET, so the usual `X-CSRF-Token` header check doesn't apply); session cookies still travel on the callback, which is how the server distinguishes a *link flow* (authenticated user already attached) from a *sign-in flow* (no current session).
+
+Follow-up work: OAuth-only users currently can't set a password. Adding `POST /auth/set-password` (authenticated session, rejects if `password_hash != "!"`, writes a real bcrypt hash, seeds a `password` identity row) would let an OAuth user become a hybrid password+Google user. Not blocking — users can keep using OAuth indefinitely, or unlink Google if another identity exists.

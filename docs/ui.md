@@ -1,232 +1,162 @@
 # UI
 
-A zero-framework browser app. Vanilla JavaScript modules, a handful of globals, and a single `<script type="module">` entrypoint. Everything lives under `frontend/` and mounts into the single `frontend/index.html` shell. No build step, no bundler, no npm.
+A React + Vite + TypeScript browser app under `frontend/`. Tailwind for styling, [shadcn/ui](https://ui.shadcn.com/) for the component primitives, [lucide-react](https://lucide.dev/) for icons. Built with `npm run build`; the resulting `frontend/dist/` is served by FastAPI at the same origin (see [transport.md](transport.md#ui-wiring)). No separate static server, no CORS.
 
-This doc covers the boot flow, state shape, SSE consumption, the `patchLiveText` performance trick, settings/auth plumbing, and cross-tab sync.
+This doc covers the boot flow, the central `chatStore`, SSE consumption, the AppShell + alternate-inspector pattern (used by the Database tab), the Reports view, and the auth screen.
 
 ## File map
 
-- `frontend/index.html` — HTML shell, static CSS links, and `static/js/app/main.js`.
-- `frontend/static/js/app/` — boot, event wiring, and the top-level render orchestrator.
-- `frontend/static/js/core/` — shared state/render hook, fetch helpers, markdown/DOM utilities, Chart.js lifecycle.
-- `frontend/static/js/features/auth/` — session UI state, `/auth/status` boot, login/register screens.
-- `frontend/static/js/features/chat/` — composer controls, SSE streaming, transcript rendering, live-turn fast path.
-- `frontend/static/js/features/conversations/` — conversation sidebar list and selection/deletion flows.
-- `frontend/static/js/features/exports/` — CSV/report list, preview, rename/delete, download, seed-new-chat flows.
-- `frontend/static/js/features/inspector/` — runtime inspector panel.
-- `frontend/static/js/features/navigation/` — sidebar tab switching and drawer state.
-- `frontend/static/js/features/settings/` — settings modal, provider credentials, linked identities, Codex OAuth device flow.
-- `frontend/static/js/components/` — small reusable widgets such as confirm dialogs.
-- `frontend/static/css/base/`, `components/`, `features/` — CSS grouped by the same high-level ownership.
+```
+frontend/
+├── index.html                    # Vite entry; mounts <div id="root">
+├── vite.config.ts                # build → frontend/dist/
+├── package.json
+└── src/
+    ├── main.tsx                  # ReactDOM.createRoot(...).render(<App />)
+    ├── App.tsx                   # top-level shell: routing between chat / reports / database, persistence
+    ├── components/
+    │   ├── auth/                 # sign-in / sign-up screens
+    │   ├── chat/                 # transcript renderer (exchange grouping, streaming)
+    │   ├── command/              # ⌘K command palette
+    │   ├── composer/             # message composer + provider/model/tool-choice dropdowns
+    │   ├── database/             # Database tab — DatabaseView, DbHelperChat, HelperComposer, HelperMessageList
+    │   ├── inspector/            # right-pane tool-call details (the regular agent's transcript)
+    │   ├── layout/               # AppShell — three-column desktop, drawers on mobile
+    │   ├── settings/             # account + provider keys + linked identities
+    │   ├── sidebar/              # conversation/report list with column-search
+    │   ├── tables/               # Reports view — TableChatView, save flow
+    │   ├── theme/                # theme tokens + provider
+    │   ├── thread/               # legacy thread renderer (still used in spots)
+    │   └── ui/                   # shadcn primitives (Button, Dialog, Input, Sheet, …)
+    └── lib/
+        ├── api.ts                # apiFetch + CSRF plumbing + 401 handling
+        ├── auth.ts               # /auth/* API client
+        ├── chatStore.ts          # central chat state — sessions, exchanges, streaming, providers
+        ├── chatContext.tsx       # React context + provider for chatStore
+        ├── dbHelperChat.ts       # useDbHelperChat() — Database-tab helper hook (stateless)
+        ├── tablesStore.ts        # Reports / table_chat state
+        ├── tablesContext.tsx     # context for the Reports view
+        ├── activeTable.ts        # current Report selection
+        ├── database.ts           # /database/* API client
+        ├── tables.ts             # /reports + /tables API client
+        ├── sse.ts                # openSseStream() — POST + stream reader
+        ├── providers.ts          # LLM provider registry mirror
+        ├── settings.ts           # /settings/* API client
+        ├── csv.ts                # CSV download helpers
+        ├── theme.ts              # theme storage
+        ├── datetime.ts           # formatting helpers
+        ├── types.ts              # shared TypeScript types
+        └── utils.ts              # cn()
+```
 
-The browser loads only `static/js/app/main.js`; native ES module imports pull in the rest. Relative import paths now encode ownership, so missing paths fail loudly in the browser console.
+`@/` resolves to `frontend/src/`.
 
 ## Boot flow
 
-`static/js/app/main.js`. Self-invoking async IIFE:
+`main.tsx` mounts `<App />` into `#root`. `App.tsx`:
 
-```
-boot()
-  ├─ bootAuth()                        # features/auth/service.js
-  │    ├─ fetch /auth/status with the session cookie
-  │    ├─ if authenticated: hideAuthScreen, return true
-  │    └─ else: renderAuthScreen(login|register), return false
-  │
-  └─ if authed: init()                  # main.js:128
-       ├─ renderUserWidget(user)
-       ├─ loadProviders()
-       ├─ parallel: refreshConversations + refreshCsvs
-       ├─ if activeSessionId valid: loadTranscript(id)
-       ├─ applySidebarView() (chats | csvs tab)
-       └─ render()
-```
+1. Reads the persisted `lastView` from `localStorage` (a `{kind: 'chat' | 'reports' | 'database', ...}` discriminated union) so refresh restores the same tab.
+2. `useAuth()` calls `GET /auth/status`. While loading, renders a spinner. Unauthenticated → renders `<AuthScreen />`. Authenticated → renders the main app.
+3. `<ChatProvider>` and `<TablesProvider>` wrap the tree, exposing `chatStore` and `tablesStore` via context.
+4. The shell is `<AppShell sidebar={...} main={...} inspector={...} />`. The active view (`chat` / `reports` / `database`) decides which component sits in `main`. The Database tab additionally passes an `alternateInspector={<DbHelperChat />}` so the right pane swaps to the helper-chat panel for that view only.
+5. Persistence effect: any change to the active view writes `lastView` back to `localStorage`.
 
-The login form on success sets `_currentUser`, hides the auth screen, broadcasts a cross-tab auth marker, and calls `postLoginInit()` → `init()` — the same boot as a cold page load from a valid cookie. One entry point.
+## `chatStore` — central agent state
 
-## The global `state`
+`lib/chatStore.ts` (~570 lines). The biggest single module in the UI; conceptually the React equivalent of the legacy `state` object plus `render()` glue. Owns:
 
-`state.js:3`. A single plain object holding everything the UI tracks. Key fields:
+- `conversations: ConversationListEntry[]` — sidebar list metadata.
+- `transcripts: Map<sessionId, Transcript>` — full transcripts, lazy-loaded on selection.
+- `activeSessionId: string | null` — persisted; what's currently in the main pane.
+- `selectedTurnId: string | null` — what the inspector shows.
+- `liveExchange: LiveExchange | null` — the in-flight user→assistant pair, with sub-states for streaming text and per-tool status. Distinct from the persisted transcript so the streaming render can be efficient and the post-stream reload doesn't double-render anything.
+- `providers`, `selectedProvider`, `selectedModel`, `toolChoice` — composer state, persisted to `localStorage`.
+- `isStreaming: boolean` — guards double-sends.
 
-| Field | Type | Purpose |
-|-------|------|---------|
-| `conversations` | `array` | List metadata for the sidebar (title, updated_at, turn count). |
-| `transcripts` | `Map<id, transcript>` | Full transcripts, lazy-loaded on selection. |
-| `activeSessionId` | `string \| null` | Currently open conversation; persisted to localStorage. |
-| `selectedTurnId` | `string \| null` | Which turn's tool runs show in the inspector. |
-| `liveTurn` | `object \| null` | The in-flight turn being streamed. See below. |
-| `isStreaming` | `bool` | Guards against double-sends. |
-| `providers` | `array` | From `/chat/providers`. |
-| `selectedProvider` / `selectedModel` | `string` | Current dropdown selections; persisted. |
-| `inspectorOpen` | `bool` | Right panel visibility. |
-| `thinkingOpen` | `Set<turnId>` | Per-turn "show tool calls" toggles. |
-| `csvs`, `activeCsvId`, `csvDetails` | — | CSV library tab state. |
-| `chartInstances` | `Map<chartId, Chart>` | Chart.js instance lifecycle — necessary because Chart.js binds to canvas refs that re-renders would invalidate. |
-| `pendingCharts` | `Map<chartId, spec>` | Chart specs queued during streaming; applied after final render. |
-| `toolChoice` | `"auto" \| "required" \| "none"` | Composer dropdown; persisted to localStorage; sent as `tool_choice` on the next `/chat/stream` call. |
-| `sidebarView`, `sidebarSearch` | `string` | Sidebar tab (chats / csvs) + filter text. |
+Mutations go through reducer-style methods (`sendMessage`, `selectTurn`, `loadTranscript`, …) that produce a new state object; React's `useSyncExternalStore` (or the equivalent context-based hook in `chatContext.tsx`) re-renders subscribers. No manual `requestRender()` like the legacy app — React handles diffing.
 
-No reactive framework. Mutations to `state` are followed by a call to `requestRender()` from `state.js`, which delegates to the render hook registered by `main.js`. This works because the app is small — most operations touch one section at a time, and the perf-critical path (text deltas) bypasses the full re-render entirely via `patchLiveText`.
+The "exchange" abstraction is unique to this UI. A user message + the assistant's response (which may include multiple iterations and tool calls) is grouped into one `Exchange` for rendering, so the chat reads as a conversation rather than a flat list of turns.
 
 ## SSE consumption
 
-`streaming.js:1`. `sendMessage()` is the central handler.
+`lib/sse.ts`. `openSseStream(path, body, {signal})` is a tiny generator that wraps `fetch(...)` with `Accept: text/event-stream`, reads the response body as a stream, and yields parsed `data: {json}` events. Used by both the regular chat (`chatStore.sendMessage` against `/chat/stream`) and the Database helper (`useDbHelperChat.send` against `/database/helper-chat/stream`).
 
-Flow:
-
-1. Guard: don't fire if `isStreaming` or text is empty.
-2. Initialize `state.liveTurn` with empty `assistantText`, empty `toolRuns`, status `"starting"`.
-3. `fetch('/chat/stream', { credentials: "same-origin", headers: {"X-CSRF-Token": ...}, body: {...} })`.
-4. On 401 → `handleUnauthorizedResponse()` runs the auth handler registered by `main.js`, clearing the user and showing the auth screen.
-5. On other non-2xx → throw.
-6. Read the response body as a stream. Decode chunks, split on `\n`, collect complete `data: {json}` lines, parse, dispatch to `handleStreamEvent(event)`.
-7. Buffer incomplete trailing lines for the next chunk (important — events can cross chunk boundaries).
-
-### Event dispatch
-
-`handleStreamEvent` (`streaming.js:87`) branches on `event.type`:
-
-| Event | State change |
-|-------|--------------|
-| `conversation_id` | Set `activeSessionId`, persist to localStorage. Essential for new conversations — the session id is only known server-side until the first response. |
-| `assistant_started` | `liveTurn.status = "responding"`. |
-| `text` | Append to `liveTurn.assistantText`; patch DOM via `patchLiveText`; skip `render()` on fast path. |
-| `tool_call` | Push a `toolRun` with status `"running"`. |
-| `tool_result` | Flip the matching `toolRun` to `"completed"`; status → `"thinking"`. |
-| `tool_failed` | Flip `toolRun` to `"error"` with message. Do **not** push to `liveTurn.errors` — the inline failed chip already surfaces it. |
-| `compaction` | Store `event.meta` on `liveTurn.compaction` for the inspector. |
-| `retrying` | Write a transient `liveTurn.notice` ("Retrying in 3s — rate limited") so the composer shows backoff progress instead of a silent stall. |
-| `error` | Status → `"error"`; push message to `liveTurn.errors`. |
-| `done` | `finishLiveTurn()` — clear liveTurn, refresh conversations/csvs, reload transcript. |
-
-Every branch except `text` (fast path) ends with `render()`.
-
-### The `patchLiveText` fast path
-
-`streaming.js:70`. The single most important line of JS in the app for perceived performance.
-
-Streaming emits dozens of text deltas per second. A full `render()` on each one would:
-
-1. Re-parse markdown for every turn in the transcript (marked.js isn't free).
-2. Tear down and rebuild Chart.js instances on every chart in the thread.
-3. Recompute scroll positions and cause visible layout thrash.
-
-On a long conversation with charts, this chokes the main thread. The typing animation stops animating.
-
-`patchLiveText` directly updates the DOM node of the live turn's text:
-
-```js
-const el = document.querySelector('[data-live-turn="true"] [data-live-text="true"]');
-el.innerHTML = renderMarkdown(state.liveTurn.assistantText || "");
+```ts
+for await (const event of openSseStream('/chat/stream', body, { signal: ctrl.signal })) {
+  switch (event.type) {
+    case 'text': /* append delta */ break
+    case 'tool_call': /* push to liveExchange */ break
+    case 'tool_result': /* mark completed */ break
+    case 'tool_failed': /* mark failed */ break
+    case 'compaction': /* meta for inspector */ break
+    case 'retrying': /* notice text */ break
+    case 'error': /* push error */ break
+    case 'done': /* finalize */ break
+  }
+}
 ```
 
-Only the live turn's text node changes; every other turn in the thread is untouched. The function also nudges the scroll position to the bottom **only if the user is already near the bottom** (`scrollHeight - scrollTop - clientHeight < 120`). This lets the reader scroll up to review an earlier turn without the stream yanking them back.
+`AbortController` cancellation flows through to the underlying fetch, so the stop button on the composer cleanly aborts the request — and the runtime's `finally` block flips any in-flight tool runs to `interrupted` server-side (see [runtime.md](runtime.md#cleanup-on-early-exit)).
 
-Returns `true` if the patch landed. The first text delta of a turn is before the live card is in the DOM, so it returns `false` and the handler falls through to a full `render()` — one full render per turn, rather than one per delta.
+## AppShell + the alternate-inspector pattern
 
-### `finishLiveTurn`
+`components/layout/AppShell.tsx`. Three-column desktop shell: sidebar (left, resizable), main (center), inspector (right, optional). Mobile collapses sidebar and inspector into Sheet drawers.
 
-`streaming.js:141`. On `done`:
+The right pane has two modes:
 
-1. **Clear `state.liveTurn` BEFORE reloading the transcript.** The loaded transcript re-creates the persisted turn; if `liveTurn` is still present, the thread renders both, Chart.js binds to the wrong canvas, and the chart ends up empty until refresh.
-2. Refresh conversations (so titles / timestamps update) and CSVs (so a newly-generated export appears in the library tab) in parallel.
-3. Reload the transcript and render.
+- **Default**: `inspector` prop renders the regular `<Inspector />` — tool-call details, compaction metadata for the selected turn.
+- **Alternate**: when the parent passes `alternateInspector={<X />}`, that takes precedence over `inspector`. Used exclusively by the Database tab to swap in `<DbHelperChat />` instead of the regular inspector.
 
-## Auth integration
+The alternate path also opts into different click-away behavior: clicks anywhere outside the alternate panel — including in the main pane — close it (the helper is a side conversation, not a drill-down on the main view), with exemptions for buttons / selects / Radix popover content that need to handle their own clicks first. The default path treats clicks inside `<main>` as in-bounds (because they're often "select another message to inspect").
 
-### Browser session
+## Reports view (table_chat)
 
-The browser uses an HttpOnly `session` cookie plus a JS-readable `csrf_token` cookie. `fetchJSON()` sends `credentials: "same-origin"` and echoes `csrf_token` as `X-CSRF-Token` on mutating requests. JavaScript never reads the session token itself.
+`components/tables/TableChatView.tsx`. A Report is a `kind="table_chat"` session with a backing `TableStateRecord` (see [persistence.md](persistence.md)). The view shows the live table at the top, a chat thread below it, and a composer at the bottom — same composer as regular chat. The agent has access to `set_table` (rewrite the SQL backing the table) and `create_report` (spawn a new Report from a query). A lock toggle on the toolbar flips `table_states.locked`; while locked, the agent's `set_table` calls are rejected server-side.
 
-### Cross-tab sync
+Saving a result via the Database tab's "Save as Report" button auto-locks the new Report so it doesn't get rewritten by an off-hand follow-up.
 
-`features/auth/service.js`. A `storage` event listener watches the `nfl_auth_state` marker key. If another tab signs in or out, the current tab reloads. This covers:
+## Database view
 
-- User signs out in tab A → tab B reloads to the auth screen.
-- User signs in as someone else in tab A → tab B reloads with the new identity.
+`components/database/DatabaseView.tsx`. Read-only schema browser + SQL editor. The right pane is `<DbHelperChat />`, backed by `useDbHelperChat()` (`lib/dbHelperChat.ts`) — see [database-browser.md](database-browser.md) for the architecture. The helper drives the editor via a ref forwarded into `DatabaseView` (`useImperativeHandle`-exposed `runQuery(sql)`).
 
-Full `location.reload()` rather than cleanup-in-place. Cleanup would need to chase every in-flight request and every state island; reload is simpler and correct.
+## Auth screen
 
-### `handleUnauthorized`
+`components/auth/`. Three sign-in paths in order of UI prominence:
 
-`features/auth/service.js`. Registered in `main.js` through `setUnauthorizedHandler(handleUnauthorized)`. Fetch helpers and streaming call the core `handleUnauthorizedResponse()` hook when a protected request returns 401. The auth handler sets `_currentUser = null` and shows the auth screen **without a page reload** — preserves any draft text the user was composing in the message input.
+1. **Continue with Google** — a single button; click flows through `/auth/oauth/google/start`. The button is suppressed when the server hasn't been configured with `GOOGLE_OAUTH_CLIENT_ID`.
+2. **Sign in with ChatGPT** — kicks off `POST /auth/oauth/openai/start`, shows the device code, polls `GET /auth/oauth/openai/status` every 2 s until the user finishes the flow at `https://auth.openai.com/codex/device`.
+3. **Email + password** — register or log in. The registration form requires an invite code if the server has one configured.
 
-## Inspector and Thread rendering
-
-### Thread
-
-`thread.js` (largest file, ~480 lines). Renders all turns into the main column. Handles:
-
-- Markdown-to-HTML via `renderMarkdown` (delegates to marked.js with GFM + line breaks).
-- Tool call display: collapsible per-turn "Thinking..." block with status chips per tool.
-- Chart mount points: a `<canvas>` per chart; rendering happens post-DOM-paint via `pendingCharts` queue in `state` and a `requestAnimationFrame` flush.
-- "Copy" buttons on code blocks and chart data.
-- Live turn vs persisted turn: the live turn is marked with `data-live-turn="true"` so `patchLiveText` can find it quickly.
-
-### Inspector
-
-`inspector.js`. Right-side panel showing the currently-selected turn's tool runs in detail — full inputs, full outputs, duration, hint. Also renders compaction metadata when `liveTurn.compaction` is set.
-
-Toggled via `inspectorOpen` state. On mobile, rendered as a drawer over the thread; on desktop, as a persistent column.
-
-### Sidebar
-
-`sidebar.js`. Two tabs (chats, csvs) switched via `state.sidebarView`. Chats tab renders the conversation list with a search filter (`state.sidebarSearch`). CSVs tab lists generated exports. Both share the same search input.
-
-## Settings modal
-
-`features/settings/service.js`. Two tabs, Providers and Account.
-
-### Providers tab
-
-Fetched on open:
-
-- `GET /settings/api-keys` → per-provider `ApiKeyStatus` (has_key; for Codex OAuth, also `email` and `expires_at`).
-- `PUT /settings/api-keys/{provider}` with a plaintext key to save; `PUT` with null/empty (or `DELETE`) to clear.
-
-For providers with `credential_shape === "codex_oauth"` (ChatGPT), the UI renders a **Connect** button instead of a key input, and the click kicks off the device-code flow:
-
-1. `POST /settings/oauth/codex/start` — receives `pending_id`, `user_code`, `verification_url`, `expires_in`.
-2. Renders the code + a link to `https://auth.openai.com/codex/device`. User enters the code there.
-3. Polls `GET /settings/oauth/codex/status` every 2 s until the flow reaches a terminal state (`complete` / `expired` / `error`).
-4. On `complete`, re-loads provider status (now shows "Connected as <email>, expires <date>").
-5. On close-before-complete, `DELETE /settings/oauth/codex/cancel` tears down the background task.
-
-Keys are stored encrypted server-side via Fernet (see [auth.md](auth.md#api-keys)); the UI never has access to the ciphertext or the encryption key. OAuth bundles are stored the same way. From the UI's perspective it's a write-only blob.
-
-### Account tab
-
-Password change (`PUT /auth/password`) and account delete (`DELETE /auth/me`). Account delete requires password confirmation in the form — server also re-validates.
+On success, every path lands on the same `init()` — same as a cold load against a valid session cookie. One entry point.
 
 ## Fetch helpers
 
-`utils.js` and `api.js`. Thin wrappers:
+`lib/api.ts`. `apiFetch(path, opts)`:
 
-- `fetchJSON(url, opts)` — handles 401 → `handleUnauthorized`, parses JSON, throws on non-2xx.
-- `loadProviders()`, `loadTranscript(id)`, `refreshConversations()`, `refreshCsvs()` — endpoint-specific wrappers that update `state` and call `render()`.
+- Sends `credentials: "same-origin"` (cookies travel automatically on the same origin).
+- Reads `csrf_token` from `document.cookie` and echoes it as `X-CSRF-Token` on mutating methods. The double-submit pattern is enforced server-side via `verify_csrf` (see [auth.md](auth.md#browser-session-cookie--csrf)).
+- Throws `ApiError(status, detail)` on non-2xx.
+- 401 → calls the registered `onUnauthorized` handler (set by `App.tsx`). Clears the user from `chatStore` and re-mounts the auth screen *without a page reload*, preserving any draft text in the composer.
 
-`fetchJSON()` handles same-origin cookies and CSRF headers centrally. The endpoint-specific wrappers stay in `api.js`; process modules call `fetchJSON()` directly when an endpoint belongs to that process.
+Endpoint-specific clients (`auth.ts`, `database.ts`, `tables.ts`, `settings.ts`) wrap `apiFetch` with typed request/response shapes.
 
-## Charts
+## Settings dialog
 
-`charts.js` + `state.chartInstances`. Chart.js is heavy — ~200KB — but the app needs proper interactive charts, not static images. The tricky bit is lifecycle: Chart.js binds to a canvas element, and if the canvas gets re-parented by a re-render, the chart has to be destroyed and rebuilt.
+`components/settings/`. Three sections in one dialog (max height 85vh, capped at 720px so it fits laptop displays):
 
-`state.chartInstances` keys by a stable `data-chart-id` attribute the renderer assigns. On re-render:
+- **Account** — password change, account delete, plus the linked-identities list (password / google / openai-codex). Unlink buttons are disabled when removing the identity would leave the user with no way to sign in.
+- **Providers** — per-provider API key status. Anthropic + OpenAI take a raw key; "ChatGPT" renders a Connect button that runs the Codex device flow ([auth.md](auth.md#codex-oauth-flow)).
+- **Appearance** — theme toggle.
 
-1. Check if a chart instance exists for this id and canvas.
-2. If yes, leave it alone.
-3. If no (new chart or canvas replaced), destroy any stale instance and build a new one.
+The dialog never sees plaintext keys after they're set — server returns only `has_key` (and for Codex, `email` + `expires_at`). From the UI's perspective it's a write-only blob.
 
-`pendingCharts` queues specs produced during streaming so charts don't render mid-stream (when the rest of the thread is still re-rendering rapidly). Charts are flushed after `finishLiveTurn` reloads the transcript.
+## Theming and design tokens
 
-## No framework — why?
-
-The app has maybe 1500 effective lines of JS. Most state transitions are linear (user types → send → stream → reload). React / Vue / Svelte would add a build step, a reactive system, component boundaries, and meaningfully more cognitive overhead for this code size. `render()` from scratch on most mutations + `patchLiveText` for the one hot path covers it.
-
-The cost: there's no component boundary. Adding a new pane means reading every file to figure out where state lives and where `render()` is called. This would be brittle at 5× the size. At current size, it's faster.
+Tailwind with custom design tokens in `tailwind.config.ts` and CSS variables on `<html>`. The `theme/` provider syncs the active theme to `localStorage` and applies a class to `<html>` so Tailwind's `dark:` variants work everywhere. IBM Plex is wired in via `index.html` for the display font.
 
 ## Adding UI
 
-- **New endpoint integration**: write a fetch wrapper in `api.js` or the owning process module. Use `fetchJSON()` to get cookies, CSRF, and 401 handling.
-- **New state field**: add to `state.js`, update everywhere that reads or mutates it, call `render()`.
-- **New DOM element**: add to `frontend/index.html`, wire event listeners in `static/js/app/main.js`. Style in the matching `frontend/static/css/` ownership folder.
-- **New streaming event**: add a case to `handleStreamEvent`, add a server-side emitter to [transport.md's](transport.md#sse-event-catalog) catalog.
+- **New endpoint**: write a typed wrapper in the matching `lib/<feature>.ts` using `apiFetch`.
+- **New view in the main pane**: extend the `View` discriminator in `App.tsx`, add a render branch, persist via `lastView`.
+- **New SSE event**: add a case in the consumer (`chatStore` or `dbHelperChat`), and add a server-side emitter to [transport.md's](transport.md#sse-event-catalog) catalog.
+- **New right-pane surface**: pass `alternateInspector` from `App.tsx` for the relevant view; otherwise stick with the default `<Inspector />`.

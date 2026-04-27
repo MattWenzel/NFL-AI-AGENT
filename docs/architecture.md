@@ -1,6 +1,6 @@
 # Architecture
 
-The app is an AI chat agent over an NFL stats SQLite database. A browser UI, an HTTP/SSE API, a model-driven tool-use loop, and three provider adapters (Anthropic, OpenAI, and OpenAI Codex via ChatGPT OAuth). Everything in this doc is about the plumbing — the NFL data layer (schemas, join graph) lives in `NFLVERSE/docs/DATABASE.md` and isn't reproduced here.
+The app is an AI chat agent over an NFL stats database. A React browser UI, an HTTP/SSE API, a model-driven tool-use loop, and three provider adapters (Anthropic, OpenAI, and OpenAI Codex via ChatGPT OAuth). Two databases are involved: `nflverse.duckdb` (read-only DuckDB reference data — the NFL stats themselves, never mutated at runtime) and `data/runtime.sqlite3` (SQLite via aiosqlite + SQLModel — sessions, turns, parts, tool runs, table-state, exports, users, identities, etc.). Everything in this doc is about the plumbing — the NFL data layer (schemas, join graph) lives in `NFLVERSE/docs/DATABASE.md` and isn't reproduced here.
 
 ## The one-line summary
 
@@ -9,9 +9,9 @@ The app is an AI chat agent over an NFL stats SQLite database. A browser UI, an 
                                 │                │                    ▲
                                 ▼                ▼                    │
                          RuntimeStore       Tool handlers ─── SQL sandbox
-                         (SQLite)                │
-                                                 ▼
-                                          nflverse.db + pbp.db
+                         (SQLite — runtime)       │
+                                                  ▼
+                                       nflverse.duckdb (read-only)
 ```
 
 One user message drives one call to `ChatRuntime.run_session`, which drives the model through up to 10 iterations of tool_use → tool_result → model response. The runtime emits events; the transport wraps them as SSE; the browser renders them.
@@ -44,7 +44,7 @@ Dependencies flow from `backend/api/routes/*.py` (entry point) → `backend/appl
 | `backend/domain/providers/` | `BaseLLMClient`, Anthropic + OpenAI + OpenAI Codex adapters, retry/overflow helpers | [providers.md](providers.md) |
 | `backend/data/` | Async SQLModel store + repositories + in-house migration runner | [persistence.md](persistence.md) |
 | `backend/server/` | App factory, middleware (request-id, security headers), CSRF, session, SSE, startup | [transport.md](transport.md) |
-| `frontend/` | Browser app | [ui.md](ui.md) |
+| `frontend/` | Browser app — React + Vite + Tailwind + shadcn/ui | [ui.md](ui.md) |
 
 ## Data flow of one user turn
 
@@ -52,7 +52,7 @@ Following a single message from the browser back to the browser:
 
 ```
  ┌── UI ─────────────────────────────┐
- │ sendMessage()                     │        frontend/static/js/features/chat/streaming.js:1
+ │ sendMessage()                     │        frontend/src/lib/chatStore.ts
  │  ├─ fetch /chat/stream            │
  │  └─ read SSE events, render       │
  └───────────────────────────────────┘
@@ -133,7 +133,9 @@ Common "where does X happen" questions:
 | Model selects a tool | Streamed `ToolUseEvent` from the provider adapter ([providers.md](providers.md#streaming)) |
 | Tool call actually runs | `Turn._execute_one_tool` → `execute_tool_structured` ([tools.md](tools.md#data-flow-for-one-tool-call)) |
 | SQL query limits | `sandbox/runner.py` — 500 rows, ~30s, PBP auto-attach ([tools.md](tools.md#the-sql-sandbox)) |
-| Which tools are available? | `backend/domain/tools/definitions.py` — 7 tools ([tools.md](tools.md#the-seven-tools)) |
+| Which tools are available? | `backend/domain/tools/definitions.py` — 10 tools ([tools.md](tools.md#the-ten-tools)) |
+| Where the Database tab's helper chat lives | `backend/domain/agent/stateless.py` + `backend/application/db_helper_chat.py` ([database-browser.md](database-browser.md)) |
+| Where Reports state lives | `backend/application/tables.py` (table_chat sessions, `TableStateRecord`) ([persistence.md](persistence.md)) |
 | What the model sees as system prompt | `get_base_prompt()` in `backend/domain/agent/system_prompt.py` ([prompts.md](prompts.md#the-base-prompt)) |
 | Topic-specific query templates | `backend/domain/tools/guides/*.md`, loaded via `get_guide` tool ([prompts.md](prompts.md#guide-system)) |
 | Why the conversation doesn't blow past the context window | `compact_if_needed` ([compaction.md](compaction.md)) |
@@ -163,6 +165,10 @@ New topic? Drop a markdown file into `backend/domain/tools/guides/`, add the top
 
 New entry point (MCP server, background worker, etc.)? Build a `RuntimeStore`, create a runtime via `ChatRuntime(store)`, construct a `BaseLLMClient`, call `run_session`, and consume its events. The runtime is transport-agnostic — no HTTP assumptions leak into it.
 
+### Stateless agent loop
+
+For UIs that don't need persistence (the Database tab's helper chat is the only current consumer), `backend/domain/agent/stateless.py::run_stateless_turn` is an alternate path: same provider clients, same tool registry, same SSE event types — but no `ChatRuntime`, no `RuntimeStore`, no compaction. Caller passes the full message list each turn; nothing is written back. See [database-browser.md](database-browser.md).
+
 ## Concurrency model
 
 - **Async throughout** for I/O. FastAPI + uvicorn, asyncio tools, asyncio SDK clients.
@@ -180,7 +186,7 @@ The nflverse DuckDB file (`nflverse.duckdb`) is read-only reference data opened 
 
 ## Auth model
 
-Multi-user password auth, bearer tokens, first registrant becomes admin. Per-user API key storage via Fernet encryption. Optional invite-code gate. Rate-limited per IP. No OAuth yet; the code is shaped so OAuth slots in without disturbing the password path. See [auth.md](auth.md).
+Multi-user password auth + Google OAuth + Sign-in-with-ChatGPT (Codex device flow). First registrant becomes admin. Per-user API key storage via Fernet encryption. Optional invite-code gate. Rate-limited per IP. Browser sessions ride an `HttpOnly` cookie + JS-readable CSRF cookie (double-submit on mutating requests); Bearer tokens still work for API clients. See [auth.md](auth.md).
 
 ## Deployment
 
@@ -197,6 +203,5 @@ A few things you might expect that aren't here:
 
 - **No background jobs / task queue.** Compaction is synchronous. If it ever needs to go async, the session lock needs to coordinate with it.
 - **No JWT.** Opaque bearer tokens with a DB lookup. Revocable; simpler. See [auth.md](auth.md#why-not-jwt).
-- **No CSRF protection.** Token-in-header auth isn't cookie-based, so CSRF isn't a vector.
-- **No UI framework.** `frontend/` is vanilla JS with a `state` object and a `render()` function. See [ui.md](ui.md#no-framework--why).
-- **No caching layer.** Every request hits SQLite. For the current workload (personal/small-team), that's fine.
+- **No caching layer.** Every request hits SQLite (runtime store) or DuckDB (NFL data). For the current workload (personal/small-team), that's fine.
+- **No multi-process scaling.** Rate limits, OAuth pending-flow registry, and the per-session lock registry all live in process memory. Scaling past one machine means swapping those for Redis (or equivalent). DuckDB also won't open a shared file from multiple processes.

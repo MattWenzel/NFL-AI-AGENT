@@ -4,7 +4,7 @@ The agent has a deliberately slim system prompt and a set of on-demand markdown 
 
 ## File map
 
-- `backend/domain/agent/system_prompt.py` — base system prompt template + `get_base_prompt()`.
+- `backend/domain/agent/system_prompt.py` — base system prompt template + `get_base_prompt(table_chat, table_locked)`; the table-chat addendum + locked/unlocked clauses; the focused `get_db_helper_prompt()` used by the Database tab's helper chat.
 - `backend/domain/tools/guides/*.md` — seven topic-specific reference docs.
 - `backend/domain/tools/handlers/get_guide.py` — guide loader tool.
 
@@ -39,6 +39,15 @@ Structure (in order):
 | **CSV Export Workflow** | Call `create_csv_export` directly on clear requests — no preview/confirm roundtrip. One clarifying question only if genuinely ambiguous. |
 
 The prompt is intentionally prescriptive. This is not a general-purpose system prompt; it's a domain-tuned playbook with known-failure-mode avoidance baked in. Each gotcha traces to a specific mistake that cost a tool iteration during development.
+
+### Variants: Reports and the Database helper
+
+Two surfaces beyond regular Chat call into different system prompts:
+
+- **Reports** (`kind="table_chat"` sessions). `get_base_prompt(table_chat=True, table_locked=…)` appends `_TABLE_CHAT_ADDENDUM` (`system_prompt.py:140`) to the base. The addendum tells the model it's iterating on a pinned table, with a lock clause that varies based on the toolbar's lock toggle:
+  - **Unlocked** (`_TABLE_UNLOCKED_CLAUSE`): "feel free to call `set_table` to refine the query" — the standard Reports flow.
+  - **Locked** (`_TABLE_LOCKED_CLAUSE`): "the table is locked; do not call `set_table`. The user wants to keep this view as-is." Saving a Report auto-locks; the toggle on the toolbar flips it back. The lock-toggle replaced an older explore-vs-change-table mode selector that lived on the composer.
+- **Database tab helper** (stateless). `get_db_helper_prompt()` returns a separate, focused prompt (`system_prompt.py:166`) that introduces the helper's role, lists the five-plus-one tools it has access to, and — crucially — encodes the decision tree for `run_in_editor` vs. inline SQL: "if the user says 'run it' or 'do it', call `run_in_editor`; if they say 'give me the SQL', respond with a fenced ```sql block instead." The base prompt, the table-chat addendum, and the gotchas table are *not* included — the helper has a narrower job and a smaller tool surface ([database-browser.md](database-browser.md)).
 
 ## Why these sections, not others
 

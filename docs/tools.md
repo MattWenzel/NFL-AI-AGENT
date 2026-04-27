@@ -1,37 +1,40 @@
 # Tools
 
-Tools are how the agent does anything non-verbal. Every SQL query, schema lookup, guide load, and CSV export is a tool call from the model. This doc covers the tool registry, the validation → dispatch → handler pipeline, the SQL sandbox, and the `ctx` side-channel.
+Tools are how the agent does anything non-verbal. Every SQL query, schema lookup, guide load, CSV export, Report creation, and editor remote-control is a tool call from the model. This doc covers the tool registry, the validation → dispatch → handler pipeline, the DuckDB SQL sandbox, and the `ctx` side-channel.
 
-The runtime's role in tool calls (concurrent dispatch under `asyncio.gather`, result persistence) is covered in [runtime.md](runtime.md#tool-execution-toolexecutionservice).
+The runtime's role in tool calls (concurrent dispatch under `asyncio.gather`, result persistence) is covered in [runtime.md](runtime.md#tool-execution-toolexecutionservice). The Database tab's helper chat uses an entirely separate, stateless agent loop with a tool whitelist subset — see [database-browser.md](database-browser.md).
 
 ## File map
 
-The `backend/domain/tools/` package is flat — infrastructure modules and handlers sit side by side, one file per tool:
+Infrastructure modules sit at the top of `backend/domain/tools/`; handlers live one per file in `backend/domain/tools/handlers/`:
 
 - `backend/domain/tools/__init__.py` — public surface: `TOOLS`, `TOOL_DEFINITIONS`, `execute_tool`, `execute_tool_structured`.
 - `backend/domain/tools/definitions.py` — Anthropic-format tool schemas + typed `TOOLS` list.
 - `backend/domain/tools/registry.py` — dispatch table, execution helpers (`execute_tool`, `execute_tool_structured`), drift guard.
 - `backend/domain/tools/validation.py` — JSON-Schema input validation, error-hint injection.
-- `backend/domain/tools/sandbox/runner.py` — read-only SQL runner with row/op caps and PBP auto-attach.
+- `backend/domain/tools/sandbox/runner.py` — DuckDB read-only SQL runner with row caps and wall-clock timeout.
 - `backend/domain/tools/truncate.py` — shared `truncate_text` / `truncate_rows` helpers for result formatting.
 - `backend/domain/tools/sandbox/schema_metadata.py` — `TABLE_ALIASES` (hand-coded) and `JOIN_EDGES` (auto-derived from DuckDB's `duckdb_constraints()` at import time; one hand-coded supplement for the `v_depth_charts` view which can't carry an FK). Used by `get_schema` for join-graph hints.
 - `backend/domain/tools/guide_registry.py` — `GUIDE_TOPICS` tuple + `GUIDE_INDEX_ROWS` shown in the system prompt's guide index.
-- Handlers, one per tool: `backend/domain/tools/handlers/execute_sql.py`, `backend/domain/tools/handlers/player_lookup.py` (both `_search_players` and `_get_player_info`), `backend/domain/tools/handlers/get_schema.py`, `backend/domain/tools/handlers/get_guide.py`, `backend/domain/tools/handlers/create_chart.py`, `backend/domain/tools/handlers/create_csv_export.py`.
+- Handlers (`backend/domain/tools/handlers/*.py`), one file per tool: `execute_sql.py`, `player_lookup.py` (houses both `_search_players` and `_get_player_info`), `get_schema.py`, `get_guide.py`, `create_chart.py`, `create_csv_export.py`, `create_report.py`, `set_table.py`, `run_in_editor.py`.
 - `backend/domain/tools/guides/*.md` — seven markdown guides loaded by `get_guide`: `fantasy.md`, `player_stats.md`, `play_by_play.md`, `drives.md`, `postseason.md`, `player_profile.md`, `games.md`.
 
-## The seven tools
+## The ten tools
 
 Declared in `backend/domain/tools/definitions.py`:
 
 | Tool | Handler | Purpose |
 |------|---------|---------|
-| `search_players` | `backend/domain/tools/handlers/player_lookup.py` (`_search_players`) | Fuzzy name/position/team lookup; returns candidates with `gsis_id`. |
-| `get_player_info` | `backend/domain/tools/handlers/player_lookup.py` (`_get_player_info`) | Detailed bio + cross-platform IDs for a given `gsis_id`. |
-| `get_guide` | `backend/domain/tools/handlers/get_guide.py` | Load a topic-specific markdown guide (fantasy, play_by_play, …). |
-| `get_schema` | `backend/domain/tools/handlers/get_schema.py` | Table columns + join edges; loaded on demand to save prompt tokens. |
-| `execute_sql` | `backend/domain/tools/handlers/execute_sql.py` | Arbitrary `SELECT`/`WITH` against nflverse.db (500 rows, ~30s). |
-| `create_csv_export` | `backend/domain/tools/handlers/create_csv_export.py` | Export query results to a downloadable CSV (10k rows, ~60s). |
-| `create_chart` | `backend/domain/tools/handlers/create_chart.py` | Render an inline chart spec (bar/line/scatter/pie) from a query. |
+| `search_players` | `handlers/player_lookup.py` (`_search_players`) | Fuzzy name/position/team lookup; returns candidates with `gsis_id`. |
+| `get_player_info` | `handlers/player_lookup.py` (`_get_player_info`) | Detailed bio + cross-platform IDs for a given `gsis_id`. |
+| `get_guide` | `handlers/get_guide.py` | Load a topic-specific markdown guide (fantasy, play_by_play, …). |
+| `get_schema` | `handlers/get_schema.py` | Table columns + join edges; loaded on demand to save prompt tokens. |
+| `execute_sql` | `handlers/execute_sql.py` | Arbitrary `SELECT`/`WITH` against `nflverse.duckdb` (500 rows, ~30 s). |
+| `create_csv_export` | `handlers/create_csv_export.py` | Export query results to a downloadable CSV (10k rows, ~60 s). |
+| `create_chart` | `handlers/create_chart.py` | Render an inline chart spec (bar/line/scatter/pie) from a query. |
+| `set_table` | `handlers/set_table.py` | Replace the live table in a Report (table_chat) with the rows from a new SQL query. Rejected when the table is locked. Uses `ctx["persist_table"]`. |
+| `create_report` | `handlers/create_report.py` | Spawn a new Report from a SQL query — creates a `kind="table_chat"` session seeded with the rows. Uses `ctx["create_report"]`. |
+| `run_in_editor` | `handlers/run_in_editor.py` | Database-tab helper-chat only: validate SQL and ask the browser to drop it into the SQL editor and run. The handler itself does no I/O — the browser parses the result and runs the query through the same `/database/query` sandbox. |
 
 Schemas use Anthropic's `tool_use` input_schema format (JSON Schema). The OpenAI adapter translates these at the boundary — see [providers.md](providers.md).
 
@@ -120,48 +123,41 @@ This is a prompt-engineering shortcut, not a substitute for the system prompt �
 
 ### Validation
 
-`validate_sql` (`sandbox/runner.py:66`) — regex whitelist. Only `SELECT` or `WITH` at the start of the statement (tolerating leading whitespace and `--` / `/* */` comments). Anything else raises `SQLValidationError`. Multi-statement inputs are rejected by SQLite's `sqlite3.Warning` at execute time, not by the regex.
+`validate_sql` (`sandbox/runner.py:86`) — regex whitelist. Only `SELECT` or `WITH` at the start of the statement (tolerating leading whitespace and `--` / `/* */` comments). Anything else raises `SQLValidationError`. Multi-statement inputs are rejected by detecting unquoted semicolons after stripping string literals, quoted identifiers, and comments — DuckDB's `execute()` accepts multiple statements, so the regex needs to refuse them up front rather than rely on the driver.
 
 ### Read-only connection
 
-`execute_safe_sql` (`sandbox/runner.py:159`) opens the DB with `file:{DB_PATH}?mode=ro`. SQLite enforces read-only at the driver level — any whitelist bypass still can't write. `check_same_thread=False` is safe because each tool call opens its own connection on its own thread.
+`_run_sql` (`sandbox/runner.py:112`) opens the database with `duckdb.connect(str(DB_PATH), read_only=True)`. DuckDB enforces read-only at the driver level — any whitelist bypass still can't write. Each tool call opens its own connection on its own thread (handlers are sync, dispatched via `asyncio.to_thread`).
 
 ### Limits
 
-| Knob | `execute_safe_sql` | `execute_export_sql` |
-|------|-------------------|----------------------|
-| Row cap | `MAX_ROWS = 500` | `EXPORT_MAX_ROWS = 10_000` |
-| Op budget | `QUERY_TIMEOUT_OPS = 300M` (~30s) | `EXPORT_TIMEOUT_OPS = 600M` (~60s) |
+| Caller | Helper | Row cap | Wall-clock timeout |
+|--------|--------|---------|--------------------|
+| In-chat queries | `execute_safe_sql` | `MAX_ROWS = 500` | `QUERY_TIMEOUT_SECONDS = 30` |
+| CSV exports | `execute_export_sql` | `EXPORT_MAX_ROWS = 10_000` | `EXPORT_TIMEOUT_SECONDS = 60` |
+| Report tables | `execute_table_sql(max_rows)` | caller-chosen, clamped to `[1, 500]` | 30 s (same as in-chat) |
 
-The op budget is enforced via `conn.set_progress_handler` (`sandbox/runner.py:120`): SQLite calls the handler every N VM instructions; returning non-zero aborts. This is more robust than wall-clock timeout because it runs inside SQLite's vdbe loop.
+DuckDB has no native `set_progress_handler`/op-budget knob, so the timeout is enforced via `threading.Timer + conn.interrupt()` (`runner.py:127`). The timer fires after `timeout_seconds`; `conn.interrupt()` raises `duckdb.InterruptException` from inside the running query, which the runner catches and re-raises as a friendly `SQLValidationError("Query timed out…")`. The timer is cancelled in a `finally` block so a fast query incurs no cleanup cost.
 
-The row cap is enforced by `_ensure_limit` (`sandbox/runner.py:169`), which either appends `LIMIT N` or rewrites a too-high numeric `LIMIT` in-place. Parameterized `LIMIT ?` is passed through unchanged — the caller is trusted.
+The row cap is enforced two ways: `_ensure_limit` (`runner.py:191`) either appends `LIMIT N` or rewrites a too-high numeric `LIMIT` in-place; and `_clamp_limit_param` clamps any bound `LIMIT ?` parameter at bind time so a parameterized query can't bypass the cap.
 
-### PBP auto-attach
+### Single-file DuckDB
 
-`sandbox/runner.py:19`. Queries matching `\bplay_by_play\b` or `\bpbp\.` trigger `ATTACH DATABASE file:{PBP_DB_PATH}?mode=ro AS pbp` (`sandbox/runner.py:114`). On function exit, the database is detached in a `finally` block. The model references `play_by_play` naturally; it doesn't know `pbp.db` is a separate file.
-
-If `pbp.db` is missing and the query references it, `SQLValidationError` is raised with a clear message (`sandbox/runner.py:110`) — no cryptic SQLite error reaches the model.
+The sandbox reads exactly one file: `DB_PATH` (set via `.env`) → `nflverse.duckdb`. There is no separate `pbp.db` and no `ATTACH DATABASE` — `play_by_play`, `pbp_participation`, and `ftn_charting` are all tables inside the single DuckDB. Queries reference them by name like any other table.
 
 ## The `ctx` side-channel
 
-Handlers have a uniform `(input_data, ctx)` signature, but most ignore `ctx`. It exists so handlers can reach runtime services without importing them. Right now only `create_csv_export` uses it.
+Handlers have a uniform `(input_data, ctx)` signature, but most ignore `ctx`. It exists so handlers can reach runtime services without importing them. Three tools use it today:
 
-`Turn._execute_one_tool` (`backend/domain/agent/turn.py`) builds `ctx`:
+- `create_csv_export` reads `ctx["register_export"]` to register the file in the user's export library.
+- `set_table` reads `ctx["persist_table"]` to update the live `TableStateRecord` for the current Report, gated by the lock.
+- `create_report` reads `ctx["create_report"]` to spawn a new `kind="table_chat"` session linked back to the originating chat.
 
-```python
-ctx = {
-    "register_export": lambda meta: self.store.register_export(
-        **meta,
-        source_session_id=session_id,
-        source_tool_run_id=tool_run.id,
-    ),
-}
-```
+`Turn._execute_one_tool` (`backend/domain/agent/turn.py:431`) builds `ctx` by merging a `register_export` closure with whatever the caller passed via `extra_tool_ctx` — that's how `persist_table` and `create_report` get plumbed in only when running inside a Report context. The Database tab's helper-chat path passes `ctx=None` (no persistence at all); the helper's tool whitelist excludes `set_table` and `create_report` so the missing closures can never be reached. See [database-browser.md](database-browser.md#tool-whitelist).
 
-`create_csv_export` (`backend/domain/tools/handlers/create_csv_export.py:53`) pulls the callback, calls it after writing the CSV, and unlinks the file if registration fails so orphan files don't accumulate. If `ctx` is `None` (e.g., calling the tool from a test), the handler still returns the download info but skips library registration — this is what makes handlers independently testable.
+If `ctx` is `None` (or a key is missing), handlers still return useful output but skip the side-effect — which is what makes them independently testable.
 
-Adding a new side-channel means: (1) build it in `Turn._execute_one_tool`, (2) read it in the handler, (3) handle the `None` case for tests. No registry to touch.
+Adding a new side-channel means: (1) build it where the runtime constructs `ctx` (or pass via `extra_tool_ctx`), (2) read it in the handler, (3) handle the missing-key case for tests. No registry to touch.
 
 ## Handler contract
 
@@ -175,9 +171,10 @@ Every handler returns a JSON string. The shape is tool-specific but two conventi
 ## Adding a new tool
 
 1. Add the schema dict to `TOOL_DEFINITIONS` in `definitions.py`.
-2. Write the handler in `backend/domain/tools/<name>.py` with signature `(input_data, ctx) -> str`.
+2. Write the handler in `backend/domain/tools/handlers/<name>.py` with signature `(input_data, ctx) -> str`.
 3. Import the handler in `registry.py` and add it to `_TOOL_DISPATCH`. The drift-guard assert will fail otherwise.
-4. If the handler needs runtime state, extend `ctx` in `Turn._execute_one_tool` (`backend/domain/agent/turn.py`). Otherwise ignore `ctx`.
-5. If tool output can produce novel error strings users should correct, add a `(pattern, hint)` pair to `_ERROR_HINTS` in `validation.py`.
+4. If the handler needs runtime state, extend `ctx` where it's built in `Turn._execute_one_tool` or via `extra_tool_ctx` (`backend/domain/agent/turn.py`). Otherwise ignore `ctx`.
+5. If you want the new tool available to the Database tab's helper chat, also add its name to `ALLOWED_HELPER_TOOLS` in `backend/domain/agent/stateless.py`. Otherwise the stateless loop will reject it with a `ToolFailedEvent` and never dispatch.
+6. If tool output can produce novel error strings users should correct, add a `(pattern, hint)` pair to `_ERROR_HINTS` in `validation.py`.
 
 No test fixtures, no registration decorators, no boot-time side effects. The drift-guard assert and the uniform handler signature are the only contracts.

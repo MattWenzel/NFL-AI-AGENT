@@ -24,14 +24,11 @@ from backend.api.routes import providers
 from backend.api.routes import settings
 from backend.api.routes import tables
 
-# Project root plus the browser frontend directories. The Vite/React build
-# (frontend-next/dist) is preferred when present — that's what the Docker
-# image ships and what the production deploy serves. Falls back to the
-# legacy vanilla-JS frontend/ tree when the dist isn't present (e.g. running
-# `python3 run.py` locally without `npm run build`).
+# The Vite/React build under frontend/dist is what the Docker image ships
+# and what the production deploy serves. Local devs running `python3 run.py`
+# without `npm run build` first will get a 404 at `/` until the build exists.
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-FRONTEND_NEXT_DIST = PROJECT_ROOT / "frontend-next" / "dist"
-FRONTEND_LEGACY = PROJECT_ROOT / "frontend"
+FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
 
 logger = logging.getLogger(__name__)
 
@@ -115,35 +112,25 @@ def create_app() -> FastAPI:
 
     # Serve the UI from the same origin as the API. Specific API routes above
     # take precedence; the mounts below only catch asset requests and the
-    # bare root. Prefer the Vite/React build; fall back to the legacy tree.
-    if (FRONTEND_NEXT_DIST / "index.html").is_file():
+    # bare root.
+    index_path = FRONTEND_DIST / "index.html"
+    if index_path.is_file():
         app.mount(
             "/assets",
-            StaticFiles(directory=FRONTEND_NEXT_DIST / "assets"),
+            StaticFiles(directory=FRONTEND_DIST / "assets"),
             name="assets",
         )
-        # Mount the legacy /static path too so existing deep links and
-        # screenshots from the old UI keep resolving during rollout.
-        if (FRONTEND_LEGACY / "static").is_dir():
-            app.mount(
-                "/static",
-                StaticFiles(directory=FRONTEND_LEGACY / "static"),
-                name="static",
-            )
-        index_path = FRONTEND_NEXT_DIST / "index.html"
-        logger.info("Serving Vite frontend from %s", FRONTEND_NEXT_DIST)
-    else:
-        app.mount(
-            "/static",
-            StaticFiles(directory=FRONTEND_LEGACY / "static"),
-            name="static",
-        )
-        index_path = FRONTEND_LEGACY / "index.html"
-        logger.info("Vite build not found; serving legacy frontend from %s", FRONTEND_LEGACY)
+        logger.info("Serving frontend from %s", FRONTEND_DIST)
 
-    @app.get("/", include_in_schema=False)
-    def serve_ui():
-        return FileResponse(index_path)
+        @app.get("/", include_in_schema=False)
+        def serve_ui():
+            return FileResponse(index_path)
+    else:
+        logger.warning(
+            "Frontend build not found at %s — run `cd frontend && npm run build` "
+            "to build it. API endpoints still work; `/` will 404.",
+            FRONTEND_DIST,
+        )
 
     return app
 
