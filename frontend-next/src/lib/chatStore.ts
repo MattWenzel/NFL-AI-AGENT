@@ -147,6 +147,8 @@ function reduce(state: ChatState, action: Action): ChatState {
         error: null,
         input_tokens: 0,
         output_tokens: 0,
+        provider: null,
+        model: null,
         created_at: now,
         updated_at: now,
       }
@@ -379,6 +381,8 @@ export function useChat() {
         error: null,
         input_tokens: 0,
         output_tokens: 0,
+        provider: null,
+        model: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }

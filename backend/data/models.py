@@ -65,6 +65,11 @@ class TurnRecord(SQLModel, table=True):
     error: str | None = None
     input_tokens: int = 0
     output_tokens: int = 0
+    # Per-assistant-turn capture of the provider/model used for this
+    # iteration. Null for user/summary turns and for assistant turns from
+    # before this column existed (migration 0006 doesn't backfill).
+    provider: str | None = None
+    model: str | None = None
     created_at: str
     updated_at: str
 

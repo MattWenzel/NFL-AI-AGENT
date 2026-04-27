@@ -109,6 +109,8 @@ class ChatRuntime:
                 session=session,
                 execute_tool=execute_tool_structured,
                 initial_tool_choice=tool_choice,
+                provider_name=provider_name,
+                model_name=client.model,
             )
             try:
                 for _ in range(MAX_TOOL_ITERATIONS):

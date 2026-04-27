@@ -1,4 +1,4 @@
-import { ArrowLeft, Database } from 'lucide-react'
+import { ArrowLeft, ChevronLeft, ChevronRight, Database } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { ToolPayload, prettyJson } from '@/components/thread/ToolPayload'
@@ -28,7 +28,12 @@ export function Inspector() {
     if (run) {
       return (
         <div className="flex min-h-0 flex-1 flex-col p-5">
-          <ToolRunDetail run={run} onClear={() => chat.selectToolRun(null)} />
+          <ToolRunDetail
+            run={run}
+            transcript={transcript}
+            onClear={() => chat.selectToolRun(null)}
+            onSelectRun={(id) => chat.selectToolRun(id, exchangeIdForTurn(transcript, run.turn_id))}
+          />
         </div>
       )
     }
@@ -180,10 +185,19 @@ function ExchangeMeta({
   const totalOut = slice.assistantTurns.reduce((s, t) => s + (t.output_tokens || 0), 0)
   const status = slice.assistantTurns.some((t) => t.status === 'streaming' || t.status === 'pending')
     ? 'streaming'
-    : slice.assistantTurns.some((t) => t.error)
-      ? 'error'
-      : 'complete'
+    : slice.assistantTurns.some((t) => t.status === 'interrupted')
+      ? 'interrupted'
+      : slice.assistantTurns.some((t) => t.error)
+        ? 'error'
+        : 'complete'
   const lastTurn = slice.assistantTurns[slice.assistantTurns.length - 1]
+  // Provider/model captured per-assistant-turn (migration 0006). Older
+  // transcripts have null and we fall back to the session's value.
+  const firstWithProvider = slice.assistantTurns.find((t) => t.provider) ?? null
+  const provider = firstWithProvider?.provider ?? transcript.provider ?? null
+  const model = firstWithProvider?.model ?? transcript.model ?? null
+  const showFallbackHint =
+    !firstWithProvider && slice.assistantTurns.length > 0 && (transcript.provider || transcript.model)
 
   return (
     <Section
@@ -206,8 +220,18 @@ function ExchangeMeta({
       <dl className="space-y-1.5 text-sm">
         <MetaRow term="Status" detail={<span className="capitalize">{status}</span>} />
         <MetaRow term="Iterations" detail={<span className="tabular">{slice.assistantTurns.length}</span>} />
-        <MetaRow term="Provider" detail={transcript.provider ?? '—'} />
-        <MetaRow term="Model" detail={transcript.model ?? '—'} />
+        <MetaRow term="Provider" detail={provider ?? '—'} />
+        <MetaRow
+          term="Model"
+          detail={
+            <span>
+              {model ?? '—'}
+              {showFallbackHint ? (
+                <span className="ml-1 text-2xs text-muted-foreground">(session)</span>
+              ) : null}
+            </span>
+          }
+        />
         {lastTurn ? <MetaRow term="When" detail={relativeTime(lastTurn.updated_at)} /> : null}
         <MetaRow
           term="Tokens"
@@ -218,7 +242,36 @@ function ExchangeMeta({
           }
         />
       </dl>
+      {slice.assistantTurns.length > 1 ? (
+        <IterationBreakdown turns={slice.assistantTurns} />
+      ) : null}
     </Section>
+  )
+}
+
+function IterationBreakdown({ turns }: { turns: TurnRecord[] }) {
+  return (
+    <div className="space-y-1.5 pt-1">
+      <p className="text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+        Per-iteration
+      </p>
+      <ul className="space-y-1">
+        {turns.map((t, i) => (
+          <li
+            key={t.id}
+            className="flex items-baseline justify-between gap-3 rounded-md bg-muted/30 px-2.5 py-1.5 text-2xs"
+          >
+            <span className="tabular text-muted-foreground">#{i + 1}</span>
+            <span className="truncate font-mono text-2xs text-foreground">
+              {t.model ?? '—'}
+            </span>
+            <span className="tabular shrink-0 text-muted-foreground">
+              {(t.input_tokens || 0).toLocaleString()} / {(t.output_tokens || 0).toLocaleString()}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
 
@@ -357,7 +410,31 @@ function inputDisplayValue(run: ToolRunRecord): string {
   return JSON.stringify(run.input, null, 2)
 }
 
-function ToolRunDetail({ run, onClear }: { run: ToolRunRecord; onClear: () => void }) {
+function ToolRunDetail({
+  run,
+  transcript,
+  onClear,
+  onSelectRun,
+}: {
+  run: ToolRunRecord
+  transcript: ConversationTranscript
+  onClear: () => void
+  onSelectRun: (id: string) => void
+}) {
+  // Sibling tool runs in the same exchange — for prev/next nav and the
+  // "Tool 2 of 5" breadcrumb. We compute the slice for the run's exchange
+  // (not the currently-selected exchange) so the nav is always coherent
+  // even if the user click-navigated here from somewhere else.
+  const exchangeId = exchangeIdForTurn(transcript, run.turn_id)
+  const slice = exchangeId ? sliceForExchange(transcript, exchangeId) : null
+  const siblings = slice?.toolRuns ?? [run]
+  const idx = siblings.findIndex((r) => r.id === run.id)
+  const prev = idx > 0 ? siblings[idx - 1] : null
+  const next = idx >= 0 && idx < siblings.length - 1 ? siblings[idx + 1] : null
+
+  // Parent assistant turn carries the provider/model that issued this call.
+  const parentTurn = transcript.turns.find((t) => t.id === run.turn_id) ?? null
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex shrink-0 items-center justify-between gap-2">
@@ -369,8 +446,34 @@ function ToolRunDetail({ run, onClear }: { run: ToolRunRecord; onClear: () => vo
           aria-label="Back to exchange"
         >
           <ArrowLeft className="size-3.5" />
-          Tool call
+          {siblings.length > 1 && idx >= 0
+            ? `Tool ${idx + 1} of ${siblings.length}`
+            : 'Tool call'}
         </Button>
+        {siblings.length > 1 ? (
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              onClick={() => prev && onSelectRun(prev.id)}
+              disabled={!prev}
+              aria-label="Previous tool call"
+            >
+              <ChevronLeft className="size-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              onClick={() => next && onSelectRun(next.id)}
+              disabled={!next}
+              aria-label="Next tool call"
+            >
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       <div className="shrink-0 rounded-md border border-border bg-background px-3 py-2">
@@ -379,8 +482,28 @@ function ToolRunDetail({ run, onClear }: { run: ToolRunRecord; onClear: () => vo
           <span className="font-mono text-xs font-medium text-foreground">{run.tool_name}</span>
           <span className="ml-auto text-2xs text-muted-foreground capitalize">{run.status}</span>
         </div>
-        {typeof run.duration_ms === 'number' ? (
-          <p className="mt-1 text-2xs text-muted-foreground tabular">{run.duration_ms}ms</p>
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-2xs text-muted-foreground">
+          {typeof run.duration_ms === 'number' ? (
+            <span className="tabular">{run.duration_ms}ms</span>
+          ) : null}
+          {parentTurn?.model ? (
+            <>
+              {typeof run.duration_ms === 'number' ? <span aria-hidden>·</span> : null}
+              <span className="font-mono">{parentTurn.model}</span>
+            </>
+          ) : null}
+          {parentTurn ? (
+            <>
+              <span aria-hidden>·</span>
+              <span>{relativeTime(run.created_at)}</span>
+            </>
+          ) : null}
+        </div>
+        {parentTurn && (parentTurn.input_tokens || parentTurn.output_tokens) ? (
+          <p className="mt-1 text-2xs text-muted-foreground tabular">
+            Iteration tokens: {(parentTurn.input_tokens || 0).toLocaleString()} in ·{' '}
+            {(parentTurn.output_tokens || 0).toLocaleString()} out
+          </p>
         ) : null}
       </div>
 

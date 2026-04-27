@@ -146,6 +146,19 @@ def _migration_0005_export_pinned(conn: Connection) -> None:
         conn.execute(text("ALTER TABLE exports ADD COLUMN pinned_at TEXT"))
 
 
+def _migration_0006_turn_provider_model(conn: Connection) -> None:
+    """Capture the provider/model used for each assistant turn so the
+    inspector can show the exact model behind any historical exchange,
+    not just the session's most-recent selection."""
+    existing = {
+        row[1] for row in conn.execute(text("PRAGMA table_info(turns)"))
+    }
+    if "provider" not in existing:
+        conn.execute(text("ALTER TABLE turns ADD COLUMN provider TEXT"))
+    if "model" not in existing:
+        conn.execute(text("ALTER TABLE turns ADD COLUMN model TEXT"))
+
+
 # Ordered migration list. `user_version` after a full apply == len(MIGRATIONS).
 # Append-only — never reorder or delete entries or the version tracker drifts.
 MIGRATIONS: list[Callable[[Connection], None]] = [
@@ -154,6 +167,7 @@ MIGRATIONS: list[Callable[[Connection], None]] = [
     _migration_0003_security_hardening,
     _migration_0004_oauth_identities,
     _migration_0005_export_pinned,
+    _migration_0006_turn_provider_model,
 ]
 
 

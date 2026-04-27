@@ -122,10 +122,14 @@ class Turn:
         session: SessionRecord,
         execute_tool: ToolExecutor,
         initial_tool_choice: ToolChoice | None = None,
+        provider_name: str | None = None,
+        model_name: str | None = None,
     ):
         self._store = store
         self._session = session
         self._execute_tool = execute_tool
+        self._provider_name = provider_name
+        self._model_name = model_name
 
         # Per-user-turn bookkeeping (was RuntimeLoopState)
         self.iterations = 0
@@ -222,7 +226,11 @@ class Turn:
         """Begin a new assistant iteration. Caller must have completed,
         errored, or reset the previous iteration before opening a new one."""
         assistant_turn = await self._store.create_turn(
-            self._session.id, "assistant", status="running"
+            self._session.id,
+            "assistant",
+            status="running",
+            provider=self._provider_name,
+            model=self._model_name,
         )
         self._active_assistant_turn = assistant_turn
         self._active_tool_runs = []

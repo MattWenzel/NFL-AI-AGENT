@@ -15,6 +15,10 @@ export interface TurnRecord {
   error: string | null
   input_tokens: number
   output_tokens: number
+  /** Set on assistant turns from migration 0006 forward; null for user
+   * turns and pre-migration assistant turns. */
+  provider: string | null
+  model: string | null
   created_at: string
   updated_at: string
 }

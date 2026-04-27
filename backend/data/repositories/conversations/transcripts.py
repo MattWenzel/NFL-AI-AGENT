@@ -23,7 +23,14 @@ class TranscriptStoreMixin:
         return await self.create_turn(session_id, "summary", text=summary_text, status="completed")
 
     async def create_turn(
-        self, session_id: str, role: str, text: str = "", status: str = "completed"
+        self,
+        session_id: str,
+        role: str,
+        text: str = "",
+        status: str = "completed",
+        *,
+        provider: str | None = None,
+        model: str | None = None,
     ) -> TurnRecord:
         now = utcnow()
         turn = TurnRecord(
@@ -36,6 +43,8 @@ class TranscriptStoreMixin:
             error=None,
             input_tokens=0,
             output_tokens=0,
+            provider=provider,
+            model=model,
             created_at=now,
             updated_at=now,
         )
