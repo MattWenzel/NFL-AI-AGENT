@@ -19,6 +19,7 @@ from backend.domain.tools.handlers.execute_sql import _execute_sql
 from backend.domain.tools.handlers.get_guide import _load_guide
 from backend.domain.tools.handlers.get_schema import _get_schema
 from backend.domain.tools.handlers.player_lookup import _get_player_info, _search_players
+from backend.domain.tools.handlers.run_in_editor import _run_in_editor
 from backend.domain.tools.handlers.set_table import _set_table
 from backend.domain.tools.sandbox.runner import SQLValidationError
 from backend.domain.tools.validation import inject_hint, validate_tool_input
@@ -36,6 +37,7 @@ _TOOL_DISPATCH = {
     "create_chart": _create_chart,
     "create_report": _create_report,
     "set_table": _set_table,
+    "run_in_editor": _run_in_editor,
 }
 
 # Registry drift guard: every dispatch entry must map to a TOOL_DEFINITIONS

@@ -13,11 +13,13 @@ import { CommandPalette } from '@/components/command/CommandPalette'
 import { SettingsModal } from '@/components/settings/SettingsModal'
 import { TableChatView } from '@/components/tables/TableChatView'
 import { EmptyReportScreen } from '@/components/tables/EmptyReportScreen'
-import { DatabaseView } from '@/components/database/DatabaseView'
+import { DatabaseView, type DatabaseViewHandle } from '@/components/database/DatabaseView'
+import { DbHelperChat } from '@/components/database/DbHelperChat'
 import { useAuth, type AuthUser } from '@/lib/auth'
 import { ChatProvider, useChatContext } from '@/lib/chatContext'
 import { TablesProvider, useTablesContext } from '@/lib/tablesContext'
 import { useActiveTable } from '@/lib/activeTable'
+import { useDbHelperChat } from '@/lib/dbHelperChat'
 import type { ConversationInfo } from '@/lib/types'
 
 export default function App() {
@@ -46,20 +48,34 @@ export default function App() {
 const VIEW_KEY_PREFIX = 'nfl-stats:last-view:'
 
 // `kind: 'report'` here means a Report (the live editable table) — not the
-// old read-only CSV library, which has been removed.
-type LastView = { kind: 'chat' | 'report'; id: string }
+// old read-only CSV library, which has been removed. `kind: 'database'`
+// has no id (the page is stateless) but optionally remembers the
+// last-picked table so reload restores the same `SELECT *` view.
+type LastView =
+  | { kind: 'chat' | 'report'; id: string }
+  | { kind: 'database'; table?: string }
 
 function readLastView(userId: number): LastView | null {
   try {
     const raw = localStorage.getItem(VIEW_KEY_PREFIX + userId)
     if (!raw) return null
-    const parsed = JSON.parse(raw) as Partial<LastView>
+    const parsed = JSON.parse(raw) as Partial<LastView> & {
+      kind?: string
+      id?: unknown
+      table?: unknown
+    }
+    if (!parsed) return null
     if (
-      parsed &&
       (parsed.kind === 'chat' || parsed.kind === 'report') &&
       typeof parsed.id === 'string'
     ) {
       return { kind: parsed.kind, id: parsed.id }
+    }
+    if (parsed.kind === 'database') {
+      return {
+        kind: 'database',
+        table: typeof parsed.table === 'string' ? parsed.table : undefined,
+      }
     }
   } catch {
     // localStorage may be unavailable (private mode) or hold corrupted JSON.
@@ -112,8 +128,14 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
   // transcripts. `selectedDatabaseTable` is the table name the user picked
   // from the sidebar, which the view turns into `SELECT * FROM <t> LIMIT 100`
   // on first paint. `null` means the user opened the tab but hasn't picked.
-  const [databaseOpen, setDatabaseOpen] = useState(false)
-  const [selectedDatabaseTable, setSelectedDatabaseTable] = useState<string | null>(null)
+  const [databaseOpen, setDatabaseOpen] = useState(
+    initialView.current?.kind === 'database',
+  )
+  const [selectedDatabaseTable, setSelectedDatabaseTable] = useState<string | null>(
+    initialView.current?.kind === 'database'
+      ? initialView.current.table ?? null
+      : null,
+  )
   const didRestoreRef = useRef(false)
 
   // Lifted from TableChatView so `handleReportCreated` can call refetch the
@@ -121,6 +143,20 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
   // event is the trigger, not the (timing-fragile) mount-effect inside the
   // freshly-mounted TableChatView.
   const activeTable = useActiveTable(activeTableId)
+
+  // Imperative handle on the Database view so the helper's `run_in_editor`
+  // tool can populate the editor + trigger a run. Only valid while the
+  // database view is mounted.
+  const databaseViewRef = useRef<DatabaseViewHandle | null>(null)
+
+  // Owned at this level so closing/reopening the SQL helper panel inside
+  // the Database view doesn't reset the conversation. State is wiped on
+  // page refresh — that's the ephemerality we promise.
+  const dbHelperChat = useDbHelperChat({
+    onRunInEditor: (sql) => {
+      databaseViewRef.current?.runQuery(sql)
+    },
+  })
 
   // Kick off the chat-transcript fetch; the lazy initial state above already
   // suppressed the new-chat flash, this just resolves the loading gate once
@@ -138,14 +174,19 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
 
   // Persist whichever view is currently active.
   useEffect(() => {
-    if (activeTableId) {
+    if (databaseOpen) {
+      writeLastView(user.id, {
+        kind: 'database',
+        table: selectedDatabaseTable ?? undefined,
+      })
+    } else if (activeTableId) {
       writeLastView(user.id, { kind: 'report', id: activeTableId })
     } else if (chat.conversationId) {
       writeLastView(user.id, { kind: 'chat', id: chat.conversationId })
     } else {
       writeLastView(user.id, null)
     }
-  }, [user.id, activeTableId, chat.conversationId])
+  }, [user.id, databaseOpen, selectedDatabaseTable, activeTableId, chat.conversationId])
 
   // If the active report disappears from the tables list (deleted from the
   // sidebar's 3-dot menu, the toolbar Delete, or another tab), bail out of
@@ -303,12 +344,17 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
     <>
       <AppShell
         inspectorAvailable={
-          !activeTableId &&
-          !pendingReport &&
-          !databaseOpen &&
-          !!chat.transcript &&
-          chat.transcript.turns.length > 0
+          databaseOpen
+            ? true
+            : !activeTableId &&
+              !pendingReport &&
+              !!chat.transcript &&
+              chat.transcript.turns.length > 0
         }
+        alternateInspector={
+          databaseOpen ? <DbHelperChat helper={dbHelperChat} /> : undefined
+        }
+        alternateInspectorLabel={databaseOpen ? 'SQL helper' : undefined}
         sidebar={
           <Sidebar
             user={user}
@@ -328,6 +374,7 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
             onSwitchToTables={switchToTables}
             onNewTable={newTableChat}
             databaseOpen={databaseOpen}
+            selectedDatabaseTable={selectedDatabaseTable}
             onOpenDatabase={openDatabase}
             onSwitchToDatabase={() => openDatabase()}
           />
@@ -336,6 +383,7 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
         main={
           databaseOpen ? (
             <DatabaseView
+              ref={databaseViewRef}
               selectedTable={selectedDatabaseTable}
               onSelectedTableChange={setSelectedDatabaseTable}
               onSaveAsReport={handleDatabaseSaveAsReport}

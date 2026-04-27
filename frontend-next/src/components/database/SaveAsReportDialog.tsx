@@ -18,7 +18,6 @@ interface SaveAsReportDialogProps {
   onOpenChange: (open: boolean) => void
   sql: string
   result: DatabaseQueryResult | null
-  defaultTitle: string
   onCreated: (conversationId: string) => void
 }
 
@@ -27,20 +26,20 @@ export function SaveAsReportDialog({
   onOpenChange,
   sql,
   result,
-  defaultTitle,
   onCreated,
 }: SaveAsReportDialogProps) {
-  const [title, setTitle] = useState(defaultTitle)
+  const [title, setTitle] = useState('')
   const [busy, setBusy] = useState(false)
 
-  // Reset the title field whenever the dialog reopens with a new default,
-  // and clear `busy` between opens.
+  // Reset the title field every time the dialog opens — defaults pulled
+  // from the dropdown selection rarely match the SQL the user actually
+  // ran (the dropdown is just a starting-point picker).
   useEffect(() => {
     if (open) {
-      setTitle(defaultTitle)
+      setTitle('')
       setBusy(false)
     }
-  }, [open, defaultTitle])
+  }, [open])
 
   const submit = async () => {
     if (!result || busy) return
@@ -86,6 +85,7 @@ export function SaveAsReportDialog({
             id="report-title"
             value={title}
             autoFocus
+            placeholder="e.g. Top WRs by yards per game (1999–2025)"
             onChange={(e) => setTitle(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !busy) {

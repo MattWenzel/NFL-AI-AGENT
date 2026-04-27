@@ -11,6 +11,11 @@ interface AppShellProps {
   inspector: ReactNode
   /** Inspector defaults open only when the parent has something worth showing. */
   inspectorAvailable?: boolean
+  /** When set, takes precedence over `inspector` — used by the Database
+   *  view to slide a SQL helper chat into the same right pane. */
+  alternateInspector?: ReactNode
+  /** Header label for whichever pane is currently rendered. */
+  alternateInspectorLabel?: string
 }
 
 type LayoutCtx = {
@@ -42,7 +47,19 @@ export function useLayout(): LayoutCtx {
   )
 }
 
-export function AppShell({ sidebar, main, inspector, inspectorAvailable = false }: AppShellProps) {
+export function AppShell({
+  sidebar,
+  main,
+  inspector,
+  inspectorAvailable = false,
+  alternateInspector,
+  alternateInspectorLabel,
+}: AppShellProps) {
+  const activeInspector = alternateInspector ?? inspector
+  const activeInspectorLabel =
+    alternateInspector && alternateInspectorLabel
+      ? alternateInspectorLabel
+      : 'Inspector'
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false)
   const [desktopInspectorOpen, setDesktopInspectorOpen] = useState(false)
@@ -56,20 +73,38 @@ export function AppShell({ sidebar, main, inspector, inspectorAvailable = false 
   }, [inspectorAvailable])
 
   // Close the desktop inspector when a pointer-down lands outside of it.
-  // Clicks inside <main> (the thread + composer) are NOT treated as outside —
-  // selecting another message would otherwise race close-then-open, flicker
-  // the inspector closed mid-click, and reflow the page in a way that can
-  // swallow the click event entirely.
+  // For the regular inspector, clicks inside <main> are NOT treated as
+  // outside — selecting another message would otherwise race close-then-open,
+  // flicker the inspector closed mid-click, and reflow the page in a way
+  // that can swallow the click event entirely. The alternate-inspector
+  // path (currently the SQL helper) is a side conversation rather than a
+  // drill-down on the main view, so clicking the SQL editor / table
+  // dismisses the panel instead.
   const inspectorRef = useRef<HTMLElement | null>(null)
   const mainRef = useRef<HTMLElement | null>(null)
+  const isAlternate = !!alternateInspector
   useEffect(() => {
     if (!desktopInspectorOpen) return
     const onMouseDown = (e: MouseEvent) => {
       const target = e.target
       if (!(target instanceof Node)) return
       if (inspectorRef.current?.contains(target)) return
-      if (mainRef.current?.contains(target)) return
+      // For the regular inspector, treat clicks inside main as in-bounds.
+      // For the alternate (SQL helper), don't — clicking back into the
+      // editor/table should dismiss the helper.
+      if (!isAlternate && mainRef.current?.contains(target)) return
       if (!(target instanceof Element)) return
+      // For the alternate inspector, exempt clicks on toolbar buttons /
+      // selects / native form controls that perform their own action — if
+      // we close the panel on mousedown, the layout reflows out from
+      // under the cursor and the trailing click event misses the button.
+      // Passive areas (textareas, table cells, plain text) still dismiss.
+      if (
+        isAlternate &&
+        target.closest('button, [role="button"], select, [data-slot="select-trigger"]')
+      ) {
+        return
+      }
       // Radix popovers (Select, DropdownMenu, etc.) portal their content
       // to <body>, so a click on a Select item lives outside <main>.
       // Popper-positioned content (DropdownMenu, default Popover) wraps
@@ -96,7 +131,7 @@ export function AppShell({ sidebar, main, inspector, inspectorAvailable = false 
     }
     document.addEventListener('mousedown', onMouseDown)
     return () => document.removeEventListener('mousedown', onMouseDown)
-  }, [desktopInspectorOpen])
+  }, [desktopInspectorOpen, isAlternate])
 
   const ctx: LayoutCtx = {
     desktopSidebarOpen,
@@ -177,31 +212,31 @@ export function AppShell({ sidebar, main, inspector, inspectorAvailable = false 
               <div className="flex h-full flex-col overflow-hidden">
                 <div className="flex h-12 items-center justify-between border-b border-border px-4">
                   <span className="text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                    Inspector
+                    {activeInspectorLabel}
                   </span>
                   <Button
                     variant="ghost"
                     size="icon"
                     className="h-7 w-7"
                     onClick={() => setDesktopInspectorOpen(false)}
-                    aria-label="Close inspector"
+                    aria-label={`Close ${activeInspectorLabel.toLowerCase()}`}
                   >
                     <PanelRightClose className="size-4" />
                   </Button>
                 </div>
-                <div className="flex min-h-0 flex-1 flex-col">{inspector}</div>
+                <div className="flex min-h-0 flex-1 flex-col">{activeInspector}</div>
               </div>
             ) : null}
           </aside>
 
-          {!desktopInspectorOpen && inspectorAvailable ? (
+          {!desktopInspectorOpen && inspectorAvailable && !alternateInspector ? (
             <button
               type="button"
               onClick={() => setDesktopInspectorOpen(true)}
               className="absolute right-3 top-3 hidden items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground lg:flex"
             >
               <PanelRightOpen className="size-3.5" />
-              <span>Inspector</span>
+              <span>{activeInspectorLabel}</span>
             </button>
           ) : null}
 
@@ -209,10 +244,10 @@ export function AppShell({ sidebar, main, inspector, inspectorAvailable = false 
             <SheetContent side="right" className="w-[360px] p-0 bg-card lg:hidden">
               <div className="flex h-12 items-center border-b border-border px-4">
                 <span className="text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                  Inspector
+                  {activeInspectorLabel}
                 </span>
               </div>
-              <div className="overflow-y-auto p-4">{inspector}</div>
+              <div className="overflow-y-auto p-4">{activeInspector}</div>
             </SheetContent>
           </Sheet>
         </div>

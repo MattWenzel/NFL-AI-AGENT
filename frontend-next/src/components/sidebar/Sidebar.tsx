@@ -12,6 +12,7 @@ import { useLayout } from '@/components/layout/AppShell'
 import { useChatContext } from '@/lib/chatContext'
 import { useTablesContext } from '@/lib/tablesContext'
 import { fetchDatabaseTables, type DatabaseTableInfo } from '@/lib/database'
+import { cn } from '@/lib/utils'
 import type { ConversationInfo } from '@/lib/types'
 import type { AuthUser } from '@/lib/auth'
 import { ageDays } from '@/lib/datetime'
@@ -35,6 +36,9 @@ interface SidebarProps {
   onNewTable?: () => void
   /** True while the Database browser is open in the main view. */
   databaseOpen?: boolean
+  /** The table currently loaded in the Database view (highlighted in the
+   *  sidebar's Database tab list). */
+  selectedDatabaseTable?: string | null
   /** Click a table in the Database tab → load it in the browser view. */
   onOpenDatabase?: (tableName?: string) => void
   /** Click the Database tab itself (no specific table). */
@@ -54,6 +58,7 @@ export function Sidebar({
   onSwitchToTables,
   onNewTable,
   databaseOpen = false,
+  selectedDatabaseTable = null,
   onOpenDatabase,
   onSwitchToDatabase,
 }: SidebarProps) {
@@ -283,12 +288,20 @@ export function Sidebar({
             <SidebarMessage label={query ? 'No matches' : 'No tables found'} />
           ) : (
             <ul className="space-y-px">
-              {filteredDbTables.map(({ table, matchedColumns }) => (
+              {filteredDbTables.map(({ table, matchedColumns }) => {
+                const isActive =
+                  databaseOpen && selectedDatabaseTable === table.name
+                return (
                 <li key={table.name}>
                   <button
                     type="button"
                     onClick={() => onOpenDatabase?.(table.name)}
-                    className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm text-sidebar-foreground hover:bg-sidebar-accent"
+                    className={cn(
+                      'flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm text-sidebar-foreground',
+                      isActive
+                        ? 'bg-accent/25 ring-1 ring-inset ring-accent/55 hover:bg-accent/30'
+                        : 'hover:bg-sidebar-accent',
+                    )}
                   >
                     <Database className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                     <span className="min-w-0 flex-1">
@@ -304,7 +317,8 @@ export function Sidebar({
                     </span>
                   </button>
                 </li>
-              ))}
+                )
+              })}
             </ul>
           )}
         </TabsContent>

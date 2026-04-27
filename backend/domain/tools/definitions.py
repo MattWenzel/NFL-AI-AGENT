@@ -216,6 +216,30 @@ TOOL_DEFINITIONS = [
             "required": ["sql", "chart_type", "x", "y"],
         },
     },
+    {
+        "name": "run_in_editor",
+        "description": (
+            "Place this SQL into the user's Database browser editor and run it. "
+            "Use this when the user wants to SEE the results in their main editor view "
+            "(asks to 'run', 'execute', 'do', 'show me', 'pull up' a query). "
+            "DO NOT use this when the user just wants the SQL text for themselves "
+            "('give me the SQL', 'just write the query', 'how would I write…') — "
+            "in those cases respond inline with a fenced ```sql block. "
+            "DO NOT use this to research a query yourself — that's `execute_sql`. "
+            "After you call this, the user sees the rows directly in their editor; "
+            "your follow-up message should NOT re-show the SQL or the rows."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "sql": {
+                    "type": "string",
+                    "description": "The read-only SELECT/WITH statement to run in the user's editor.",
+                },
+            },
+            "required": ["sql"],
+        },
+    },
 ]
 
 # Typed tool definitions — preferred import for consumers
