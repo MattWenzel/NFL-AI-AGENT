@@ -27,7 +27,7 @@ type ThreadGroup =
 
 export function Thread({ transcript }: ThreadProps) {
   const { selectedExchangeId, selectedToolRunId, selectExchange, clearSelection } = useChatContext()
-  const { openDesktopInspector } = useLayout()
+  const { openDesktopInspector, closeDesktopInspector } = useLayout()
   const pickExchange = (id: string) => {
     openDesktopInspector()
     selectExchange(id)
@@ -104,7 +104,11 @@ export function Thread({ transcript }: ThreadProps) {
       onClick={() => {
         // Clicks that reach this far didn't hit a message — message and tool
         // clicks stopPropagation, so this only fires for empty thread space.
+        // Clear the in-thread selection AND dismiss the inspector; the
+        // AppShell-level click-outside ignores everything in <main>, so this
+        // is the explicit channel for "background click closes inspector".
         if (selectedExchangeId || selectedToolRunId) clearSelection()
+        closeDesktopInspector()
       }}
     >
       <div className="mx-auto w-full max-w-5xl space-y-8 px-6 py-6 lg:px-10">

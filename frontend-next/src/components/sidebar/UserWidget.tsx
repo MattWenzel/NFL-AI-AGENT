@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronUp, LogOut, Monitor, Moon, Settings, Sun } from 'lucide-react'
+import { ChevronUp, Droplet, LogOut, Monitor, Moon, Settings, Sun } from 'lucide-react'
 
 import {
   AlertDialog,
@@ -80,6 +80,10 @@ export function UserWidget({ user, onLogout, onOpenSettings }: UserWidgetProps) 
             <DropdownMenuRadioItem value="dark">
               <Moon className="size-4" />
               Dark
+            </DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="cobalt">
+              <Droplet className="size-4" />
+              Cobalt
             </DropdownMenuRadioItem>
             <DropdownMenuRadioItem value="system">
               <Monitor className="size-4" />

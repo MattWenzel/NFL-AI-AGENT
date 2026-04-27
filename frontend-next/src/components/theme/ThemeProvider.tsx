@@ -7,7 +7,7 @@ const STORAGE_KEY = 'chat-workspace.theme'
 function readStoredMode(): ThemeMode {
   if (typeof window === 'undefined') return 'system'
   const raw = window.localStorage.getItem(STORAGE_KEY)
-  return raw === 'light' || raw === 'dark' || raw === 'system' ? raw : 'system'
+  return raw === 'light' || raw === 'dark' || raw === 'cobalt' || raw === 'system' ? raw : 'system'
 }
 
 function systemPrefersDark(): boolean {
@@ -26,14 +26,22 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return () => mql.removeEventListener('change', onChange)
   }, [])
 
-  const resolved: 'light' | 'dark' = mode === 'system' ? (systemDark ? 'dark' : 'light') : mode
+  const resolved: 'light' | 'dark' =
+    mode === 'light'
+      ? 'light'
+      : mode === 'system'
+        ? systemDark
+          ? 'dark'
+          : 'light'
+        : 'dark'
 
   useEffect(() => {
     const root = document.documentElement
     root.classList.toggle('dark', resolved === 'dark')
-    // The "Dark" pick gets its own palette; "System" (even when it resolves to
-    // dark) keeps the warm-charcoal default that matches macOS dark mode.
+    // System dark keeps the warm-charcoal default; explicit dark variants
+    // layer their own palette on top of `.dark` via these toggle classes.
     root.classList.toggle('theme-midnight', mode === 'dark')
+    root.classList.toggle('theme-cobalt', mode === 'cobalt')
     root.style.colorScheme = resolved
   }, [resolved, mode])
 

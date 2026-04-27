@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import {
+  Droplet,
   MessageSquarePlus,
   Moon,
   MessageCircle,
@@ -83,6 +84,10 @@ export function CommandPalette({
           <CommandItem onSelect={() => close(() => theme.setMode('dark'))}>
             <Moon className="size-4" />
             Dark
+          </CommandItem>
+          <CommandItem onSelect={() => close(() => theme.setMode('cobalt'))}>
+            <Droplet className="size-4" />
+            Cobalt
           </CommandItem>
           <CommandItem onSelect={() => close(() => theme.setMode('system'))}>
             <SunMoon className="size-4" />

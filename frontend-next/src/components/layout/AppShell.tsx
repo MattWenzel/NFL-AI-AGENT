@@ -19,6 +19,8 @@ type LayoutCtx = {
   toggleDesktopSidebar: () => void
   /** Open the desktop inspector pane (used when a tool row is clicked). */
   openDesktopInspector: () => void
+  /** Close the desktop inspector (used by empty-thread clicks). */
+  closeDesktopInspector: () => void
 }
 
 const LayoutContext = createContext<LayoutCtx | null>(null)
@@ -29,6 +31,7 @@ export function useLayout(): LayoutCtx {
       desktopSidebarOpen: true,
       toggleDesktopSidebar: () => {},
       openDesktopInspector: () => {},
+      closeDesktopInspector: () => {},
     }
   )
 }
@@ -47,17 +50,19 @@ export function AppShell({ sidebar, main, inspector, inspectorAvailable = false 
   }, [inspectorAvailable])
 
   // Close the desktop inspector when a pointer-down lands outside of it.
-  // mousedown is used (not click) so the contains() check runs before any
-  // React re-render that might unmount the button the user is actually
-  // clicking — a click on a tool row inside the inspector swaps views,
-  // and by the click phase the original button is detached from the DOM.
+  // Clicks inside <main> (the thread + composer) are NOT treated as outside —
+  // selecting another message would otherwise race close-then-open, flicker
+  // the inspector closed mid-click, and reflow the page in a way that can
+  // swallow the click event entirely.
   const inspectorRef = useRef<HTMLElement | null>(null)
+  const mainRef = useRef<HTMLElement | null>(null)
   useEffect(() => {
     if (!desktopInspectorOpen) return
     const onMouseDown = (e: MouseEvent) => {
       const target = e.target
       if (!(target instanceof Node)) return
       if (inspectorRef.current?.contains(target)) return
+      if (mainRef.current?.contains(target)) return
       setDesktopInspectorOpen(false)
     }
     document.addEventListener('mousedown', onMouseDown)
@@ -68,6 +73,7 @@ export function AppShell({ sidebar, main, inspector, inspectorAvailable = false 
     desktopSidebarOpen,
     toggleDesktopSidebar: () => setDesktopSidebarOpen((v) => !v),
     openDesktopInspector: () => setDesktopInspectorOpen(true),
+    closeDesktopInspector: () => setDesktopInspectorOpen(false),
   }
 
   return (
@@ -91,7 +97,7 @@ export function AppShell({ sidebar, main, inspector, inspectorAvailable = false 
         </Sheet>
 
         <div className="relative flex min-w-0 flex-1">
-          <main className="flex min-w-0 flex-1 flex-col">
+          <main ref={mainRef} className="flex min-w-0 flex-1 flex-col">
             <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-background/80 px-3 md:hidden">
               <Button
                 variant="ghost"
