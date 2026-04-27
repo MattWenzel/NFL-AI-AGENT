@@ -21,7 +21,7 @@ export function LiveTableView({
   table,
   loading,
   error,
-  emptyHint = 'Switch the composer to "Change table" and ask the agent to build one.',
+  emptyHint = 'Ask the agent to build one.',
 }: LiveTableViewProps) {
   const [sort, setSort] = useState<SortState>({ column: null, direction: 'asc' })
 

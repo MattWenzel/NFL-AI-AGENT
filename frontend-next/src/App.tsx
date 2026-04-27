@@ -241,6 +241,10 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
         toolChoice: opts.toolChoice,
         overrideConversationId: created.id,
         onReportCreated: handleReportCreated,
+        // The first send into a fresh report can trigger set_table —
+        // mirror TableChatView's edit-flow refetch so the table populates
+        // without waiting on the (timing-fragile) mount-effect alone.
+        onTableUpdated: () => refetchActiveTableRef.current(),
       })
       .finally(() => {
         tables.refresh()
