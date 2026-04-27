@@ -98,6 +98,30 @@ export function Thread({ transcript }: ThreadProps) {
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   }, [selectedExchangeId])
 
+  // Scroll the most recent user turn into view: smoothly on send (so the
+  // user follows their newly-posted message), instantly on conversation
+  // switch or first load (avoids a jarring smooth-scroll across history).
+  // Keyed on the user-turn id so this fires once per send, not on every
+  // text-delta during streaming.
+  const lastUserTurnId = useMemo(() => {
+    for (let i = groups.length - 1; i >= 0; i--) {
+      if (groups[i].kind === 'user') return groups[i].exchangeId
+    }
+    return null
+  }, [groups])
+  const prevSessionIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!lastUserTurnId) return
+    const el = exchangeRefs.current.get(lastUserTurnId)
+    if (!el) return
+    const isNewConversation = prevSessionIdRef.current !== transcript.session_id
+    prevSessionIdRef.current = transcript.session_id
+    el.scrollIntoView({
+      behavior: isNewConversation ? 'auto' : 'smooth',
+      block: 'start',
+    })
+  }, [lastUserTurnId, transcript.session_id])
+
   return (
     <div
       className="flex-1 overflow-y-auto"

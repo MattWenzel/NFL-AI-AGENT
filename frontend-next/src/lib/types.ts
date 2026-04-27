@@ -4,7 +4,7 @@
  */
 
 export type TurnRole = 'user' | 'assistant'
-export type TurnStatus = 'pending' | 'streaming' | 'complete' | 'error'
+export type TurnStatus = 'pending' | 'streaming' | 'complete' | 'error' | 'interrupted'
 
 export interface TurnRecord {
   id: string
@@ -32,7 +32,7 @@ export interface AssistantPartRecord {
   created_at: string
 }
 
-export type ToolRunStatus = 'pending' | 'running' | 'completed' | 'error' | string
+export type ToolRunStatus = 'pending' | 'running' | 'completed' | 'error' | 'interrupted' | string
 
 export interface ToolRunRecord {
   id: string

@@ -1,4 +1,4 @@
-import { ChevronRight, AlertCircle, AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react'
+import { ChevronRight, AlertCircle, AlertTriangle, CheckCircle2, Loader2, OctagonX } from 'lucide-react'
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Markdown } from '@/components/thread/Markdown'
@@ -56,8 +56,13 @@ export function AgentResponse({
   // Reasoning / thinking parts that the agent emits between tool calls.
   const reasoningParts = parts.filter((p) => p.kind === 'thinking' || p.kind === 'reasoning')
 
-  // Last error — if any turn errored, surface the most recent message.
-  const lastError = [...turns].reverse().find((t) => t.error)?.error ?? null
+  // User-cancelled turns get the calm "Stopped" treatment; a real error gets
+  // the destructive treatment. Interrupted turns carry an `error` field too
+  // (set by cleanup_interrupted_assistant_turn), so check status first.
+  const wasInterrupted = turns.some((t) => t.status === 'interrupted')
+  const lastError = wasInterrupted
+    ? null
+    : [...turns].reverse().find((t) => t.error)?.error ?? null
 
   // Token totals across all iterations.
   const totalIn = turns.reduce((s, t) => s + (t.input_tokens || 0), 0)
@@ -148,6 +153,13 @@ export function AgentResponse({
         <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
           <AlertTriangle className="size-4 shrink-0 mt-px" />
           <span>{lastError}</span>
+        </div>
+      ) : null}
+
+      {wasInterrupted ? (
+        <div className="flex items-center gap-2 text-2xs text-muted-foreground">
+          <OctagonX className="size-3.5" />
+          <span>Stopped by you</span>
         </div>
       ) : null}
 
@@ -268,7 +280,11 @@ function StatusDot({ status }: { status: string }) {
       aria-hidden
       className={cn(
         'block size-2 shrink-0 rounded-full',
-        status === 'error' ? 'bg-destructive' : 'bg-success',
+        status === 'error'
+          ? 'bg-destructive'
+          : status === 'interrupted'
+            ? 'bg-muted-foreground/60'
+            : 'bg-success',
       )}
     />
   )

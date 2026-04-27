@@ -463,6 +463,21 @@ export function useChat() {
         dispatch({ type: 'stream-done' })
       } catch (e) {
         if ((e as Error)?.name === 'AbortError') {
+          // Pull the authoritative transcript so the optimistic partial
+          // assistant turn is replaced with the backend's "interrupted"
+          // cleanup (status, error marker, tool-run statuses).
+          const settledId = stateRef.current.conversationId
+          if (settledId) {
+            try {
+              const transcript = await apiGet<ConversationTranscript>(
+                `/chat/conversations/${encodeURIComponent(settledId)}/transcript`,
+              )
+              dispatch({ type: 'set-transcript', transcript })
+            } catch {
+              // Optimistic state stays if the refetch fails.
+            }
+            await refreshConversations()
+          }
           dispatch({ type: 'stream-done' })
           return
         }
