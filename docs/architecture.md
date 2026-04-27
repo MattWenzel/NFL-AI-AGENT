@@ -188,15 +188,6 @@ The nflverse DuckDB file (`nflverse.duckdb`) is read-only reference data opened 
 
 Multi-user password auth + Google OAuth + Sign-in-with-ChatGPT (Codex device flow). First registrant becomes admin. Per-user API key storage via Fernet encryption. Optional invite-code gate. Rate-limited per IP. Browser sessions ride an `HttpOnly` cookie + JS-readable CSRF cookie (double-submit on mutating requests); Bearer tokens still work for API clients. See [auth.md](auth.md).
 
-## Deployment
-
-Single-origin — the FastAPI app serves both the API and the UI. TLS is mandatory (tokens + keys on the wire). Two documented paths:
-
-- **Fly.io.** Dockerfile + fly.toml ship with the repo. 10GB volume for the NFL DBs. `SETTINGS_ENCRYPTION_KEY` + `REGISTRATION_INVITE_CODE` as secrets.
-- **Self-hosted VPS.** Uvicorn bound to `127.0.0.1`, Caddy in front for TLS, systemd unit for supervision.
-
-Full runbooks in [deployment.md](deployment.md).
-
 ## Deliberate non-features
 
 A few things you might expect that aren't here:

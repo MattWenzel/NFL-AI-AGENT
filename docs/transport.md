@@ -275,4 +275,4 @@ Key options:
 - **`forwarded_allow_ips`** — restricts who is trusted to set those headers. Default `127.0.0.1` (loopback only). Set to the proxy's IP if the proxy lives elsewhere.
 - **`HOST` default `127.0.0.1`** — bind loopback only. `HOST=0.0.0.0` logs a warning because a directly-reachable app shouldn't trust proxy headers.
 
-Prod deployments (Fly.io, self-hosted) bind to `127.0.0.1` and put Caddy / nginx / Fly's edge in front for TLS. See [deployment.md](deployment.md) for the runbook.
+Prod deployments should bind to `127.0.0.1` and put a TLS-terminating reverse proxy in front.

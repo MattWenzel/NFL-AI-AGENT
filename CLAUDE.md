@@ -224,10 +224,6 @@ Shipped 2026-04-23. Users can sign up / sign in with Google, and existing passwo
 
 **Follow-up work:** OAuth-only users can't currently set a password. When we want a "set password" flow (so an OAuth user can turn into a hybrid password+Google user), add `POST /auth/set-password` that requires an authenticated session, rejects if `password_hash != "!"`, writes a real bcrypt hash, and seeds a `password` identity row. Not needed right now since users can also unlink Google (if another identity exists) or keep using OAuth indefinitely.
 
-## Deployment
-
-Hosted (Fly.io) and self-hosted (Caddy + systemd) runbooks live in [docs/deployment.md](docs/deployment.md). That doc is single-origin-TLS, with pre-flight checklists, seed steps for the NFL databases on the Fly volume, and backup/rotation guidance for the encryption key.
-
 ## Notes
 
 - 2025 stats available from nflverse native data

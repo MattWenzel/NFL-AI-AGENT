@@ -109,7 +109,7 @@ backend/server/           HTTP infrastructure — app factory, middleware (reque
 frontend/                 Browser app — React + Vite + Tailwind + shadcn/ui
 ```
 
-Full internal-design docs live under [docs/](docs/) — start with [docs/architecture.md](docs/architecture.md). Deployment runbooks (Fly.io + self-hosted VPS) are in [docs/deployment.md](docs/deployment.md); running locally for development is covered there too.
+Full internal-design docs live under [docs/](docs/) — start with [docs/architecture.md](docs/architecture.md).
 
 ## License
 

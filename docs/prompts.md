@@ -53,7 +53,7 @@ Two surfaces beyond regular Chat call into different system prompts:
 
 - **No examples of good/bad queries.** Examples bloat the prompt and tend to be followed too literally. Guides hold query templates.
 - **No tool input schemas.** The provider SDKs handle this from `TOOLS` — repeating schemas in prose would be redundant and drift-prone.
-- **No deployment or admin info.** That belongs to [deployment.md](deployment.md) and the transport layer, not the LLM.
+- **No deployment or admin info.** That belongs to the deploy layer, not the LLM.
 - **"Don't announce intent" sits high in Tool Usage.** Models otherwise narrate "I'll first look at the schema, then..." which burns output tokens and can get the turn truncated before the tool call lands.
 
 ## Guide system

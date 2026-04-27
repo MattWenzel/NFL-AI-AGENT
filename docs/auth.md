@@ -2,7 +2,7 @@
 
 Open multi-user authentication. Register with a password, sign in with Google, or sign in with ChatGPT (Codex device flow). Issued credential is an opaque session token, then authenticate via the browser session cookie or `Authorization: Bearer <token>`. No JWT. First user becomes admin; subsequent users are regular users. Optional invite-code gate closes password registration.
 
-This doc covers the password flow, token scheme, rate limiting, browser session cookie + CSRF protection, Fernet-encrypted per-user API keys, the Codex OAuth device-code flow (for ChatGPT users — both as a credential for chat and as a sign-in method), and Google OAuth sign-in/linking. Deployment-side env vars (`SETTINGS_ENCRYPTION_KEY`, `ALLOWED_ORIGINS`, `GOOGLE_OAUTH_CLIENT_ID`, etc.) are in [deployment.md](deployment.md).
+This doc covers the password flow, token scheme, rate limiting, browser session cookie + CSRF protection, Fernet-encrypted per-user API keys, the Codex OAuth device-code flow (for ChatGPT users — both as a credential for chat and as a sign-in method), and Google OAuth sign-in/linking. Required env vars (`SETTINGS_ENCRYPTION_KEY`, `ALLOWED_ORIGINS`, `GOOGLE_OAUTH_CLIENT_ID`, etc.) are documented inline below where they're consumed.
 
 ## File map
 
