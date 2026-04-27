@@ -111,7 +111,7 @@ export function Thread({ transcript }: ThreadProps) {
         closeDesktopInspector()
       }}
     >
-      <div className="mx-auto w-full max-w-5xl space-y-8 px-6 py-6 lg:px-10">
+      <div className="mx-auto w-full max-w-6xl space-y-8 px-6 py-6 lg:px-10">
         {groups.map((g, i) => {
           const setAnchorRef = anchorFlags[i]
             ? (el: HTMLDivElement | null) => {

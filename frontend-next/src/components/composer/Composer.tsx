@@ -98,7 +98,7 @@ export function Composer({
         variant === 'centered' && 'pb-2 pt-0',
       )}
     >
-      <div className="mx-auto w-full max-w-5xl">
+      <div className="mx-auto w-full max-w-6xl">
         <div className="rounded-2xl border border-border bg-card shadow-sm focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-0">
           <textarea
             ref={textareaRef}
