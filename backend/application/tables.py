@@ -137,6 +137,19 @@ class TableChatService:
         if not await self.store.delete_session(conversation_id, user_id=user_id):
             raise TableChatNotFoundError("Table chat not found")
 
+    async def set_table_locked(
+        self, conversation_id: str, *, user_id: int, locked: bool
+    ) -> bool:
+        """Toggle the table's lock flag. Returns the new locked value."""
+        session = await self.store.get_session(conversation_id, user_id=user_id)
+        if session is None or session.kind != "table_chat":
+            raise TableChatNotFoundError("Table chat not found")
+        if not await self.store.set_table_locked(conversation_id, locked):
+            raise TableNotReadyError(
+                "There is no table to lock yet — ask the agent to build one first."
+            )
+        return locked
+
     async def save_to_reports(
         self,
         conversation_id: str,
@@ -197,6 +210,11 @@ class TableChatService:
             except OSError:
                 pass
             raise
+
+        # Auto-lock so the finalized snapshot can't be silently rewritten by
+        # a follow-up turn. The user can unlock via the toolbar if they want
+        # to keep iterating after saving.
+        await self.store.set_table_locked(conversation_id, True)
 
         # Display-only convenience for logs.
         logger.info(

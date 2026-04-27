@@ -40,7 +40,7 @@ def test_migration_0007_adds_kind_and_creates_table_states(tmp_path):
             "SELECT name FROM sqlite_master WHERE type='table' AND name='table_states'"
         )).first() is not None
     # Bump in lockstep with `MIGRATIONS` length in backend/data/migrations.py.
-    assert version == 8
+    assert version == 9
     assert "kind" in sessions_cols
     assert "source_session_id" in sessions_cols
     assert ts_exists
@@ -58,7 +58,7 @@ class _FakeSqlResult:
         self.truncated = truncated
 
 
-def test_set_table_clamps_to_table_max_rows(monkeypatch):
+def test_set_table_runs_sql_through_sandbox(monkeypatch):
     captured = {}
 
     def fake_run(sql, max_rows):
@@ -80,13 +80,14 @@ def test_set_table_clamps_to_table_max_rows(monkeypatch):
 
     out = _set_table(
         {"sql": "SELECT 1 AS a"},
-        {"persist_table": persist, "table_max_rows": 50},
+        {"persist_table": persist, "is_table_locked": lambda: False},
     )
     payload = json.loads(out)
     assert payload["status"] == "success"
     assert payload["row_count"] == 1
     assert payload["columns"] == ["a"]
-    assert captured["max_rows"] == 50
+    # Always uses the sandbox's hard ceiling now that the size dropdown is gone.
+    assert captured["max_rows"] == 500
     assert persisted["columns"] == ["a"]
     assert persisted["rows"] == [{"a": 1}]
     assert persisted["sql"] == "SELECT 1 AS a"
@@ -100,6 +101,29 @@ def test_set_table_refuses_without_persist_callback():
 def test_set_table_rejects_blank_sql():
     out = _set_table({"sql": "   "}, {"persist_table": lambda **_: None})
     assert "Missing required `sql`" in json.loads(out)["error"]
+
+
+def test_set_table_rejects_when_table_is_locked(monkeypatch):
+    """Locked tables short-circuit before SQL runs and emit a structured error."""
+    def fake_run(*args, **kwargs):  # pragma: no cover — should not fire
+        raise AssertionError("execute_table_sql should not run on a locked table")
+
+    monkeypatch.setattr(
+        "backend.domain.tools.handlers.set_table.execute_table_sql", fake_run
+    )
+
+    persist_called = []
+    out = _set_table(
+        {"sql": "SELECT 1 AS a"},
+        {
+            "persist_table": lambda **_: persist_called.append(True),
+            "is_table_locked": lambda: True,
+        },
+    )
+    payload = json.loads(out)
+    assert payload.get("locked") is True
+    assert "locked" in payload["error"].lower()
+    assert persist_called == []
 
 
 # --------------------------------------------------------------------------
@@ -164,7 +188,8 @@ async def test_table_chat_service_rejects_regular_chats(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# ChatService tool whitelist by table_mode
+# ChatService tool whitelist by session kind (mode dropdown is gone — the
+# table's `locked` flag is the gate now).
 # --------------------------------------------------------------------------
 
 def _stub_session(kind: str) -> SessionRecord:
@@ -189,43 +214,60 @@ def _tool_names(tools):
 
 def test_chat_service_tool_whitelist_for_regular_chat():
     sess = _stub_session("chat")
-    mode = ChatService._resolve_table_mode(sess, requested_mode=None)
-    assert mode is None
-    tools = ChatService._tools_for_mode(mode)
+    tools = ChatService._tools_for_session(sess)
     assert "set_table" not in _tool_names(tools)
     assert "execute_sql" in _tool_names(tools)
 
 
-def test_chat_service_table_explore_excludes_set_table():
+def test_chat_service_tool_whitelist_for_table_chat():
     sess = _stub_session("table_chat")
-    mode = ChatService._resolve_table_mode(sess, requested_mode="explore")
-    assert mode == "explore"
-    tools = ChatService._tools_for_mode(mode)
-    assert "set_table" not in _tool_names(tools)
-    assert "execute_sql" in _tool_names(tools)
+    names = _tool_names(ChatService._tools_for_session(sess))
+    assert names == {
+        "search_players", "get_player_info",
+        "execute_sql", "get_guide", "get_schema",
+        "set_table",
+    }
+    # Inside a Report we still drop content-creation tools — the user is
+    # already viewing tabular data.
+    assert "create_report" not in names
+    assert "create_chart" not in names
+    assert "create_csv_export" not in names
 
 
-def test_chat_service_table_edit_only_set_table():
-    sess = _stub_session("table_chat")
-    mode = ChatService._resolve_table_mode(sess, requested_mode="edit_table")
-    assert mode == "edit_table"
-    tools = ChatService._tools_for_mode(mode)
-    assert _tool_names(tools) == {"set_table"}
+@pytest.mark.asyncio
+async def test_table_chat_service_lock_toggle(tmp_path):
+    store = RuntimeStore(tmp_path / "r.sqlite3")
+    user = await store.create_user(email="t@e.com", password_hash="h")
+    service = TableChatService(store, exports_dir=tmp_path / "exports")
+    session = await service.create_table_chat(user_id=user.id)
+    # No table yet — locking should report a "not ready" error.
+    with pytest.raises(TableNotReadyError):
+        await service.set_table_locked(session.id, user_id=user.id, locked=True)
+    # Build a table, then toggle.
+    await store.upsert_table_state(
+        session.id,
+        columns=["a"], rows=[{"a": 1}],
+        last_sql="SELECT 1 AS a", row_count=1, truncated=False,
+    )
+    await service.set_table_locked(session.id, user_id=user.id, locked=True)
+    state = await store.get_table_state(session.id)
+    assert state is not None and state.locked is True
+    await service.set_table_locked(session.id, user_id=user.id, locked=False)
+    state = await store.get_table_state(session.id)
+    assert state is not None and state.locked is False
 
 
-def test_chat_service_defaults_table_chat_to_explore():
-    """When the request omits table_mode but the session is a table_chat,
-    fall back to 'explore' so the dangerous set_table tool isn't exposed."""
-    sess = _stub_session("table_chat")
-    mode = ChatService._resolve_table_mode(sess, requested_mode=None)
-    assert mode == "explore"
-
-
-def test_chat_service_ignores_table_mode_on_regular_chats():
-    sess = _stub_session("chat")
-    # A misbehaving client shouldn't be able to opt a regular chat into
-    # set_table by faking table_mode.
-    mode = ChatService._resolve_table_mode(sess, requested_mode="edit_table")
-    assert mode is None
-    tools = ChatService._tools_for_mode(mode)
-    assert "set_table" not in _tool_names(tools)
+@pytest.mark.asyncio
+async def test_table_chat_save_auto_locks(tmp_path):
+    store = RuntimeStore(tmp_path / "r.sqlite3")
+    user = await store.create_user(email="t@e.com", password_hash="h")
+    service = TableChatService(store, exports_dir=tmp_path / "exports")
+    session = await service.create_table_chat(user_id=user.id, title="QB")
+    await store.upsert_table_state(
+        session.id,
+        columns=["player"], rows=[{"player": "Mahomes"}],
+        last_sql="SELECT player FROM s", row_count=1, truncated=False,
+    )
+    await service.save_to_reports(session.id, user_id=user.id)
+    state = await store.get_table_state(session.id)
+    assert state is not None and state.locked is True

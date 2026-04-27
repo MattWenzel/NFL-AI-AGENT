@@ -137,28 +137,38 @@ For everything else where the user wants to look at tabular data, prefer `create
 """
 
 
-_TABLE_MODE_ADDENDUM = """
+_TABLE_CHAT_ADDENDUM = """
 
-## Table View Chat — special mode
+## Table View Chat
 
-You are in a Table View chat. The user maintains a single live table on screen and is collaborating with you to populate it.
+You are inside a Report — the user maintains a single live table on screen and is collaborating with you to populate it. You have all your usual research tools plus `set_table`, which replaces the live table with the rows from a SQL query.
 
-The user's composer has a mode dropdown that controls which tools are available to YOU on each turn:
+The table has a **lock toggle** the user controls from the toolbar. {lock_clause}
 
-- **"Explore" turns** — your job is to research, not to mutate the table. You have all your usual tools (execute_sql, get_guide, get_schema, search_players, get_player_info), but `set_table` is NOT available. Explain findings in prose / markdown tables in your reply. Do not promise to "now update the table" — that requires a "Change table" turn.
-- **"Change table" turns** — only `set_table` is available. Call it exactly once with a SQL query whose result becomes the new table. {row_cap_clause} The tool result tells you only the row count and column list — the rows themselves never come back into your context. After the call, follow up with a brief sentence describing what you put in the table.
-
-The table state is shared across turns — what you set in one "Change table" turn persists for later "Explore" research and is replaced by the next "Change table" call. Saving the table sends a CSV to the Reports library; that's the user's affordance, not yours.
+Guidance:
+- When the user asks about the data without asking for changes, just answer — don't call `set_table`. The table is shared across turns; rewriting it on every question is destructive to their workflow.
+- When the user asks for changes ("add a column", "filter to last season", "show top 25 instead of 10"), call `set_table` with a new SQL query. The tool result returns only the row count and column list — the rows themselves never come back into your context, so build the SQL self-contained.
+- Hard row ceiling is 500 (server-enforced). Pick a sensible LIMIT for the question.
+- Saving the table sends a CSV to the Reports library and locks the table — that's the user's affordance, not yours.
 """
 
+_TABLE_LOCKED_CLAUSE = (
+    "**The table is currently LOCKED.** `set_table` will be rejected. "
+    "If the user asks for changes to the table, tell them the table is "
+    "locked and ask them to unlock it via the toolbar before you try."
+)
+_TABLE_UNLOCKED_CLAUSE = (
+    "The table is currently unlocked, so `set_table` is callable when the "
+    "user wants changes."
+)
 
-def get_base_prompt(*, table_mode: bool = False, table_max_rows: int | None = None) -> str:
+
+def get_base_prompt(*, table_chat: bool = False, table_locked: bool = False) -> str:
     """Return the system prompt with today's date evaluated at call time.
 
-    `table_mode=True` appends a short addendum explaining the Table View chat
-    workflow. When `table_max_rows` is None the user picked "Auto" and the
-    addendum tells the agent to size the LIMIT to the question (capped at
-    the sandbox's absolute 500-row ceiling).
+    `table_chat=True` appends a short addendum explaining that the agent is
+    inside a Report. `table_locked` drives a one-line clause inside that
+    addendum so the agent knows up front whether `set_table` will work.
     """
     guide_index = "\n".join(
         [
@@ -171,16 +181,7 @@ def get_base_prompt(*, table_mode: bool = False, table_max_rows: int | None = No
         today=date.today().isoformat(),
         guide_index=guide_index,
     )
-    if table_mode:
-        if table_max_rows is None:
-            row_cap_clause = (
-                "The user has chosen \"Auto\" rows — pick a sensible LIMIT for the question. "
-                "Hard ceiling is 500 rows (enforced server-side); aim lower when fewer rows answer the user's question."
-            )
-        else:
-            row_cap_clause = (
-                f"The user has selected `table_max_rows={table_max_rows}`; the cap is enforced server-side, "
-                "but you should write LIMIT clauses up to that value."
-            )
-        base += _TABLE_MODE_ADDENDUM.format(row_cap_clause=row_cap_clause)
+    if table_chat:
+        lock_clause = _TABLE_LOCKED_CLAUSE if table_locked else _TABLE_UNLOCKED_CLAUSE
+        base += _TABLE_CHAT_ADDENDUM.format(lock_clause=lock_clause)
     return base

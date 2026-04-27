@@ -4,23 +4,12 @@ import { ArrowUp, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useProviders } from '@/lib/providers'
-import {
-  DEFAULT_TABLE_MODE,
-  DEFAULT_TABLE_SIZE,
-  TABLE_SIZE_OPTIONS,
-  type TableMode,
-  type TableSize,
-} from '@/lib/tables'
 import { cn } from '@/lib/utils'
 
 interface ComposerSendOptions {
   provider: string
   model: string
   toolChoice: 'auto' | 'required' | 'none'
-  /** Only sent when tableChat is on. */
-  tableMode?: TableMode
-  /** Only sent when tableChat is on. */
-  tableSize?: TableSize
 }
 
 interface ComposerProps {
@@ -34,13 +23,9 @@ interface ComposerProps {
    *   headline; flows in normal layout, no backdrop, no divider.
    */
   variant?: 'docked' | 'centered'
-  /**
-   * When true, the composer renders the table-view chat extras: a mode
-   * dropdown (Explore / Change table) and a size dropdown for the row cap.
-   * Picking "Change table" forces tool_choice to "required" so the agent
-   * has to call set_table this turn.
-   */
-  tableChat?: boolean
+  /** Optional placeholder override — used by the table view to hint that
+   *  the message will affect a shared table. */
+  placeholder?: string
   onSend: (message: string, options: ComposerSendOptions) => void
   onStop?: () => void
 }
@@ -51,18 +36,11 @@ const TOOL_CHOICES = [
   { value: 'none', label: 'Text only' },
 ] as const
 
-const TABLE_MODE_CHOICES: { value: TableMode; label: string }[] = [
-  { value: 'explore', label: 'Explore' },
-  { value: 'edit_table', label: 'Change table' },
-]
-
 // localStorage keys — keep the user's last picker choice across Composer
 // remounts (centered → docked when starting a new chat) and page reloads.
 const PROVIDER_STORAGE_KEY = 'chat-workspace.provider'
 const MODEL_STORAGE_KEY = 'chat-workspace.model'
 const TOOL_CHOICE_STORAGE_KEY = 'chat-workspace.tool_choice'
-const TABLE_MODE_STORAGE_KEY = 'chat-workspace.table_mode'
-const TABLE_SIZE_STORAGE_KEY = 'chat-workspace.table_size'
 
 function readStoredString(key: string): string | null {
   if (typeof window === 'undefined') return null
@@ -87,7 +65,7 @@ export function Composer({
   disabled = false,
   streaming = false,
   variant = 'docked',
-  tableChat = false,
+  placeholder,
   onSend,
   onStop,
 }: ComposerProps) {
@@ -105,22 +83,6 @@ export function Composer({
     const raw = readStoredString(TOOL_CHOICE_STORAGE_KEY)
     return raw === 'auto' || raw === 'required' || raw === 'none' ? raw : 'auto'
   })
-  const [tableMode, setTableModeState] = useState<TableMode>(() => {
-    const raw = readStoredString(TABLE_MODE_STORAGE_KEY)
-    return raw === 'explore' || raw === 'edit_table' ? raw : DEFAULT_TABLE_MODE
-  })
-  const [tableSize, setTableSizeState] = useState<TableSize>(() => {
-    const raw = readStoredString(TABLE_SIZE_STORAGE_KEY)
-    if (raw === 'auto') return 'auto'
-    const n = raw ? Number(raw) : NaN
-    if (
-      Number.isFinite(n) &&
-      (TABLE_SIZE_OPTIONS as readonly (number | string)[]).includes(n)
-    ) {
-      return n as TableSize
-    }
-    return DEFAULT_TABLE_SIZE
-  })
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 
   const setProvider = (next: string) => {
@@ -134,14 +96,6 @@ export function Composer({
   const setToolChoice = (next: 'auto' | 'required' | 'none') => {
     setToolChoiceState(next)
     writeStoredString(TOOL_CHOICE_STORAGE_KEY, next)
-  }
-  const setTableMode = (next: TableMode) => {
-    setTableModeState(next)
-    writeStoredString(TABLE_MODE_STORAGE_KEY, next)
-  }
-  const setTableSize = (next: TableSize) => {
-    setTableSizeState(next)
-    writeStoredString(TABLE_SIZE_STORAGE_KEY, String(next))
   }
 
   const { providers, status: providersStatus } = useProviders()
@@ -186,20 +140,7 @@ export function Composer({
   const submit = () => {
     const trimmed = value.trim()
     if (!trimmed || disabled || streaming || !provider || !model) return
-    if (tableChat) {
-      // "Change table" turns must call set_table — force the model into a
-      // tool call this turn. "Explore" turns leave tool_choice up to the user.
-      const effectiveToolChoice = tableMode === 'edit_table' ? 'required' : toolChoice
-      onSend(trimmed, {
-        provider,
-        model,
-        toolChoice: effectiveToolChoice,
-        tableMode,
-        tableSize,
-      })
-    } else {
-      onSend(trimmed, { provider, model, toolChoice })
-    }
+    onSend(trimmed, { provider, model, toolChoice })
     setValue('')
   }
 
@@ -227,13 +168,7 @@ export function Composer({
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={
-              tableChat
-                ? tableMode === 'edit_table'
-                  ? 'Ask the agent to build or replace the table…'
-                  : 'Ask a question about the data — the table won\'t change.'
-                : 'Ask about a player, season, matchup, or matchup history...'
-            }
+            placeholder={placeholder ?? 'Ask about a player, season, matchup, or matchup history...'}
             rows={2}
             disabled={disabled || streaming}
             className="block w-full resize-none bg-transparent px-4 pb-2 pt-4 text-base leading-snug placeholder:text-muted-foreground focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
@@ -281,59 +216,22 @@ export function Composer({
                 ))}
               </SelectContent>
             </Select>
-            {!tableChat ? (
-              <Select
-                value={toolChoice}
-                onValueChange={(v) => setToolChoice(v as 'auto' | 'required' | 'none')}
-                disabled={streaming}
-              >
-                <SelectTrigger size="sm" className="h-7 gap-1 border-0 bg-transparent px-2 text-xs hover:bg-muted">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TOOL_CHOICES.map((c) => (
-                    <SelectItem key={c.value} value={c.value} className="text-xs">
-                      {c.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <>
-                <Select
-                  value={tableMode}
-                  onValueChange={(v) => setTableMode(v as TableMode)}
-                  disabled={streaming}
-                >
-                  <SelectTrigger size="sm" className="h-7 gap-1 border-0 bg-transparent px-2 text-xs hover:bg-muted">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TABLE_MODE_CHOICES.map((c) => (
-                      <SelectItem key={c.value} value={c.value} className="text-xs">
-                        {c.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={String(tableSize)}
-                  onValueChange={(v) => setTableSize(v === 'auto' ? 'auto' : (Number(v) as TableSize))}
-                  disabled={streaming || tableMode !== 'edit_table'}
-                >
-                  <SelectTrigger size="sm" className="h-7 gap-1 border-0 bg-transparent px-2 text-xs hover:bg-muted">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TABLE_SIZE_OPTIONS.map((opt) => (
-                      <SelectItem key={String(opt)} value={String(opt)} className="text-xs">
-                        {opt === 'auto' ? 'Auto rows' : `${opt} rows`}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </>
-            )}
+            <Select
+              value={toolChoice}
+              onValueChange={(v) => setToolChoice(v as 'auto' | 'required' | 'none')}
+              disabled={streaming}
+            >
+              <SelectTrigger size="sm" className="h-7 gap-1 border-0 bg-transparent px-2 text-xs hover:bg-muted">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TOOL_CHOICES.map((c) => (
+                  <SelectItem key={c.value} value={c.value} className="text-xs">
+                    {c.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
             {streaming ? (
               <Button

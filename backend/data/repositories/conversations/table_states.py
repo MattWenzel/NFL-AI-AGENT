@@ -64,6 +64,26 @@ class TableStatesMixin:
             await session.refresh(record)
             return record
 
+    async def set_table_locked(self, session_id: str, locked: bool) -> bool:
+        """Flip the lock flag on an existing table state row.
+
+        Returns True if a row was updated, False if no table state exists yet.
+        Doesn't touch `updated_at` — locking isn't a content change.
+        """
+        async with self._async_session() as session:
+            existing = (
+                await session.execute(
+                    select(TableStateRecord).where(
+                        TableStateRecord.session_id == session_id
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing is None:
+                return False
+            existing.locked = bool(locked)
+            await session.commit()
+            return True
+
     async def delete_table_state(self, session_id: str) -> bool:
         async with self._async_session() as session:
             result = await session.execute(

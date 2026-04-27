@@ -207,6 +207,22 @@ def _migration_0007_table_chats(conn: Connection) -> None:
     ))
 
 
+def _migration_0009_table_state_locked(conn: Connection) -> None:
+    """Add `table_states.locked` for the user-toggleable lock flag.
+
+    Replaces the in-prompt explore/edit-table mode dropdown — the agent now
+    always has set_table available, but a locked table rejects mutation
+    attempts so the agent has to ask the user to unlock first.
+    """
+    existing_cols = {
+        row[1] for row in conn.execute(text("PRAGMA table_info(table_states)"))
+    }
+    if "locked" not in existing_cols:
+        conn.execute(text(
+            "ALTER TABLE table_states ADD COLUMN locked INTEGER NOT NULL DEFAULT 0"
+        ))
+
+
 # Ordered migration list. `user_version` after a full apply == len(MIGRATIONS).
 # Append-only — never reorder or delete entries or the version tracker drifts.
 MIGRATIONS: list[Callable[[Connection], None]] = [
@@ -218,6 +234,7 @@ MIGRATIONS: list[Callable[[Connection], None]] = [
     _migration_0006_turn_provider_model,
     _migration_0007_table_chats,
     _migration_0008_session_source_session_id,
+    _migration_0009_table_state_locked,
 ]
 
 

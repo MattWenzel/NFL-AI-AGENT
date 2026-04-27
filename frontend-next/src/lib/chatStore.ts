@@ -262,10 +262,6 @@ export interface SendOptions {
   provider?: string
   model?: string
   toolChoice?: 'auto' | 'required' | 'none'
-  /** Table-view chat: 'explore' = research-only, 'edit_table' = `set_table` only. */
-  tableMode?: 'explore' | 'edit_table'
-  /** Table-view chat: row cap forwarded to the `set_table` tool. */
-  tableMaxRows?: number
   /** Pin this turn to a specific conversation id, bypassing the in-store
    *  current id. Used for the "new report" flow where the table_chat session
    *  is created on the first send and we need this initial message to land
@@ -424,8 +420,6 @@ export function useChat() {
       if (options.provider) body.provider = options.provider
       if (options.model) body.model = options.model
       if (options.toolChoice) body.tool_choice = options.toolChoice
-      if (options.tableMode) body.table_mode = options.tableMode
-      if (typeof options.tableMaxRows === 'number') body.table_max_rows = options.tableMaxRows
 
       try {
         for await (const event of openSseStream('/chat/stream', body, { signal: controller.signal })) {

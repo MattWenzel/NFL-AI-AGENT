@@ -88,8 +88,6 @@ class ChatRuntime:
         tools: list[ToolDefinition],
         provider_name: str,
         tool_choice: ToolChoice | None = None,
-        table_mode: str | None = None,
-        table_max_rows: int | None = None,
     ) -> AsyncGenerator[RuntimeEvent, None]:
         """Drive one user turn through the model, tool loop, and persistence.
 
@@ -113,12 +111,10 @@ class ChatRuntime:
             await self.store.update_session(session.id, **session_changes)
             yield TurnStartedEvent(session_id=session.id, turn_id=user_turn.id)
 
-            extra_tool_ctx = self._build_extra_tool_ctx(
+            extra_tool_ctx = await self._build_extra_tool_ctx(
                 session=session,
                 client=client,
                 provider_name=provider_name,
-                table_mode=table_mode,
-                table_max_rows=table_max_rows,
             )
 
             turn = Turn(
@@ -147,12 +143,17 @@ class ChatRuntime:
                     client.last_stop_reason = None
                     try:
                         transcript = await self.store.get_transcript(session.id)
+                        is_table_chat = session.kind == "table_chat"
+                        table_locked = (
+                            extra_tool_ctx is not None
+                            and bool(extra_tool_ctx.get("_initial_table_locked", False))
+                        ) if is_table_chat else False
                         async for event in client.stream_message(
                             messages=build_model_messages(transcript),
                             tools=tools,
                             system=get_base_prompt(
-                                table_mode=table_mode is not None,
-                                table_max_rows=table_max_rows,
+                                table_chat=is_table_chat,
+                                table_locked=table_locked,
                             ),
                             tool_choice=iter_tool_choice,
                         ):
@@ -274,24 +275,22 @@ class ChatRuntime:
                 if turn.has_active_assistant_turn:
                     await turn.cleanup_interrupted_assistant_turn()
 
-    def _build_extra_tool_ctx(
+    async def _build_extra_tool_ctx(
         self,
         *,
         session: SessionRecord,
         client: BaseLLMClient,
         provider_name: str,
-        table_mode: str | None,
-        table_max_rows: int | None,
     ) -> dict | None:
         """Build the side-channel ctx merged into every tool call.
 
         - `create_report` is always provided (regular chats AND table chats)
           so the main agent can spin up a new Report from any conversation.
-        - `set_table` plumbing (`persist_table` + `table_max_rows`) is only
-          provided when the current session is in table-mode.
-
-        Returns None when there's nothing to merge so regular Turn ctx stays
-        unchanged.
+        - `set_table` plumbing (`persist_table` + `is_table_locked`) is only
+          provided for table-chat sessions. The handler rejects mutations
+          when the table is locked; the lock state is also stamped onto the
+          ctx as `_initial_table_locked` so the runtime can tell the system
+          prompt builder.
         """
         loop = asyncio.get_running_loop()
         store = self.store
@@ -363,7 +362,10 @@ class ChatRuntime:
 
         ctx: dict = {"create_report": create_report}
 
-        if table_mode is not None:
+        if session.kind == "table_chat":
+            initial_state = await store.get_table_state(session.id)
+            initial_locked = bool(initial_state.locked) if initial_state else False
+
             def persist_table(
                 *,
                 columns: list[str],
@@ -385,11 +387,16 @@ class ChatRuntime:
                 )
                 future.result()
 
-            # `None` means the user picked "Auto"; set_table handler will
-            # fall back to the sandbox's absolute 500-row ceiling so the
-            # agent's own LIMIT clause is honored.
-            ctx["table_max_rows"] = table_max_rows
+            def is_table_locked() -> bool:
+                future = asyncio.run_coroutine_threadsafe(
+                    store.get_table_state(session.id), loop,
+                )
+                state = future.result()
+                return bool(state.locked) if state is not None else False
+
             ctx["persist_table"] = persist_table
+            ctx["is_table_locked"] = is_table_locked
+            ctx["_initial_table_locked"] = initial_locked
 
         return ctx
 

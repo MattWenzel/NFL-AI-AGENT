@@ -20,6 +20,7 @@ class TableState(BaseModel):
     rows: list[dict]
     row_count: int
     truncated: bool
+    locked: bool = False
     last_sql: str | None = None
     updated_at: str
 
@@ -30,9 +31,14 @@ class TableState(BaseModel):
             rows=list(record.rows),
             row_count=record.row_count,
             truncated=bool(record.truncated),
+            locked=bool(record.locked),
             last_sql=record.last_sql,
             updated_at=record.updated_at,
         )
+
+
+class TableLockUpdate(BaseModel):
+    locked: bool
 
 
 class TableChatResponse(BaseModel):
@@ -64,5 +70,6 @@ __all__ = [
     "TableChatCreate",
     "TableChatResponse",
     "TableChatSaveRequest",
+    "TableLockUpdate",
     "TableState",
 ]

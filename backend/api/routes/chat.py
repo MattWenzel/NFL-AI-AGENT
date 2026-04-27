@@ -73,8 +73,6 @@ async def chat_message(
             model=body.model,
             tool_choice=body.tool_choice,
             user=user,
-            table_mode=body.table_mode,
-            table_max_rows=body.table_max_rows,
         )
     except ChatNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
@@ -174,8 +172,6 @@ async def chat_stream(
                 prepared,
                 message=body.message,
                 tool_choice=body.tool_choice,
-                table_mode=body.table_mode,
-                table_max_rows=body.table_max_rows,
             )
 
             async def producer():

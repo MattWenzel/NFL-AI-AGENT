@@ -1,7 +1,6 @@
 import { Table2 } from 'lucide-react'
 
 import { Composer } from '@/components/composer/Composer'
-import type { TableMode, TableSize } from '@/lib/tables'
 
 interface EmptyReportScreenProps {
   streaming?: boolean
@@ -11,8 +10,6 @@ interface EmptyReportScreenProps {
       provider: string
       model: string
       toolChoice: 'auto' | 'required' | 'none'
-      tableMode?: TableMode
-      tableSize?: TableSize
     },
   ) => void
   onStop?: () => void
@@ -34,18 +31,18 @@ export function EmptyReportScreen({ streaming = false, onSend, onStop }: EmptyRe
             Build a report
           </h1>
           <p className="text-base text-muted-foreground">
-            Ask the agent for a table. Switch to <span className="font-medium">Change table</span> to
-            populate or refine it; <span className="font-medium">Explore</span> answers questions
-            without touching it.
+            Ask the agent to build a table. The agent can also research the
+            data, answer questions, and refine the table whenever it isn't
+            locked.
           </p>
         </div>
       </div>
       <div className="w-full">
         <Composer
           variant="centered"
-          tableChat
+          placeholder="Ask the agent to build a table…"
           streaming={streaming}
-          onSend={(message, opts) => onSend(message, opts as Parameters<typeof onSend>[1])}
+          onSend={onSend}
           onStop={onStop}
         />
       </div>

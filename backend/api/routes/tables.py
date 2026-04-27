@@ -1,10 +1,11 @@
 """Table-view chat endpoints.
 
 Distinct from `/chat/conversations` because table chats have an extra
-piece of state (the live `TableStateRecord`) and a save-to-reports
-action that doesn't apply to regular chats. Streaming, however, still
-goes through the existing `/chat/stream` route — the request body
-carries `table_mode` + `table_max_rows` for table-chat turns.
+piece of state (the live `TableStateRecord` plus its `locked` flag) and
+a save-to-reports action that doesn't apply to regular chats.
+Streaming still goes through the existing `/chat/stream` route — the
+request body shape is identical to a regular chat now that the explore /
+edit-table mode picker has been replaced by the lock flag.
 """
 
 import logging
@@ -22,6 +23,7 @@ from backend.api.schemas.tables import (
     TableChatCreate,
     TableChatResponse,
     TableChatSaveRequest,
+    TableLockUpdate,
 )
 from backend.application.tables import (
     TableChatNotFoundError,
@@ -95,6 +97,24 @@ async def update_table_chat(
     except TableChatNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     return ConversationInfo.from_row(entry)
+
+
+@router.put("/{conversation_id}/lock", response_model=OkResponse)
+async def set_table_lock(
+    conversation_id: str,
+    body: TableLockUpdate,
+    service: TableChatService = Depends(get_table_chat_service),
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> OkResponse:
+    try:
+        await service.set_table_locked(
+            conversation_id, user_id=user.id, locked=body.locked
+        )
+    except TableChatNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except TableNotReadyError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return OkResponse()
 
 
 @router.delete("/{conversation_id}", response_model=OkResponse)

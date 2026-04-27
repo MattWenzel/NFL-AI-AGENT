@@ -165,6 +165,7 @@ class TableStateRecord(SQLModel, table=True):
     last_sql: str | None = None
     row_count: int = 0
     truncated: bool = False
+    locked: bool = False
     updated_at: str
 
 

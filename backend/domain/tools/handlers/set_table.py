@@ -1,11 +1,14 @@
 """set_table tool: replace the live table in a table-view chat.
 
-Runs the SQL query through the same sandbox as `execute_sql`, but caps
-rows at the user-chosen `table_max_rows` (passed via tool ctx, NOT
-provided by the agent). The result rows are persisted via the
-`persist_table` ctx callback — they go to the UI as a stream event,
+Runs the SQL query through the same sandbox as `execute_sql`, capped at
+the sandbox's absolute row ceiling. Results are persisted via the
+`persist_table` ctx callback — the rows go to the UI as a stream event,
 not back into the LLM's context. The agent only learns "table now has
-N rows × M columns" so big tables don't bloat the prompt.
+N rows × M columns".
+
+If the user has locked the table, the tool short-circuits with a
+structured error envelope before running any SQL — the agent should
+ask the user to unlock first.
 """
 
 import json
@@ -26,12 +29,19 @@ def _set_table(input_data: dict, ctx: dict | None = None) -> str:
         # Without a persist hook there's nowhere to put the rows.
         return json.dumps({"error": "set_table is only available in table-view chats."})
 
-    # When the user picks "Auto" the request omits `table_max_rows`; default
-    # to the sandbox's absolute ceiling so the agent's own LIMIT is honored.
-    max_rows = int(ctx.get("table_max_rows") or TABLE_MAX_ROWS)
+    is_locked = ctx.get("is_table_locked")
+    if callable(is_locked) and is_locked():
+        return json.dumps({
+            "error": (
+                "Table is locked. Tell the user the table is locked and ask "
+                "them to unlock it via the lock toggle on the table toolbar "
+                "before you can change it."
+            ),
+            "locked": True,
+        })
 
     try:
-        result = execute_table_sql(sql, max_rows=max_rows)
+        result = execute_table_sql(sql, max_rows=TABLE_MAX_ROWS)
     except Exception as exc:
         return json.dumps({"error": str(exc)})
 
@@ -55,12 +65,11 @@ def _set_table(input_data: dict, ctx: dict | None = None) -> str:
         "status": "success",
         "row_count": result.row_count,
         "columns": result.columns,
-        "max_rows": max_rows,
         "truncated": result.truncated,
     }
     if result.truncated:
         summary["note"] = (
-            f"Result was capped at {max_rows} rows (the user's chosen table size). "
-            "The full query may have produced more — narrow filters or change the size dropdown if needed."
+            f"Result was capped at {TABLE_MAX_ROWS} rows. "
+            "Narrow filters in a follow-up turn if the user wanted more."
         )
     return json.dumps(summary)

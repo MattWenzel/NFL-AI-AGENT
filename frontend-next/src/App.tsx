@@ -16,6 +16,7 @@ import { EmptyReportScreen } from '@/components/tables/EmptyReportScreen'
 import { useAuth, type AuthUser } from '@/lib/auth'
 import { ChatProvider, useChatContext } from '@/lib/chatContext'
 import { TablesProvider, useTablesContext } from '@/lib/tablesContext'
+import { useActiveTable } from '@/lib/activeTable'
 import type { ConversationInfo } from '@/lib/types'
 
 export default function App() {
@@ -107,6 +108,12 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
   // /chat/tables session has been created yet.
   const [pendingReport, setPendingReport] = useState(false)
   const didRestoreRef = useRef(false)
+
+  // Lifted from TableChatView so `handleReportCreated` can call refetch the
+  // same way the edit flow's `onTableUpdated` calls refetch — i.e. the SSE
+  // event is the trigger, not the (timing-fragile) mount-effect inside the
+  // freshly-mounted TableChatView.
+  const activeTable = useActiveTable(activeTableId)
 
   // Kick off the chat-transcript fetch; the lazy initial state above already
   // suppressed the new-chat flash, this just resolves the loading gate once
@@ -211,8 +218,6 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
       provider: string
       model: string
       toolChoice: 'auto' | 'required' | 'none'
-      tableMode?: 'explore' | 'edit_table'
-      tableSize?: number | 'auto'
     },
   ) => {
     let created
@@ -234,8 +239,6 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
         provider: opts.provider,
         model: opts.model,
         toolChoice: opts.toolChoice,
-        tableMode: opts.tableMode,
-        tableMaxRows: typeof opts.tableSize === 'number' ? opts.tableSize : undefined,
         overrideConversationId: created.id,
         onReportCreated: handleReportCreated,
       })
@@ -244,11 +247,26 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
       })
   }
 
+  // Always-fresh ref to `activeTable.refetch` so the create-report handler
+  // can fire it after the navigation re-render, when refetch's closure is
+  // bound to the new activeTableId.
+  const refetchActiveTableRef = useRef(activeTable.refetch)
+  useEffect(() => {
+    refetchActiveTableRef.current = activeTable.refetch
+  }, [activeTable.refetch])
+
   // Wired into every send call below — when the agent calls `create_report`,
-  // refresh the sidebar list so the new entry appears, then auto-navigate.
+  // refresh the sidebar list, navigate into the new report, then refetch the
+  // table state. The trailing refetch mirrors how the edit flow's
+  // `onTableUpdated` calls refetch on every `table_updated` SSE event:
+  // making the SSE event the trigger (rather than relying on the freshly
+  // mounted TableChatView's mount-effect) is the reliable path.
   const handleReportCreated = ({ report_id }: { report_id: string }) => {
     tables.refresh()
     openTable(report_id)
+    // setTimeout(0) defers past React's commit so the ref is rebound to the
+    // refetch closure for the new activeTableId before we call it.
+    setTimeout(() => refetchActiveTableRef.current(), 0)
   }
 
   return (
@@ -285,6 +303,10 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
             <TableChatView
               key={activeTableId}
               activeTableId={activeTableId}
+              table={activeTable.table}
+              tableLoading={activeTable.loading}
+              tableError={activeTable.error}
+              refetchTable={activeTable.refetch}
               onClose={() => {
                 // Fired after the user deletes the report. Drop the now-stale
                 // conversation transcript and land on the empty new-report

@@ -4,12 +4,14 @@ import {
   ChevronRight,
   Copy,
   Download,
+  Lock,
   Maximize2,
   Minimize2,
   PanelRightClose,
   PanelRightOpen,
   Pencil,
   Trash2,
+  Unlock,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -29,15 +31,21 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { useActiveTable } from '@/lib/activeTable'
 import { useChatContext } from '@/lib/chatContext'
 import { sanitizeCsvFilename, tableToCsv } from '@/lib/csv'
 import { useTablesContext } from '@/lib/tablesContext'
 import { cn } from '@/lib/utils'
-import type { TableMode, TableSize } from '@/lib/tables'
+import { setTableLocked } from '@/lib/tables'
+import type { TableState } from '@/lib/tables'
 
 interface TableChatViewProps {
   activeTableId: string
+  /** Live table state, lifted to App so the create-report flow can refetch
+   *  via the SSE event handler the same way the edit flow does. */
+  table: TableState | null
+  tableLoading: boolean
+  tableError: string | null
+  refetchTable: () => Promise<void>
   /** Programmatic close — currently fired only after a successful delete. */
   onClose: () => void
   /** Called when the agent's `create_report` tool fires — used to navigate
@@ -71,11 +79,22 @@ function writeSplit(px: number) {
   }
 }
 
-export function TableChatView({ activeTableId, onClose, onReportCreated }: TableChatViewProps) {
+export function TableChatView({
+  activeTableId,
+  table,
+  tableLoading,
+  tableError,
+  refetchTable,
+  onClose,
+  onReportCreated,
+}: TableChatViewProps) {
   const chat = useChatContext()
   const tables = useTablesContext()
   const layout = useLayout()
-  const { table, loading, error, refetch } = useActiveTable(activeTableId)
+  // Local aliases keep the rest of the component readable.
+  const loading = tableLoading
+  const error = tableError
+  const refetch = refetchTable
 
   const [renameOpen, setRenameOpen] = useState(false)
   const [renameValue, setRenameValue] = useState('')
@@ -153,6 +172,23 @@ export function TableChatView({ activeTableId, onClose, onReportCreated }: Table
     }
   }
 
+  const [lockBusy, setLockBusy] = useState(false)
+  const isLocked = !!table?.locked
+
+  const toggleLock = useCallback(async () => {
+    if (!table || lockBusy) return
+    setLockBusy(true)
+    try {
+      await setTableLocked(activeTableId, !table.locked)
+      await refetch()
+      toast.success(table.locked ? 'Table unlocked' : 'Table locked')
+    } catch {
+      toast.error('Could not change lock state')
+    } finally {
+      setLockBusy(false)
+    }
+  }, [activeTableId, lockBusy, refetch, table])
+
   const submitDelete = async () => {
     // Tear down the view *before* the network round-trip so the user
     // immediately lands on the new-report screen — `tables.remove` swallows
@@ -193,8 +229,6 @@ export function TableChatView({ activeTableId, onClose, onReportCreated }: Table
         provider: string
         model: string
         toolChoice: 'auto' | 'required' | 'none'
-        tableMode?: TableMode
-        tableSize?: TableSize
       },
     ) => {
       chat
@@ -202,10 +236,6 @@ export function TableChatView({ activeTableId, onClose, onReportCreated }: Table
           provider: opts.provider,
           model: opts.model,
           toolChoice: opts.toolChoice,
-          tableMode: opts.tableMode,
-          // 'auto' → omit so the backend leaves the cap up to the agent
-          // (still bounded by the sandbox's absolute 500-row ceiling).
-          tableMaxRows: typeof opts.tableSize === 'number' ? opts.tableSize : undefined,
           onTableUpdated: () => {
             // Refetch the live table on every successful set_table call so
             // the UI mirrors the persisted state without trusting the SSE
@@ -290,10 +320,27 @@ export function TableChatView({ activeTableId, onClose, onReportCreated }: Table
                 <p className="text-2xs text-muted-foreground">
                   {table.row_count.toLocaleString()} rows · {table.columns.length} columns
                   {table.truncated ? ' · capped' : ''}
+                  {isLocked ? ' · locked' : ''}
                 </p>
               ) : null}
             </div>
             <div className="flex shrink-0 items-center gap-2">
+              <Button
+                variant={isLocked ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={toggleLock}
+                disabled={!table || lockBusy}
+                aria-pressed={isLocked}
+                aria-label={isLocked ? 'Unlock table' : 'Lock table'}
+                title={
+                  isLocked
+                    ? 'Table is locked — the agent cannot change it. Click to unlock.'
+                    : 'Lock the table so the agent cannot change it.'
+                }
+              >
+                {isLocked ? <Lock className="size-4" /> : <Unlock className="size-4" />}
+                {isLocked ? 'Locked' : 'Lock'}
+              </Button>
               <Button size="sm" onClick={downloadCsv} disabled={!hasRows}>
                 <Download className="size-4" />
                 Download
@@ -419,11 +466,13 @@ export function TableChatView({ activeTableId, onClose, onReportCreated }: Table
         ) : null}
         <Composer
           variant="docked"
-          tableChat
-          streaming={chat.streamStatus === 'streaming'}
-          onSend={(message, opts) =>
-            sendTurn(message, opts as Parameters<typeof sendTurn>[1])
+          placeholder={
+            isLocked
+              ? 'Table is locked — ask questions or unlock to make changes.'
+              : 'Ask the agent to refine the table or answer a question…'
           }
+          streaming={chat.streamStatus === 'streaming'}
+          onSend={sendTurn}
           onStop={chat.stop}
         />
       </div>
