@@ -6,6 +6,8 @@ import asyncio
 import time
 from dataclasses import dataclass, field
 
+from backend.domain.auth.types import IssuedSession
+
 
 class PerUserLockRegistry:
     """Per-user asyncio.Lock registry."""
@@ -26,7 +28,17 @@ class PerUserLockRegistry:
 
 @dataclass
 class PendingCodexOAuthFlow:
-    user_id: int
+    """In-flight device-code OAuth state.
+
+    `user_id` is set when an authenticated user is linking Codex from
+    Settings; left None for the unauthenticated "Sign in with ChatGPT"
+    flow, where the user_id is determined only after the bundle arrives
+    and we resolve the identity. `signed_in_user_id` + `session_token`
+    are populated on the sign-in path for the status endpoint to hand
+    back to the unauthenticated browser.
+    """
+
+    user_id: int | None
     device_auth_id: str
     user_code: str
     started_at: float
@@ -34,6 +46,10 @@ class PendingCodexOAuthFlow:
     status: str = "pending"
     email: str | None = None
     error: str | None = None
+    signed_in_user_id: int | None = None
+    signed_in_user_email: str | None = None
+    signed_in_user_role: str | None = None
+    session: IssuedSession | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
@@ -47,7 +63,7 @@ class PendingCodexOAuthFlows:
         self,
         pending_id: str,
         *,
-        user_id: int,
+        user_id: int | None,
         device_auth_id: str,
         user_code: str,
     ) -> PendingCodexOAuthFlow:
@@ -154,3 +170,5 @@ class PendingGoogleOAuthFlows:
 
     def reset(self) -> None:
         self._flows.clear()
+
+

@@ -3,6 +3,7 @@ import { Loader2, ShieldCheck } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
+import { GoogleIcon } from '@/components/icons/BrandIcons'
 import { apiDelete, apiGet, apiPost, ApiError } from '@/lib/api'
 import { relativeTime } from '@/lib/datetime'
 import type { IdentitySummary } from '@/lib/settings'
@@ -69,6 +70,7 @@ export function IdentitiesTab() {
     <div className="space-y-5">
       <div className="rounded-lg border border-border bg-card p-4 space-y-3">
         <div className="flex items-baseline gap-3">
+          <GoogleIcon className="size-4 self-center" />
           <h3 className="text-base font-semibold">Google</h3>
           {hasGoogle ? (
             <span className="flex items-center gap-1 text-2xs text-accent">

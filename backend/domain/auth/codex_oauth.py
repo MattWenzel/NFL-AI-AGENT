@@ -87,6 +87,27 @@ def decode_email(id_token: str) -> str | None:
     return email if isinstance(email, str) else None
 
 
+def decode_user_sub(access_token: str) -> str:
+    """Pull the stable per-user identifier (`chatgpt_user_id`) from the access token.
+
+    Used as `user_identities.provider_subject` when treating a Codex
+    OAuth bundle as a sign-in identity. We prefer the namespaced auth
+    claim, fall back to top-level claims if OpenAI changes the shape.
+    """
+    claims = _decode_jwt_payload(access_token)
+    auth_claims = claims.get("https://api.openai.com/auth") or {}
+    sub = (
+        auth_claims.get("chatgpt_user_id")
+        or claims.get("chatgpt_user_id")
+        or claims.get("sub")
+    )
+    if not isinstance(sub, str) or not sub:
+        raise CodexOAuthError(
+            "ChatGPT token missing chatgpt_user_id — cannot link identity"
+        )
+    return sub
+
+
 def _compute_expires_at(access_token: str, expires_in: int | None) -> int:
     """Derive epoch-ms expiry. Prefer the JWT `exp` claim; fall back to expires_in."""
     try:

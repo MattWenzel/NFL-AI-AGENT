@@ -17,6 +17,10 @@ from typing import Protocol
 # Identity-provider name strings stored in `user_identities.provider`.
 PASSWORD = "password"
 GOOGLE = "google"
+# "openai" identifies a ChatGPT-issued OAuth identity. The same flow also
+# stores a Codex token bundle at api_keys[user, "openai-codex"], but the
+# identity row uses the shorter "openai" key — symmetric with "google".
+OPENAI = "openai"
 
 # Sentinel `users.password_hash` value for OAuth-only accounts (no password
 # set). bcrypt treats it as malformed, so `verify_password` always returns

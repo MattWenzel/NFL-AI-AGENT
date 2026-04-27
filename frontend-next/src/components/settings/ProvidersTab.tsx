@@ -3,6 +3,7 @@ import { Check, CheckCircle2, Copy, Eye, EyeOff, Loader2, Trash2, X } from 'luci
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
+import { AnthropicIcon, OpenAIIcon } from '@/components/icons/BrandIcons'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { apiDelete, apiFetch, apiGet, apiPost, ApiError } from '@/lib/api'
@@ -54,6 +55,14 @@ export function ProvidersTab() {
   )
 }
 
+function brandIconFor(provider: string) {
+  // Match on the provider key (e.g. 'anthropic', 'openai'). Unknown
+  // providers fall through and the row renders without an icon — fine.
+  if (provider === 'anthropic') return <AnthropicIcon className="size-4 self-center" />
+  if (provider === 'openai') return <OpenAIIcon className="size-4 self-center" />
+  return null
+}
+
 function ApiKeyProviderRow({ status, onChange }: { status: ApiKeyStatus; onChange: () => void }) {
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState('')
@@ -101,6 +110,7 @@ function ApiKeyProviderRow({ status, onChange }: { status: ApiKeyStatus; onChang
   return (
     <div className="rounded-lg border border-border bg-card p-4 space-y-3">
       <div className="flex items-baseline gap-3">
+        {brandIconFor(status.provider)}
         <h3 className="text-base font-semibold">{status.display_name}</h3>
         {status.has_key ? (
           <span className="flex items-center gap-1 text-2xs text-accent">
@@ -277,6 +287,7 @@ function CodexProviderRow({ status, onChange }: { status: ApiKeyStatus; onChange
   return (
     <div className="rounded-lg border border-border bg-card p-4 space-y-3">
       <div className="flex items-baseline gap-3">
+        <OpenAIIcon className="size-4 self-center" />
         <h3 className="text-base font-semibold">{status.display_name}</h3>
         {status.has_key ? (
           <span className="flex items-center gap-1 text-2xs text-accent">

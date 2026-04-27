@@ -3,6 +3,7 @@ import { PanelLeftClose, Plus, Search } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import logoUrl from '@/assets/logo.png'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { ConversationRow } from '@/components/sidebar/ConversationRow'
 import { UserWidget } from '@/components/sidebar/UserWidget'
@@ -60,9 +61,12 @@ export function Sidebar({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center px-3 py-3">
-        <div className="grid size-9 place-items-center rounded-md bg-primary font-display text-base font-semibold text-primary-foreground">
-          N
-        </div>
+        <img
+          src={logoUrl}
+          alt=""
+          aria-hidden="true"
+          className="size-12 shrink-0 object-contain"
+        />
         <span className="ml-2.5 font-display text-lg font-semibold tracking-tight">NFL Stats</span>
         <Button
           variant="ghost"

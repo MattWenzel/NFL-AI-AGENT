@@ -18,6 +18,7 @@ from backend.api.routes import chat
 from backend.api.routes import conversations
 from backend.api.routes import exports
 from backend.api.routes import oauth_google
+from backend.api.routes import oauth_openai
 from backend.api.routes import providers
 from backend.api.routes import settings
 
@@ -96,6 +97,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(settings.router)
     app.include_router(oauth_google.router)
+    app.include_router(oauth_openai.router)
     app.include_router(chat.router)
     app.include_router(conversations.router)
     app.include_router(providers.router)
