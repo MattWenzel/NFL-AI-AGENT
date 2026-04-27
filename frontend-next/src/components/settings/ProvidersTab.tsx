@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { CheckCircle2, Eye, EyeOff, Loader2, Trash2, X } from 'lucide-react'
+import { Check, CheckCircle2, Copy, Eye, EyeOff, Loader2, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -181,7 +181,18 @@ function CodexProviderRow({ status, onChange }: { status: ApiKeyStatus; onChange
   const [busy, setBusy] = useState(false)
   const [pending, setPending] = useState<CodexOAuthStartResponse | null>(null)
   const [statusMsg, setStatusMsg] = useState<string | null>(null)
+  const [codeCopied, setCodeCopied] = useState(false)
   const pollRef = useRef<number | null>(null)
+
+  const copyCode = async (code: string) => {
+    try {
+      await navigator.clipboard.writeText(code)
+      setCodeCopied(true)
+      setTimeout(() => setCodeCopied(false), 1500)
+    } catch {
+      toast.error('Could not copy — select the code manually')
+    }
+  }
 
   const stopPolling = () => {
     if (pollRef.current) {
@@ -295,7 +306,18 @@ function CodexProviderRow({ status, onChange }: { status: ApiKeyStatus; onChange
             </a>
             {' '}and enter:
           </p>
-          <p className="font-mono text-xl font-semibold tracking-[0.2em]">{pending.user_code}</p>
+          <div className="flex items-center gap-2">
+            <p className="font-mono text-xl font-semibold tracking-[0.2em]">{pending.user_code}</p>
+            <button
+              type="button"
+              onClick={() => copyCode(pending.user_code)}
+              aria-label="Copy code"
+              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-2xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {codeCopied ? <Check className="size-3" /> : <Copy className="size-3" />}
+              <span>{codeCopied ? 'Copied' : 'Copy'}</span>
+            </button>
+          </div>
           <div className="flex items-center gap-1.5 text-2xs text-muted-foreground">
             <Loader2 className="size-3 animate-spin" />
             Waiting for authorization…
