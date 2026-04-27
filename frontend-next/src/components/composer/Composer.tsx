@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { ArrowUp, Square } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { useProviders } from '@/lib/providers'
 import { cn } from '@/lib/utils'
 
 interface ComposerProps {
@@ -20,30 +21,36 @@ interface ComposerProps {
   onStop?: () => void
 }
 
-const PROVIDERS = [
-  { value: 'anthropic', label: 'Anthropic' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'codex', label: 'Codex' },
-] as const
-
-const MODELS_BY_PROVIDER: Record<string, { value: string; label: string }[]> = {
-  anthropic: [
-    { value: 'claude-sonnet-4-6', label: 'claude-sonnet-4-6' },
-    { value: 'claude-opus-4-7', label: 'claude-opus-4-7' },
-  ],
-  openai: [
-    { value: 'gpt-5', label: 'gpt-5' },
-  ],
-  codex: [
-    { value: 'gpt-5', label: 'gpt-5 (codex)' },
-  ],
-}
-
 const TOOL_CHOICES = [
   { value: 'auto', label: 'Auto' },
   { value: 'required', label: 'Force tool' },
   { value: 'none', label: 'Text only' },
 ] as const
+
+// localStorage keys — keep the user's last picker choice across Composer
+// remounts (centered → docked when starting a new chat) and page reloads.
+const PROVIDER_STORAGE_KEY = 'chat-workspace.provider'
+const MODEL_STORAGE_KEY = 'chat-workspace.model'
+const TOOL_CHOICE_STORAGE_KEY = 'chat-workspace.tool_choice'
+
+function readStoredString(key: string): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    return window.localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function writeStoredString(key: string, value: string | null) {
+  if (typeof window === 'undefined') return
+  try {
+    if (value === null) window.localStorage.removeItem(key)
+    else window.localStorage.setItem(key, value)
+  } catch {
+    // Quota / private mode — non-fatal, persistence is a nice-to-have.
+  }
+}
 
 export function Composer({
   disabled = false,
@@ -53,10 +60,39 @@ export function Composer({
   onStop,
 }: ComposerProps) {
   const [value, setValue] = useState('')
-  const [provider, setProvider] = useState<string>('anthropic')
-  const [model, setModel] = useState<string>('claude-sonnet-4-6')
-  const [toolChoice, setToolChoice] = useState<'auto' | 'required' | 'none'>('auto')
+  // Seed picker state from localStorage so the choice persists across the
+  // Composer remount when going from EmptyThread (centered) to Thread
+  // (docked), and across page reloads.
+  const [provider, setProviderState] = useState<string | null>(() =>
+    readStoredString(PROVIDER_STORAGE_KEY),
+  )
+  const [model, setModelState] = useState<string | null>(() =>
+    readStoredString(MODEL_STORAGE_KEY),
+  )
+  const [toolChoice, setToolChoiceState] = useState<'auto' | 'required' | 'none'>(() => {
+    const raw = readStoredString(TOOL_CHOICE_STORAGE_KEY)
+    return raw === 'auto' || raw === 'required' || raw === 'none' ? raw : 'auto'
+  })
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+
+  const setProvider = (next: string) => {
+    setProviderState(next)
+    writeStoredString(PROVIDER_STORAGE_KEY, next)
+  }
+  const setModel = (next: string) => {
+    setModelState(next)
+    writeStoredString(MODEL_STORAGE_KEY, next)
+  }
+  const setToolChoice = (next: 'auto' | 'required' | 'none') => {
+    setToolChoiceState(next)
+    writeStoredString(TOOL_CHOICE_STORAGE_KEY, next)
+  }
+
+  const { providers, status: providersStatus } = useProviders()
+  const currentProvider = useMemo(
+    () => providers.find((p) => p.name === provider) ?? null,
+    [providers, provider],
+  )
 
   useEffect(() => {
     const el = textareaRef.current
@@ -65,18 +101,35 @@ export function Composer({
     el.style.height = `${Math.min(Math.max(el.scrollHeight, 80), 240)}px`
   }, [value])
 
-  // When provider changes, snap to its first model unless the current model
-  // is already valid for the new provider.
+  // Validate the persisted provider against what the server reports. If it's
+  // missing or now unavailable (key revoked, registry change), fall back to
+  // the first available provider — first listed if none are available.
   useEffect(() => {
-    const valid = MODELS_BY_PROVIDER[provider] ?? []
-    if (!valid.some((m) => m.value === model) && valid.length > 0) {
-      setModel(valid[0].value)
+    if (providers.length === 0) return
+    const stored = providers.find((p) => p.name === provider)
+    if (stored && stored.available) return
+    const initial = providers.find((p) => p.available) ?? providers[0]
+    setProviderState(initial.name)
+    writeStoredString(PROVIDER_STORAGE_KEY, initial.name)
+    if (!model || !initial.models.includes(model)) {
+      setModelState(initial.default_model)
+      writeStoredString(MODEL_STORAGE_KEY, initial.default_model)
     }
-  }, [provider, model])
+  }, [providers, provider, model])
+
+  // When provider changes (or its model list does), snap to a valid model
+  // for that provider — using its server-declared default unless the current
+  // selection is already one of its supported models.
+  useEffect(() => {
+    if (!currentProvider) return
+    if (model && currentProvider.models.includes(model)) return
+    setModelState(currentProvider.default_model)
+    writeStoredString(MODEL_STORAGE_KEY, currentProvider.default_model)
+  }, [currentProvider, model])
 
   const submit = () => {
     const trimmed = value.trim()
-    if (!trimmed || disabled || streaming) return
+    if (!trimmed || disabled || streaming || !provider || !model) return
     onSend(trimmed, { provider, model, toolChoice })
     setValue('')
   }
@@ -88,7 +141,7 @@ export function Composer({
     }
   }
 
-  const models = MODELS_BY_PROVIDER[provider] ?? []
+  const models = currentProvider?.models ?? []
 
   return (
     <div
@@ -112,26 +165,43 @@ export function Composer({
             aria-label="Message"
           />
           <div className="flex items-center gap-1.5 px-2 pb-2 pt-1">
-            <Select value={provider} onValueChange={setProvider} disabled={streaming}>
+            <Select
+              value={provider ?? undefined}
+              onValueChange={setProvider}
+              disabled={streaming || providersStatus !== 'ready'}
+            >
               <SelectTrigger size="sm" className="h-7 gap-1 border-0 bg-transparent px-2 text-xs hover:bg-muted">
-                <SelectValue />
+                <SelectValue placeholder={providersStatus === 'loading' ? 'Loading…' : 'Provider'} />
               </SelectTrigger>
               <SelectContent>
-                {PROVIDERS.map((p) => (
-                  <SelectItem key={p.value} value={p.value} className="text-xs">
-                    {p.label}
-                  </SelectItem>
-                ))}
+                {[...providers]
+                  // Sort available first so the dropdown leads with usable picks.
+                  .sort((a, b) => Number(b.available) - Number(a.available))
+                  .map((p) => (
+                    <SelectItem
+                      key={p.name}
+                      value={p.name}
+                      className="text-xs"
+                      disabled={!p.available}
+                    >
+                      {p.display_name}
+                      {!p.available ? ' — set key in Settings' : ''}
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
-            <Select value={model} onValueChange={setModel} disabled={streaming || models.length === 0}>
+            <Select
+              value={model ?? undefined}
+              onValueChange={setModel}
+              disabled={streaming || models.length === 0}
+            >
               <SelectTrigger size="sm" className="h-7 gap-1 border-0 bg-transparent px-2 text-xs hover:bg-muted">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {models.map((m) => (
-                  <SelectItem key={m.value} value={m.value} className="text-xs">
-                    {m.label}
+                  <SelectItem key={m} value={m} className="text-xs">
+                    {m}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -169,7 +239,7 @@ export function Composer({
                 type="button"
                 size="icon"
                 onClick={submit}
-                disabled={disabled || !value.trim()}
+                disabled={disabled || !value.trim() || !provider || !model}
                 className="ml-auto size-8 rounded-full"
                 aria-label="Send"
               >

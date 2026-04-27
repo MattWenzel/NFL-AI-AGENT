@@ -63,6 +63,29 @@ export function AppShell({ sidebar, main, inspector, inspectorAvailable = false 
       if (!(target instanceof Node)) return
       if (inspectorRef.current?.contains(target)) return
       if (mainRef.current?.contains(target)) return
+      if (!(target instanceof Element)) return
+      // Radix popovers (Select, DropdownMenu, etc.) portal their content
+      // to <body>, so a click on a Select item lives outside <main>.
+      // Popper-positioned content (DropdownMenu, default Popover) wraps
+      // in [data-radix-popper-content-wrapper]; item-aligned Select
+      // content does not, so also match the shadcn portal data-slots.
+      if (
+        target.closest(
+          '[data-radix-popper-content-wrapper],' +
+            '[data-slot="select-content"],' +
+            '[data-slot="dropdown-menu-content"],' +
+            '[data-slot="popover-content"],' +
+            '[data-slot="dialog-content"],' +
+            '[data-slot="alert-dialog-content"]',
+        )
+      ) {
+        return
+      }
+      // Radix modal Select sets pointer-events: none on outside content
+      // while open, which deflects the click target up to <html>/<body>.
+      // For one or two events after the dropdown closes that deflection
+      // can still leak; treat body/html as ambiguous and don't close.
+      if (target === document.documentElement || target === document.body) return
       setDesktopInspectorOpen(false)
     }
     document.addEventListener('mousedown', onMouseDown)
