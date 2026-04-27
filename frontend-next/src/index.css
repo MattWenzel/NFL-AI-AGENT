@@ -126,8 +126,9 @@
     --muted: oklch(0.895 0.007 80);
     --muted-foreground: oklch(0.5 0.012 70);
 
-    /* Accent — muted sage-teal. The single confident accent. */
-    --accent: oklch(0.6 0.055 175);
+    /* Accent — deep navy-blue, picking up the logo's shield color so the
+     * selection state reads as on-brand instead of a generic teal. */
+    --accent: oklch(0.5 0.12 250);
     --accent-foreground: oklch(0.99 0 0);
 
     /* Status colors — restrained, not vibrant. */
@@ -139,7 +140,7 @@
        and pills outlined against the dimmer bg. */
     --border: oklch(0.82 0.007 80);
     --input: oklch(0.82 0.007 80);
-    --ring: oklch(0.6 0.055 175 / 0.45);
+    --ring: oklch(0.5 0.12 250 / 0.45);
 
     /* Chart palette — muted, magazine-data-graphic feel. */
     --chart-1: oklch(0.6 0.055 175);   /* primary sage-teal */
@@ -156,7 +157,7 @@
     --sidebar-accent: oklch(0.86 0.009 80);
     --sidebar-accent-foreground: oklch(0.22 0.008 60);
     --sidebar-border: oklch(0.82 0.007 80);
-    --sidebar-ring: oklch(0.6 0.055 175 / 0.45);
+    --sidebar-ring: oklch(0.5 0.12 250 / 0.45);
 }
 
 /* ---------------------------------------------------------------- *
@@ -180,7 +181,10 @@
     --muted: oklch(0.25 0.005 65);
     --muted-foreground: oklch(0.7 0.008 75);
 
-    --accent: oklch(0.7 0.06 175);
+    /* Silver accent — System mode keeps the warm charcoal base and
+     * uses a near-neutral cool-tilted highlight so it doesn't compete
+     * with explicit "Dark" (Midnight, blue) or "Cobalt" (GitHub blue). */
+    --accent: oklch(0.78 0.012 250);
     --accent-foreground: oklch(0.18 0.008 60);
 
     --destructive: oklch(0.65 0.17 25);
@@ -189,7 +193,7 @@
 
     --border: oklch(1 0 0 / 0.14);
     --input: oklch(1 0 0 / 0.18);
-    --ring: oklch(0.7 0.06 175 / 0.55);
+    --ring: oklch(0.78 0.012 250 / 0.55);
 
     --chart-1: oklch(0.7 0.06 175);
     --chart-2: oklch(0.72 0.1 55);
@@ -199,12 +203,12 @@
 
     --sidebar: oklch(0.2 0.005 60);
     --sidebar-foreground: oklch(0.95 0.005 85);
-    --sidebar-primary: oklch(0.7 0.06 175);
+    --sidebar-primary: oklch(0.78 0.012 250);
     --sidebar-primary-foreground: oklch(0.18 0.008 60);
     --sidebar-accent: oklch(0.25 0.005 65);
     --sidebar-accent-foreground: oklch(0.95 0.005 85);
     --sidebar-border: oklch(1 0 0 / 0.14);
-    --sidebar-ring: oklch(0.7 0.06 175 / 0.55);
+    --sidebar-ring: oklch(0.78 0.012 250 / 0.55);
 }
 
 /* ---------------------------------------------------------------- *
