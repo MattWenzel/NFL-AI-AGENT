@@ -86,6 +86,15 @@ async def test_save_query_as_report_seeds_table_chat_session(service):
     # via the agent and lock when they're done.
     assert state.locked is False
 
+    # A summary turn must be seeded so the agent's first turn knows about
+    # the pinned table — otherwise it answers "I don't have visibility
+    # into any table" when asked about the rows shown in the UI.
+    transcript = await service.store.get_transcript(session.id)
+    summary_turns = [t for t in transcript.turns if t.role == "summary"]
+    assert len(summary_turns) == 1
+    assert "player, team" in summary_turns[0].text
+    assert "SELECT player FROM players LIMIT 2" in summary_turns[0].text
+
 
 def test_list_browseable_tables_projects_schema_response(service, monkeypatch):
     monkeypatch.setattr(
