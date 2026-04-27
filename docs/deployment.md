@@ -8,7 +8,7 @@ Two documented paths: **Fly.io** (recommended, minimal ops overhead, TLS + volum
 
 ## Deploying to Fly.io
 
-Repo ships with `Dockerfile`, `fly.toml`, `.dockerignore`, and `.python-version` tuned for this deploy. Config paths (`DB_PATH`, `PBP_DB_PATH`, `RUNTIME_DB_PATH`, `EXPORTS_DIR`) are env-driven and point at `/data/...` on the Fly volume in `fly.toml`.
+Repo ships with `Dockerfile`, `fly.toml`, `.dockerignore`, and `.python-version` tuned for this deploy. Config paths (`DB_PATH`, `RUNTIME_DB_PATH`, `EXPORTS_DIR`) are env-driven and point at `/data/...` on the Fly volume in `fly.toml`.
 
 **Cost estimate:** `shared-cpu-1x@2gb` + 10GB volume ≈ $12-13/mo.
 
@@ -49,16 +49,17 @@ python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().
 
 ### Seed the databases
 
-The 2.3GB of nflverse + pbp DBs aren't in the Docker image (they'd bloat every deploy); they live on the volume. The Dockerfile's CMD creates `/data/runtime`, `/data/nflverse`, and `/data/exports` on every startup, so a fresh volume is ready for uploads without any prep. Push the DBs via SFTP (two separate one-shot commands — less fragile than the interactive shell):
+The ~1.3GB nflverse DB isn't in the Docker image (it'd bloat every deploy); it lives on the volume. The Dockerfile's CMD creates `/data/runtime`, `/data/nflverse`, and `/data/exports` on every startup, so a fresh volume is ready for uploads without any prep. Push the DB via SFTP — for an in-place re-seed against a running app, upload to a `.new` filename first, then atomically rename so the running DuckDB handle isn't corrupted mid-write:
 
 ```bash
-fly ssh sftp put NFLVERSE/data/nflverse.db /data/nflverse/nflverse.db
-fly ssh sftp put NFLVERSE/data/pbp.db /data/nflverse/pbp.db
+echo "put NFLVERSE/data/nflverse.duckdb /data/nflverse/nflverse.db.new" | \
+  fly ssh sftp shell
+fly ssh console -C "mv /data/nflverse/nflverse.db.new /data/nflverse/nflverse.db"
 ```
 
-The upload goes through Fly's ssh proxy at your home upload speed — 2GB typically takes 20-60 minutes. Run the `pbp.db` one in the background (`&` or a separate terminal) and the machine stays running through it.
+The upload goes through Fly's ssh proxy at your home upload speed — 1.3GB takes 5-10 minutes on a typical home pipe. play_by_play lives inside this single DuckDB file along with the other 29 tables; no separate `pbp.db` anymore.
 
-After both uploads finish, restart the machine so the app reopens SQLite handles against the freshly-seeded files:
+After the upload finishes and the rename is done, restart the machine so the app reopens DuckDB handles against the freshly-seeded file:
 
 ```bash
 fly machine list     # grab the machine ID
@@ -74,10 +75,9 @@ curl https://<your-app-name>.fly.dev/health
 curl https://<your-app-name>.fly.dev/auth/status
 # {"has_users":false,"authenticated":false,"user":null,"invite_required":true}
 
-# Row-count sanity. Wrap in `sh -c '...'` because flyctl's -C parses remaining
-# args as flags for the outer command, not as args to sqlite3.
-fly ssh console -C "sh -c 'sqlite3 /data/nflverse/nflverse.db \"SELECT COUNT(*) FROM players;\" && sqlite3 /data/nflverse/pbp.db \"SELECT COUNT(*) FROM play_by_play;\"'"
-# Should print two counts matching your local copies.
+# Schema + row-count sanity against the seeded DuckDB file.
+fly ssh console -C "python3 -c 'import duckdb; c=duckdb.connect(\"/data/nflverse/nflverse.db\",read_only=True); print(c.execute(\"SELECT COUNT(*) FROM players\").fetchone(), c.execute(\"SELECT COUNT(*) FROM play_by_play\").fetchone())'"
+# Should print counts matching your local copy.
 ```
 
 Visit `https://<your-app-name>.fly.dev/` in a browser, register with your invite code, paste an API key into Settings, ask a question. If all that works you're live.
@@ -114,7 +114,7 @@ git clone <repo> /srv/nflverse && cd /srv/nflverse
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# Place the DBs (nflverse.db + pbp.db) under NFLVERSE/data/ — see the build scripts in NFLVERSE-DB
+# Place nflverse.duckdb under NFLVERSE/data/ — see the build scripts in NFLVERSE-DB
 
 python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```

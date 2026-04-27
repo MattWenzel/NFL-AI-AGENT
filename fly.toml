@@ -13,15 +13,16 @@ primary_region = "iad"
   FORWARDED_ALLOW_IPS = "*"
   # DB + exports paths point at the mounted volume. config.py reads these
   # env vars at import time and falls back to repo-relative defaults for
-  # local dev.
+  # local dev. play_by_play lives inside nflverse.db now (DuckDB
+  # consolidated everything into one file), so there's no separate pbp path.
   DB_PATH = "/data/nflverse/nflverse.db"
-  PBP_DB_PATH = "/data/nflverse/pbp.db"
   RUNTIME_DB_PATH = "/data/runtime/runtime.sqlite3"
   EXPORTS_DIR = "/data/exports"
 
-# Persistent volume for the three SQLite files + CSV exports. 10GB is
-# comfortable: ~2.3GB of nflverse/pbp DBs, room for the runtime DB to grow
-# with conversations, plus headroom for exports and backups.
+# Persistent volume for the consolidated nflverse DuckDB + runtime SQLite
+# + CSV exports. 10GB is comfortable: ~1.3GB nflverse DB, room for the
+# runtime DB to grow with conversations, plus headroom for exports and
+# backups.
 [[mounts]]
   source = "nfl_data"
   destination = "/data"
@@ -31,8 +32,8 @@ primary_region = "iad"
   force_https = true
   # SQLite + volumes pin us to a single machine. Disable scale-to-zero
   # (auto_stop_machines = false) so the app stays warm — cold starts that
-  # reopen the SQLite WAL are slow and needlessly paginate the 2GB pbp DB
-  # out of the page cache on every wake.
+  # reopen DuckDB's WAL are slow and needlessly paginate the ~1.3GB
+  # nflverse DB out of the page cache on every wake.
   auto_stop_machines = false
   auto_start_machines = true
   min_machines_running = 1
