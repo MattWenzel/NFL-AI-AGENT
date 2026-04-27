@@ -31,6 +31,8 @@ class SessionListEntry:
     updated_at: str | None
     pinned_at: str | None
     source_csv_id: str | None
+    kind: str = "chat"
+    source_session_id: str | None = None
 
     @classmethod
     def from_row(cls, row: Mapping[str, Any]) -> "SessionListEntry":
@@ -43,6 +45,8 @@ class SessionListEntry:
             updated_at=row.get("updated_at"),
             pinned_at=row.get("pinned_at"),
             source_csv_id=row.get("source_csv_id"),
+            kind=row.get("kind") or "chat",
+            source_session_id=row.get("source_session_id"),
         )
 
 

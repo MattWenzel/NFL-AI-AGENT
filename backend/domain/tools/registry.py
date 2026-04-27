@@ -14,10 +14,12 @@ import time
 from backend.domain.tools.definitions import TOOL_DEFINITIONS
 from backend.domain.tools.handlers.create_chart import _create_chart
 from backend.domain.tools.handlers.create_csv_export import _create_csv_export
+from backend.domain.tools.handlers.create_report import _create_report
 from backend.domain.tools.handlers.execute_sql import _execute_sql
 from backend.domain.tools.handlers.get_guide import _load_guide
 from backend.domain.tools.handlers.get_schema import _get_schema
 from backend.domain.tools.handlers.player_lookup import _get_player_info, _search_players
+from backend.domain.tools.handlers.set_table import _set_table
 from backend.domain.tools.sandbox.runner import SQLValidationError
 from backend.domain.tools.validation import inject_hint, validate_tool_input
 
@@ -32,6 +34,8 @@ _TOOL_DISPATCH = {
     "get_player_info": _get_player_info,
     "create_csv_export": _create_csv_export,
     "create_chart": _create_chart,
+    "create_report": _create_report,
+    "set_table": _set_table,
 }
 
 # Registry drift guard: every dispatch entry must map to a TOOL_DEFINITIONS

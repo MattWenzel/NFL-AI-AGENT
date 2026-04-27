@@ -124,12 +124,17 @@ class Turn:
         initial_tool_choice: ToolChoice | None = None,
         provider_name: str | None = None,
         model_name: str | None = None,
+        extra_tool_ctx: dict | None = None,
     ):
         self._store = store
         self._session = session
         self._execute_tool = execute_tool
         self._provider_name = provider_name
         self._model_name = model_name
+        # Opaque dict merged into the per-tool ctx. Used by the table-view
+        # chat path to pass `table_max_rows` + a `persist_table` callback
+        # to the `set_table` handler. Empty / None for regular chats.
+        self._extra_tool_ctx = dict(extra_tool_ctx) if extra_tool_ctx else {}
 
         # Per-user-turn bookkeeping (was RuntimeLoopState)
         self.iterations = 0
@@ -423,7 +428,7 @@ class Turn:
             )
             return future.result()
 
-        ctx = {"register_export": register_export}
+        ctx = {"register_export": register_export, **self._extra_tool_ctx}
         raw_result = await self._execute_tool(
             tool_run.tool_name, tool_run.input, ctx=ctx
         )

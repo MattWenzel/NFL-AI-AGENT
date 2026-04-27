@@ -114,6 +114,40 @@ class RetryingEvent:
     type: str = "retrying"
 
 
+@dataclass(frozen=True, kw_only=True)
+class ReportCreatedEvent:
+    """Emitted after a successful `create_report` tool call. The frontend
+    uses this to auto-navigate the user to the new Report — refresh the
+    sidebar list, switch to the Reports tab, and open the new conversation.
+    """
+    session_id: str
+    turn_id: str
+    tool_run_id: str
+    report_id: str
+    title: str
+    row_count: int
+    iterations: int
+    type: str = "report_created"
+
+
+@dataclass(frozen=True, kw_only=True)
+class TableUpdatedEvent:
+    """Emitted after a successful `set_table` tool call.
+
+    Carries only the summary the UI needs to decide whether/how to
+    refetch the live table — the rows themselves stream over a separate
+    HTTP fetch, not via SSE, since they may be large.
+    """
+    session_id: str
+    turn_id: str
+    tool_run_id: str
+    row_count: int
+    truncated: bool
+    columns: list[str]
+    iterations: int
+    type: str = "table_updated"
+
+
 RuntimeEvent = Union[
     TurnStartedEvent,
     AssistantStartedEvent,
@@ -126,4 +160,6 @@ RuntimeEvent = Union[
     RuntimeErrorEvent,
     CompactionStartedEvent,
     RetryingEvent,
+    TableUpdatedEvent,
+    ReportCreatedEvent,
 ]

@@ -15,7 +15,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, ForeignKey, Index, Integer, UniqueConstraint, desc
+from sqlalchemy import Column, ForeignKey, Index, Integer, Text, UniqueConstraint, desc
 from sqlmodel import Field, SQLModel
 
 from backend.data.column_types import TolerantJSONList, ToolInputJSON
@@ -45,6 +45,15 @@ class SessionRecord(SQLModel, table=True):
     pinned_at: str | None = None
     source_csv_id: str | None = None
     user_id: int | None = Field(default=None, foreign_key="users.id")
+    # 'chat' for analytical conversations; 'table_chat' for the table-view
+    # workflow where a single live table is the focus and the chat is the
+    # control surface. Migration 0007 backfills 'chat' on every existing row.
+    kind: str = Field(default="chat")
+    # When the agent's `create_report` tool spawns a new table-chat from
+    # within a regular chat, the new session points back to its parent so
+    # the sidebar can show a "this chat created a report" affordance.
+    # Always None for unrelated sessions.
+    source_session_id: str | None = None
 
 
 class TurnRecord(SQLModel, table=True):
@@ -129,6 +138,34 @@ class CompactionSummaryRecord(SQLModel, table=True):
         sa_column=Column(TolerantJSONList, nullable=False),
     )
     created_at: str
+
+
+class TableStateRecord(SQLModel, table=True):
+    __tablename__ = "table_states"
+
+    session_id: str = Field(
+        sa_column=Column(
+            Text,
+            ForeignKey("sessions.id", ondelete="CASCADE"),
+            primary_key=True,
+            nullable=False,
+        )
+    )
+    columns: list[str] = Field(
+        default_factory=list,
+        sa_column=Column("columns_json", TolerantJSONList, nullable=False),
+    )
+    # rows is a list[dict[str, Any]]. TolerantJSONList stores any JSON list
+    # and falls back to [] on malformed reads — same recovery behavior as
+    # the columns list above.
+    rows: list[dict] = Field(
+        default_factory=list,
+        sa_column=Column("rows_json", TolerantJSONList, nullable=False),
+    )
+    last_sql: str | None = None
+    row_count: int = 0
+    truncated: bool = False
+    updated_at: str
 
 
 class ExportRecord(SQLModel, table=True):

@@ -18,6 +18,23 @@ class ChatRequest(BaseModel):
             "to use the model's default behavior."
         ),
     )
+    table_mode: Literal["explore", "edit_table"] | None = Field(
+        None,
+        description=(
+            "Table-view chat mode for this turn. 'explore' allows research tools "
+            "(sql_query, guides, etc.) but blocks set_table. 'edit_table' exposes "
+            "only set_table. Omit or null for regular chats."
+        ),
+    )
+    table_max_rows: int | None = Field(
+        None,
+        ge=1,
+        le=500,
+        description=(
+            "Row cap for the set_table tool, sourced from the composer's table-size "
+            "dropdown. Ignored outside table-view chats."
+        ),
+    )
 
 
 class ToolCallPreview(BaseModel):

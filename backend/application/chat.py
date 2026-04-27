@@ -147,6 +147,8 @@ class ChatService:
         *,
         message: str,
         tool_choice: ToolChoice | None,
+        table_mode: str | None = None,
+        table_max_rows: int | None = None,
     ) -> AsyncGenerator[RuntimeEvent, None]:
         """Return the runtime event source for a prepared chat turn.
 
@@ -156,15 +158,53 @@ class ChatService:
         the runtime's `finally` block (releases the session lock, reconciles
         pending tool runs) rather than waiting on GC. Callers also own
         closing `prepared.client`.
+
+        For table-view chats, `table_mode` selects which tools the agent
+        sees this turn (explore = research-only, edit_table = set_table only),
+        and `table_max_rows` is forwarded to the `set_table` tool ctx as
+        the row cap chosen via the composer's size dropdown.
         """
+        effective_mode = self._resolve_table_mode(prepared.session, table_mode)
+        tools = self._tools_for_mode(effective_mode)
         return self.runtime.run_session(
             prepared.session,
             message,
             prepared.client,
-            tools=TOOLS,
+            tools=tools,
             provider_name=prepared.provider_name,
             tool_choice=tool_choice,
+            table_mode=effective_mode,
+            table_max_rows=table_max_rows,
         )
+
+    @staticmethod
+    def _resolve_table_mode(
+        session: SessionRecord, requested_mode: str | None
+    ) -> str | None:
+        """Pick the effective table mode for this turn.
+
+        Regular chats (`session.kind == "chat"`) ignore `requested_mode` —
+        set_table is never exposed and `get_base_prompt()` runs without
+        the table addendum. Table-view chats default to `explore` if the
+        client didn't send a mode.
+        """
+        if session.kind != "table_chat":
+            return None
+        if requested_mode in ("explore", "edit_table"):
+            return requested_mode
+        return "explore"
+
+    @staticmethod
+    def _tools_for_mode(table_mode: str | None) -> list:
+        """Whitelist tools for the agent based on table mode.
+
+        - regular chat        → all TOOLS minus `set_table`
+        - table chat: explore → all TOOLS minus `set_table`
+        - table chat: edit    → only `set_table`
+        """
+        if table_mode == "edit_table":
+            return [t for t in TOOLS if t.name == "set_table"]
+        return [t for t in TOOLS if t.name != "set_table"]
 
     async def run_message(
         self,
@@ -175,6 +215,8 @@ class ChatService:
         model: str | None,
         tool_choice: ToolChoice | None,
         user: AuthenticatedUser,
+        table_mode: str | None = None,
+        table_max_rows: int | None = None,
     ) -> dict:
         prepared = await self.prepare_chat(
             conversation_id=conversation_id,
@@ -192,6 +234,8 @@ class ChatService:
                 prepared,
                 message=message,
                 tool_choice=tool_choice,
+                table_mode=table_mode,
+                table_max_rows=table_max_rows,
             ):
                 if isinstance(event, TextDeltaEvent) and event.text:
                     response_text += event.text

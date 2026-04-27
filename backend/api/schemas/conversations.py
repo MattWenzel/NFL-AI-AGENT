@@ -23,6 +23,7 @@ class ConversationInfo(BaseModel):
     updated_at: str | None = None
     pinned_at: str | None = None
     source_csv_id: str | None = None
+    source_session_id: str | None = None
 
     @classmethod
     def from_row(cls, item: SessionListEntry) -> "ConversationInfo":
@@ -35,6 +36,7 @@ class ConversationInfo(BaseModel):
             updated_at=item.updated_at,
             pinned_at=item.pinned_at,
             source_csv_id=item.source_csv_id,
+            source_session_id=item.source_session_id,
         )
 
 

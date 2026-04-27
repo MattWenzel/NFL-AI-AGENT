@@ -17,9 +17,11 @@ from backend.domain.agent.events import (
     AssistantRequiresFollowupEvent,
     AssistantStartedEvent,
     CompactionStartedEvent,
+    ReportCreatedEvent,
     RetryingEvent,
     RuntimeErrorEvent,
     RuntimeEvent,
+    TableUpdatedEvent,
     TextDeltaEvent,
     ToolCompletedEvent,
     ToolFailedEvent,
@@ -72,6 +74,22 @@ def event_to_sse_payload(event: RuntimeEvent) -> dict | None:
         return {"type": "tool_result", "tool_run_id": event.tool_run_id, "name": event.name}
     if isinstance(event, ToolFailedEvent):
         return {"type": "tool_failed", "tool_run_id": event.tool_run_id, "name": event.name, "message": event.error or f"{event.name} failed"}
+    if isinstance(event, TableUpdatedEvent):
+        return {
+            "type": "table_updated",
+            "tool_run_id": event.tool_run_id,
+            "row_count": event.row_count,
+            "truncated": event.truncated,
+            "columns": event.columns,
+        }
+    if isinstance(event, ReportCreatedEvent):
+        return {
+            "type": "report_created",
+            "tool_run_id": event.tool_run_id,
+            "report_id": event.report_id,
+            "title": event.title,
+            "row_count": event.row_count,
+        }
     if isinstance(event, RuntimeErrorEvent):
         return {"type": "error", "message": event.error or "Runtime error"}
     if isinstance(event, (TurnStartedEvent, TurnFinishedEvent, AssistantRequiresFollowupEvent)):

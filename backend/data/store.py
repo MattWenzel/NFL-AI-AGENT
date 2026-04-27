@@ -23,7 +23,11 @@ from pathlib import Path
 
 from sqlalchemy import func, update
 
-from backend.data.repositories.conversations import SessionStoreMixin, TranscriptStoreMixin
+from backend.data.repositories.conversations import (
+    SessionStoreMixin,
+    TableStatesMixin,
+    TranscriptStoreMixin,
+)
 from backend.data.database import build_async_engine, build_async_sessionmaker, build_sync_engine
 from backend.data.repositories.exports import ExportsMixin
 from backend.data.models import ToolRunRecord, TurnRecord, utcnow
@@ -43,6 +47,7 @@ class RuntimeStore(
     UsersMixin,
     SessionStoreMixin,
     TranscriptStoreMixin,
+    TableStatesMixin,
     ExportsMixin,
     EmailVerificationMixin,
     LoginFailuresMixin,

@@ -18,6 +18,7 @@ from backend.application.exports import ExportService
 from backend.application.oauth.codex import CodexOAuthService
 from backend.application.oauth.google import GoogleOAuthService
 from backend.application.settings import SettingsService
+from backend.application.tables import TableChatService
 from backend.data import RuntimeStore
 
 
@@ -120,6 +121,12 @@ def get_export_service(
     store: RuntimeStore = Depends(get_store),
 ) -> ExportService:
     return ExportService(store)
+
+
+def get_table_chat_service(
+    store: RuntimeStore = Depends(get_store),
+) -> TableChatService:
+    return TableChatService(store)
 
 
 def get_auth_service(

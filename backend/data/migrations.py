@@ -159,6 +159,54 @@ def _migration_0006_turn_provider_model(conn: Connection) -> None:
         conn.execute(text("ALTER TABLE turns ADD COLUMN model TEXT"))
 
 
+def _migration_0008_session_source_session_id(conn: Connection) -> None:
+    """Add `sessions.source_session_id` so a report (kind='table_chat')
+    spawned by a regular chat can point back to its parent. Existing rows
+    backfill to NULL — the column is nullable since most sessions have no
+    parent. Indexed for the sidebar's "find reports linked to this chat"
+    lookup."""
+    existing_cols = {
+        row[1] for row in conn.execute(text("PRAGMA table_info(sessions)"))
+    }
+    if "source_session_id" not in existing_cols:
+        conn.execute(text("ALTER TABLE sessions ADD COLUMN source_session_id TEXT"))
+    conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS idx_sessions_source_session_id "
+        "ON sessions(source_session_id)"
+    ))
+
+
+def _migration_0007_table_chats(conn: Connection) -> None:
+    """Add `sessions.kind` and the `table_states` table for the table-view chat.
+
+    `kind` discriminates between regular analytical chats ('chat') and
+    table-view chats ('table_chat'). Existing rows backfill to 'chat'.
+
+    `table_states` holds the single live table for each table-chat session —
+    one row per session, replaced on every `set_table` tool call.
+    """
+    existing_session_cols = {
+        row[1] for row in conn.execute(text("PRAGMA table_info(sessions)"))
+    }
+    if "kind" not in existing_session_cols:
+        conn.execute(text(
+            "ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'chat'"
+        ))
+    conn.execute(text(
+        """
+        CREATE TABLE IF NOT EXISTS table_states (
+            session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+            columns_json TEXT NOT NULL DEFAULT '[]',
+            rows_json TEXT NOT NULL DEFAULT '[]',
+            last_sql TEXT,
+            row_count INTEGER NOT NULL DEFAULT 0,
+            truncated INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL
+        )
+        """
+    ))
+
+
 # Ordered migration list. `user_version` after a full apply == len(MIGRATIONS).
 # Append-only — never reorder or delete entries or the version tracker drifts.
 MIGRATIONS: list[Callable[[Connection], None]] = [
@@ -168,6 +216,8 @@ MIGRATIONS: list[Callable[[Connection], None]] = [
     _migration_0004_oauth_identities,
     _migration_0005_export_pinned,
     _migration_0006_turn_provider_model,
+    _migration_0007_table_chats,
+    _migration_0008_session_source_session_id,
 ]
 
 

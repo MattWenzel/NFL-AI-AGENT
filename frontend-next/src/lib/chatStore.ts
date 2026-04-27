@@ -262,6 +262,29 @@ export interface SendOptions {
   provider?: string
   model?: string
   toolChoice?: 'auto' | 'required' | 'none'
+  /** Table-view chat: 'explore' = research-only, 'edit_table' = `set_table` only. */
+  tableMode?: 'explore' | 'edit_table'
+  /** Table-view chat: row cap forwarded to the `set_table` tool. */
+  tableMaxRows?: number
+  /** Pin this turn to a specific conversation id, bypassing the in-store
+   *  current id. Used for the "new report" flow where the table_chat session
+   *  is created on the first send and we need this initial message to land
+   *  in that session before the SSE conversation_id event arrives. */
+  overrideConversationId?: string
+  /** Optional callback invoked on every `table_updated` SSE event. */
+  onTableUpdated?: (payload: {
+    tool_run_id: string
+    row_count: number
+    truncated: boolean
+    columns: string[]
+  }) => void
+  /** Optional callback invoked on every `report_created` SSE event —
+   *  used to auto-navigate to the new Report. */
+  onReportCreated?: (payload: {
+    report_id: string
+    title: string
+    row_count: number
+  }) => void
 }
 
 export function useChat() {
@@ -372,6 +395,13 @@ export function useChat() {
       const controller = new AbortController()
       abortRef.current = controller
 
+      // Pin the conversation id up front when the caller provides an
+      // override. Done before the optimistic dispatch so the user turn lands
+      // in the right transcript shell.
+      if (options.overrideConversationId) {
+        dispatch({ type: 'set-conversation-id', id: options.overrideConversationId })
+      }
+
       const optimisticTurn: TurnRecord = {
         id: `optimistic-user-${Date.now()}`,
         role: 'user',
@@ -388,11 +418,14 @@ export function useChat() {
       }
       dispatch({ type: 'optimistic-user-turn', turn: optimisticTurn })
 
+      const conversationId = options.overrideConversationId ?? stateRef.current.conversationId
       const body: Record<string, unknown> = { message }
-      if (stateRef.current.conversationId) body.conversation_id = stateRef.current.conversationId
+      if (conversationId) body.conversation_id = conversationId
       if (options.provider) body.provider = options.provider
       if (options.model) body.model = options.model
       if (options.toolChoice) body.tool_choice = options.toolChoice
+      if (options.tableMode) body.table_mode = options.tableMode
+      if (typeof options.tableMaxRows === 'number') body.table_max_rows = options.tableMaxRows
 
       try {
         for await (const event of openSseStream('/chat/stream', body, { signal: controller.signal })) {
@@ -434,6 +467,33 @@ export function useChat() {
                   toolRunId: event.tool_run_id,
                   status: 'error',
                   message: typeof event.message === 'string' ? event.message : undefined,
+                })
+              }
+              break
+            case 'table_updated':
+              if (
+                options.onTableUpdated &&
+                typeof event.tool_run_id === 'string' &&
+                typeof event.row_count === 'number' &&
+                Array.isArray(event.columns)
+              ) {
+                options.onTableUpdated({
+                  tool_run_id: event.tool_run_id,
+                  row_count: event.row_count,
+                  truncated: Boolean(event.truncated),
+                  columns: (event.columns as unknown[]).map(String),
+                })
+              }
+              break
+            case 'report_created':
+              if (
+                options.onReportCreated &&
+                typeof event.report_id === 'string'
+              ) {
+                options.onReportCreated({
+                  report_id: event.report_id,
+                  title: typeof event.title === 'string' ? event.title : '',
+                  row_count: typeof event.row_count === 'number' ? event.row_count : 0,
                 })
               }
               break

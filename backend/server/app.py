@@ -21,6 +21,7 @@ from backend.api.routes import oauth_google
 from backend.api.routes import oauth_openai
 from backend.api.routes import providers
 from backend.api.routes import settings
+from backend.api.routes import tables
 
 # Project root plus the browser frontend directories. The Vite/React build
 # (frontend-next/dist) is preferred when present — that's what the Docker
@@ -100,6 +101,7 @@ def create_app() -> FastAPI:
     app.include_router(oauth_openai.router)
     app.include_router(chat.router)
     app.include_router(conversations.router)
+    app.include_router(tables.router)
     app.include_router(providers.router)
     app.include_router(exports.download_router)
     app.include_router(exports.router)

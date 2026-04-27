@@ -21,6 +21,10 @@ type LayoutCtx = {
   openDesktopInspector: () => void
   /** Close the desktop inspector (used by empty-thread clicks). */
   closeDesktopInspector: () => void
+  /** Read-only inspector open state — for views that own a toggle button. */
+  desktopInspectorOpen: boolean
+  /** Flip the inspector's open state — used by the table-chat header toggle. */
+  toggleDesktopInspector: () => void
 }
 
 const LayoutContext = createContext<LayoutCtx | null>(null)
@@ -32,6 +36,8 @@ export function useLayout(): LayoutCtx {
       toggleDesktopSidebar: () => {},
       openDesktopInspector: () => {},
       closeDesktopInspector: () => {},
+      desktopInspectorOpen: false,
+      toggleDesktopInspector: () => {},
     }
   )
 }
@@ -97,6 +103,8 @@ export function AppShell({ sidebar, main, inspector, inspectorAvailable = false 
     toggleDesktopSidebar: () => setDesktopSidebarOpen((v) => !v),
     openDesktopInspector: () => setDesktopInspectorOpen(true),
     closeDesktopInspector: () => setDesktopInspectorOpen(false),
+    desktopInspectorOpen,
+    toggleDesktopInspector: () => setDesktopInspectorOpen((v) => !v),
   }
 
   return (

@@ -42,6 +42,8 @@ def _session_list_projection():
         SessionRecord.updated_at,
         SessionRecord.pinned_at,
         SessionRecord.source_csv_id,
+        SessionRecord.source_session_id,
+        SessionRecord.kind,
         func.coalesce(
             SessionRecord.title,
             func.substr(first_user_turn, 1, 60),
@@ -64,6 +66,8 @@ class SessionStoreMixin:
         model: str | None = None,
         context_window: int = 0,
         user_id: int | None = None,
+        kind: str = "chat",
+        source_session_id: str | None = None,
     ) -> SessionRecord:
         existing = await self.get_session(session_id, user_id=user_id) if session_id else None
         if existing:
@@ -90,6 +94,8 @@ class SessionStoreMixin:
             model=model,
             context_window=context_window,
             user_id=user_id,
+            kind=kind,
+            source_session_id=source_session_id,
         )
         async with self._async_session() as session:
             session.add(record)
@@ -153,11 +159,18 @@ class SessionStoreMixin:
             result = await session.execute(stmt)
             return result.scalar_one_or_none()
 
-    async def list_sessions(self, *, user_id: int | None = None) -> list[SessionListEntry]:
+    async def list_sessions(
+        self,
+        *,
+        user_id: int | None = None,
+        kind: str | None = None,
+    ) -> list[SessionListEntry]:
         async with self._async_session() as session:
             stmt = select(*_session_list_projection())
             if user_id is not None:
                 stmt = stmt.where(SessionRecord.user_id == user_id)
+            if kind is not None:
+                stmt = stmt.where(SessionRecord.kind == kind)
             stmt = stmt.order_by(SessionRecord.pinned_at.desc(), SessionRecord.updated_at.desc())
             result = await session.execute(stmt)
             return [SessionListEntry.from_row(row._mapping) for row in result.all()]

@@ -20,7 +20,10 @@ class ConversationService:
     store: RuntimeStore
 
     async def list_conversations(self, user_id: int) -> list[SessionListEntry]:
-        return await self.store.list_sessions(user_id=user_id)
+        # The Chats tab shows only analytical conversations — table-view
+        # chats live under their own /chat/tables endpoint and have a
+        # separate sidebar tab.
+        return await self.store.list_sessions(user_id=user_id, kind="chat")
 
     async def get_transcript(
         self, conversation_id: str, user_id: int

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { MoreHorizontal, Pencil, Pin, PinOff, Trash2 } from 'lucide-react'
+import { MoreHorizontal, Pencil, Pin, PinOff, Table2, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import {
@@ -29,48 +29,40 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { relativeTime } from '@/lib/datetime'
-import { formatBytes, type ExportInfo } from '@/lib/exports'
+import { useTablesContext } from '@/lib/tablesContext'
+import { absoluteTime } from '@/lib/datetime'
 import { cn } from '@/lib/utils'
+import type { ConversationInfo } from '@/lib/types'
 
-interface ExportRowProps {
-  item: ExportInfo
+interface TableRowProps {
+  item: ConversationInfo
   active: boolean
   onPick?: (id: string) => void
-  onDelete: (id: string) => Promise<void>
-  onRename: (id: string, title: string) => Promise<void>
-  onSetPinned: (id: string, pinned: boolean) => Promise<void>
 }
 
-export function ExportRow({
-  item,
-  active,
-  onPick,
-  onDelete,
-  onRename,
-  onSetPinned,
-}: ExportRowProps) {
-  const [confirm, setConfirm] = useState(false)
+export function TableRow({ item, active, onPick }: TableRowProps) {
+  const tables = useTablesContext()
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [renameOpen, setRenameOpen] = useState(false)
   const [renameValue, setRenameValue] = useState(item.title)
   const [renaming, setRenaming] = useState(false)
   const isPinned = !!item.pinned_at
 
-  const remove = async () => {
-    try {
-      await onDelete(item.id)
-      toast.success('CSV deleted')
-    } catch {
-      toast.error('Could not delete')
-    }
-  }
-
   const togglePin = async () => {
     try {
-      await onSetPinned(item.id, !isPinned)
+      await tables.setPinned(item.id, !isPinned)
       toast.success(isPinned ? 'Unpinned' : 'Pinned')
     } catch {
       toast.error('Could not update')
+    }
+  }
+
+  const remove = async () => {
+    try {
+      await tables.remove(item.id)
+      toast.success('Report deleted')
+    } catch {
+      toast.error('Could not delete')
     }
   }
 
@@ -87,7 +79,7 @@ export function ExportRow({
     }
     setRenaming(true)
     try {
-      await onRename(item.id, next)
+      await tables.rename(item.id, next)
       toast.success('Renamed')
       setRenameOpen(false)
     } catch {
@@ -103,7 +95,7 @@ export function ExportRow({
         type="button"
         onClick={() => onPick?.(item.id)}
         className={cn(
-          'flex w-full flex-col gap-0.5 rounded-md px-2 py-2 pr-9 text-left transition-colors',
+          'flex w-full flex-col gap-1 rounded-md px-2 py-2 pr-9 text-left transition-colors',
           'focus-visible:outline-none',
           active
             ? 'bg-accent/25 ring-1 ring-inset ring-accent/55 hover:bg-accent/30'
@@ -111,20 +103,19 @@ export function ExportRow({
         )}
       >
         <div className="flex items-start gap-1.5">
-          <span className="line-clamp-1 flex-1 text-sm font-medium text-sidebar-foreground">
+          <Table2 className="size-3.5 shrink-0 mt-0.5 text-muted-foreground" aria-hidden />
+          <span className="line-clamp-2 flex-1 text-sm font-medium leading-snug text-sidebar-foreground">
             {item.title}
           </span>
           {isPinned ? (
             <Pin className="size-3 shrink-0 mt-0.5 text-accent" aria-label="Pinned" />
           ) : null}
         </div>
-        <span className="flex items-center gap-1.5 text-2xs text-muted-foreground">
-          <span className="tabular">{item.row_count.toLocaleString()} rows</span>
-          <span aria-hidden>·</span>
-          <span className="tabular">{formatBytes(item.file_size)}</span>
-          <span aria-hidden>·</span>
-          <span className="tabular">{relativeTime(item.created_at)}</span>
-        </span>
+        {item.updated_at ? (
+          <span className="pl-5 text-2xs text-muted-foreground tabular">
+            {absoluteTime(item.updated_at)}
+          </span>
+        ) : null}
       </button>
 
       <DropdownMenu>
@@ -136,7 +127,7 @@ export function ExportRow({
               'hover:bg-sidebar-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none',
               'opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100',
             )}
-            aria-label="Export actions"
+            aria-label="Report actions"
             onClick={(e) => e.stopPropagation()}
           >
             <MoreHorizontal className="size-4" />
@@ -152,7 +143,7 @@ export function ExportRow({
             {isPinned ? 'Unpin' : 'Pin'}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive" onSelect={() => setConfirm(true)}>
+          <DropdownMenuItem variant="destructive" onSelect={() => setConfirmDelete(true)}>
             <Trash2 className="size-4" />
             Delete
           </DropdownMenuItem>
@@ -162,8 +153,8 @@ export function ExportRow({
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Rename CSV</DialogTitle>
-            <DialogDescription>Give this CSV a clearer title.</DialogDescription>
+            <DialogTitle>Rename report</DialogTitle>
+            <DialogDescription>Give this report a clearer title.</DialogDescription>
           </DialogHeader>
           <Input
             autoFocus
@@ -176,7 +167,7 @@ export function ExportRow({
               }
             }}
             maxLength={200}
-            placeholder="CSV title"
+            placeholder="Report title"
           />
           <DialogFooter>
             <Button variant="ghost" onClick={() => setRenameOpen(false)} disabled={renaming}>
@@ -192,12 +183,12 @@ export function ExportRow({
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={confirm} onOpenChange={setConfirm}>
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete this CSV?</AlertDialogTitle>
+            <AlertDialogTitle>Delete this report?</AlertDialogTitle>
             <AlertDialogDescription>
-              "{item.title}" will be removed from the library. The original conversation is unaffected.
+              "{item.title}" will be removed permanently, including the chat history and the current table.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

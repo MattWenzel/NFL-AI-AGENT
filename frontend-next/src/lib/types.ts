@@ -81,4 +81,7 @@ export interface ConversationInfo {
   updated_at: string | null
   pinned_at: string | null
   source_csv_id: string | null
+  /** For a `kind=table_chat` session: the parent chat that spawned it via
+   *  `create_report`. Null for self-created conversations. */
+  source_session_id: string | null
 }

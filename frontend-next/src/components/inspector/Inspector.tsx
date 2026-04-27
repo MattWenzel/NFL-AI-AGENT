@@ -333,13 +333,24 @@ function ExchangeToolRuns({ slice, transcript }: { slice: ExchangeSlice; transcr
   )
 }
 
+/** Tools whose primary input is a `sql` string and warrant the
+ *  ToolRunDetail SQL viewer. Kept as a single source of truth so the
+ *  inspector, thread tool-row click, and SQL-summary helper all agree. */
+export function hasSqlPayload(toolName: string): boolean {
+  return (
+    toolName === 'execute_sql' ||
+    toolName === 'run_sql' ||
+    toolName === 'set_table'
+  )
+}
+
 function handleInspectorToolClick(
   run: ToolRunRecord,
   transcript: ConversationTranscript,
   chat: ReturnType<typeof useChatContext>,
 ) {
   const exchangeId = exchangeIdForTurn(transcript, run.turn_id)
-  if (run.tool_name === 'execute_sql') {
+  if (hasSqlPayload(run.tool_name)) {
     // Set both: the inspector switches to ToolRunDetail (toolRunId), and
     // the thread highlights / scrolls to the message (exchangeId).
     chat.selectToolRun(run.id, exchangeId ?? null)
@@ -401,9 +412,9 @@ function ToolRunRow({ run, onSelect }: { run: ToolRunRecord; onSelect?: () => vo
 }
 
 function inputDisplayValue(run: ToolRunRecord): string {
-  // For execute_sql we show the SQL verbatim — JSON-encoding it just buries
-  // the query in escaped quotes and \n.
-  if (run.tool_name === 'execute_sql' || run.tool_name === 'run_sql') {
+  // SQL-bearing tools render the query verbatim — JSON-encoding it just
+  // buries the SQL in escaped quotes and \n.
+  if (hasSqlPayload(run.tool_name)) {
     const sql = (run.input as { sql?: unknown }).sql
     if (typeof sql === 'string') return sql
   }

@@ -16,8 +16,11 @@ from backend.domain.tools.sandbox.runner import (
     EXPORT_TIMEOUT_SECONDS,
     MAX_ROWS,
     QUERY_TIMEOUT_SECONDS,
+    TABLE_MAX_ROWS,
+    TABLE_MIN_ROWS,
     execute_export_sql,
     execute_safe_sql,
+    execute_table_sql,
     validate_sql,
 )
 
@@ -26,7 +29,10 @@ __all__ = [
     "EXPORT_TIMEOUT_SECONDS",
     "MAX_ROWS",
     "QUERY_TIMEOUT_SECONDS",
+    "TABLE_MAX_ROWS",
+    "TABLE_MIN_ROWS",
     "execute_export_sql",
     "execute_safe_sql",
+    "execute_table_sql",
     "validate_sql",
 ]

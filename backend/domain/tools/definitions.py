@@ -125,6 +125,57 @@ TOOL_DEFINITIONS = [
         },
     },
     {
+        "name": "set_table",
+        "description": (
+            "Replace the live table in a Table View chat with the rows produced by this SQL query. "
+            "Only available in 'Change table' turns of a table-view chat — never in regular chat. "
+            "The user has selected a row cap via the table-size dropdown; the cap is enforced server-side, "
+            "so write LIMIT clauses up to that cap and don't try to exceed it. The rows do NOT come back "
+            "in the tool result — only a brief summary (row_count, columns) — so build the SQL to be "
+            "self-contained and don't expect to inspect the cells. Standard sandbox rules: SELECT/WITH only, "
+            "single statement, read-only. Call this exactly once per 'Change table' turn."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "sql": {
+                    "type": "string",
+                    "description": "SQL SELECT or WITH statement. Read-only. Result becomes the new table.",
+                },
+            },
+            "required": ["sql"],
+        },
+    },
+    {
+        "name": "create_report",
+        "description": (
+            "Create a new Report (a table-view chat) populated with the rows from this SQL query, "
+            "then auto-navigate the user to it. Use this whenever the user wants to *view, browse, "
+            "sort, or iterate on* tabular data — anything beyond a one-shot answer. The user lands "
+            "in the Reports tab with the table already filled in and can chat with a fresh agent "
+            "there to refine columns, download as CSV, or run follow-ups. "
+            "Pick a short descriptive `title` (3-8 words, e.g. 'Top 25 PPR Scorers 2024'). "
+            "Rows are capped at 500 server-side. "
+            "Prefer this over inline markdown tables when there are >~10 rows or >~5 columns. "
+            "Distinct from `create_csv_export`: that tool produces a download link and is only for "
+            "explicit 'download/save as CSV' requests."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "sql": {
+                    "type": "string",
+                    "description": "SQL SELECT or WITH statement. Must be read-only.",
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Short descriptive title for the Report (3-8 words).",
+                },
+            },
+            "required": ["sql", "title"],
+        },
+    },
+    {
         "name": "create_chart",
         "description": (
             "Generate a chart from a SQL query. Use when a visual comparison answers the question "

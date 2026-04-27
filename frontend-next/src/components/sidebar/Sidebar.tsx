@@ -1,20 +1,19 @@
 import { useMemo, useState } from 'react'
-import { PanelLeftClose, Plus, Search } from 'lucide-react'
+import { PanelLeftClose, Plus, Search, Table2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import logoUrl from '@/assets/logo.png'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { ConversationRow } from '@/components/sidebar/ConversationRow'
+import { TableRow } from '@/components/sidebar/TableRow'
 import { UserWidget } from '@/components/sidebar/UserWidget'
-import { ExportRow } from '@/components/exports/ExportRow'
 import { useLayout } from '@/components/layout/AppShell'
 import { useChatContext } from '@/lib/chatContext'
-import { useExportsContext } from '@/lib/exportsContext'
-import { ageDays } from '@/lib/datetime'
+import { useTablesContext } from '@/lib/tablesContext'
 import type { ConversationInfo } from '@/lib/types'
-import type { ExportInfo } from '@/lib/exports'
 import type { AuthUser } from '@/lib/auth'
+import { ageDays } from '@/lib/datetime'
 
 interface SidebarProps {
   user: AuthUser
@@ -22,10 +21,17 @@ interface SidebarProps {
   onOpenSettings?: () => void
   onNewChat?: () => void
   onOpenConversation?: (id: string) => void
-  activeExportId?: string | null
-  onOpenExport?: (id: string) => void
   /** Called when the user switches to the Chats tab while a report is open. */
   onSwitchToChats?: () => void
+  /** Active report id (when the report view is open). Internally still
+   *  backed by the table-chat session — the rename is UI-only. */
+  activeTableId?: string | null
+  /** True while the user is on the new-report empty screen (no session
+   *  exists yet). Highlights the Reports tab without highlighting any row. */
+  pendingReport?: boolean
+  onOpenTable?: (id: string) => void
+  onSwitchToTables?: () => void
+  onNewTable?: () => void
 }
 
 export function Sidebar({
@@ -34,14 +40,19 @@ export function Sidebar({
   onOpenSettings,
   onNewChat,
   onOpenConversation,
-  activeExportId,
-  onOpenExport,
   onSwitchToChats,
+  activeTableId,
+  pendingReport = false,
+  onOpenTable,
+  onSwitchToTables,
+  onNewTable,
 }: SidebarProps) {
   const chat = useChatContext()
-  const exportsStore = useExportsContext()
+  const tablesStore = useTablesContext()
   const layout = useLayout()
   const [query, setQuery] = useState('')
+
+  const activeTab: 'chats' | 'reports' = activeTableId || pendingReport ? 'reports' : 'chats'
 
   const filtered = useMemo(() => {
     if (!query.trim()) return chat.conversations
@@ -49,14 +60,29 @@ export function Sidebar({
     return chat.conversations.filter((c) => c.title.toLowerCase().includes(q))
   }, [chat.conversations, query])
 
-  const filteredExports = useMemo(() => {
-    if (!query.trim()) return exportsStore.exports
+  const filteredTables = useMemo(() => {
+    if (!query.trim()) return tablesStore.tables
     const q = query.trim().toLowerCase()
-    return exportsStore.exports.filter((e) => e.title.toLowerCase().includes(q))
-  }, [exportsStore.exports, query])
+    return tablesStore.tables.filter((t) => t.title.toLowerCase().includes(q))
+  }, [tablesStore.tables, query])
 
   const groupedChats = useMemo(() => groupConversations(filtered), [filtered])
-  const groupedExports = useMemo(() => groupExports(filteredExports), [filteredExports])
+  const groupedTables = useMemo(() => groupConversations(filteredTables), [filteredTables])
+
+  // Map each parent chat → its most-recently-touched linked report so the
+  // ConversationRow can surface a "this chat created a report" affordance.
+  const reportsByChat = useMemo(() => {
+    const map = new Map<string, ConversationInfo>()
+    for (const t of tablesStore.tables) {
+      const parent = t.source_session_id
+      if (!parent) continue
+      const existing = map.get(parent)
+      if (!existing || (existing.updated_at ?? '') < (t.updated_at ?? '')) {
+        map.set(parent, t)
+      }
+    }
+    return map
+  }, [tablesStore.tables])
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -65,7 +91,7 @@ export function Sidebar({
           src={logoUrl}
           alt=""
           aria-hidden="true"
-          className="size-12 shrink-0 object-contain"
+          className="size-20 shrink-0 object-contain"
         />
         <span className="ml-2.5 font-display text-lg font-semibold tracking-tight">NFL Stats</span>
         <Button
@@ -79,7 +105,7 @@ export function Sidebar({
         </Button>
       </div>
 
-      <div className="px-2 pt-1">
+      <div className="space-y-1 px-2 pt-1">
         <Button
           variant="ghost"
           className="h-10 w-full justify-start gap-2.5 text-base font-medium text-sidebar-foreground hover:bg-sidebar-accent"
@@ -88,15 +114,24 @@ export function Sidebar({
           <Plus className="size-5" />
           New chat
         </Button>
+        {onNewTable ? (
+          <Button
+            variant="ghost"
+            className="h-10 w-full justify-start gap-2.5 text-base font-medium text-sidebar-foreground hover:bg-sidebar-accent"
+            onClick={onNewTable}
+          >
+            <Table2 className="size-5" />
+            New report
+          </Button>
+        ) : null}
       </div>
 
       <Tabs
-        value={activeExportId ? 'reports' : 'chats'}
+        value={activeTab}
         onValueChange={(next) => {
-          if (next === 'reports' && !activeExportId) {
-            const mostRecent = exportsStore.exports[0]
-            if (mostRecent && onOpenExport) onOpenExport(mostRecent.id)
-          } else if (next === 'chats' && activeExportId) {
+          if (next === 'reports' && activeTab !== 'reports') {
+            onSwitchToTables?.()
+          } else if (next === 'chats' && activeTab !== 'chats') {
             onSwitchToChats?.()
           }
         }}
@@ -142,6 +177,8 @@ export function Sidebar({
                 items={g.items}
                 activeId={chat.conversationId}
                 onPick={onOpenConversation}
+                reportsByChat={reportsByChat}
+                onOpenReport={onOpenTable}
               />
             ))
           )}
@@ -150,23 +187,20 @@ export function Sidebar({
           value="reports"
           className="m-0 flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-2"
         >
-          {exportsStore.status === 'loading' ? (
+          {tablesStore.status === 'loading' ? (
             <SidebarMessage label="Loading…" />
-          ) : exportsStore.status === 'error' ? (
+          ) : tablesStore.status === 'error' ? (
             <SidebarMessage label="Couldn't load reports" />
-          ) : filteredExports.length === 0 ? (
-            <SidebarMessage label={query ? 'No matches' : 'No CSV exports yet'} />
+          ) : filteredTables.length === 0 ? (
+            <SidebarMessage label={query ? 'No matches' : 'No reports yet'} />
           ) : (
-            groupedExports.map((g) => (
-              <ExportGroup
+            groupedTables.map((g) => (
+              <TableGroup
                 key={g.label}
                 label={g.label}
                 items={g.items}
-                activeId={activeExportId ?? null}
-                onPick={onOpenExport}
-                onDelete={exportsStore.remove}
-                onRename={exportsStore.rename}
-                onSetPinned={exportsStore.setPinned}
+                activeId={activeTableId ?? null}
+                onPick={onOpenTable}
               />
             ))
           )}
@@ -185,11 +219,15 @@ function SidebarGroup({
   items,
   activeId,
   onPick,
+  reportsByChat,
+  onOpenReport,
 }: {
   label?: string
   items: ReturnType<typeof useChatContext>['conversations']
   activeId: string | null
   onPick?: (id: string) => void
+  reportsByChat: Map<string, ConversationInfo>
+  onOpenReport?: (id: string) => void
 }) {
   if (items.length === 0) return null
   return (
@@ -206,6 +244,8 @@ function SidebarGroup({
             item={item}
             active={activeId === item.id}
             onPick={onPick}
+            linkedReport={reportsByChat.get(item.id) ?? null}
+            onOpenReport={onOpenReport}
           />
         ))}
       </ul>
@@ -213,22 +253,16 @@ function SidebarGroup({
   )
 }
 
-function ExportGroup({
+function TableGroup({
   label,
   items,
   activeId,
   onPick,
-  onDelete,
-  onRename,
-  onSetPinned,
 }: {
   label?: string
-  items: ExportInfo[]
+  items: ConversationInfo[]
   activeId: string | null
   onPick?: (id: string) => void
-  onDelete: (id: string) => Promise<void>
-  onRename: (id: string, title: string) => Promise<void>
-  onSetPinned: (id: string, pinned: boolean) => Promise<void>
 }) {
   if (items.length === 0) return null
   return (
@@ -240,14 +274,11 @@ function ExportGroup({
       ) : null}
       <ul className="space-y-px">
         {items.map((item) => (
-          <ExportRow
+          <TableRow
             key={item.id}
             item={item}
             active={activeId === item.id}
             onPick={onPick}
-            onDelete={onDelete}
-            onRename={onRename}
-            onSetPinned={onSetPinned}
           />
         ))}
       </ul>
@@ -261,34 +292,6 @@ function SidebarMessage({ label }: { label: string }) {
       <p className="text-xs text-muted-foreground">{label}</p>
     </div>
   )
-}
-
-function groupExports(items: ExportInfo[]): { label: string; items: ExportInfo[] }[] {
-  const pinned: ExportInfo[] = []
-  const today: ExportInfo[] = []
-  const week: ExportInfo[] = []
-  const month: ExportInfo[] = []
-  const older: ExportInfo[] = []
-
-  for (const e of items) {
-    if (e.pinned_at) {
-      pinned.push(e)
-      continue
-    }
-    const age = ageDays(e.created_at)
-    if (age < 1) today.push(e)
-    else if (age < 7) week.push(e)
-    else if (age < 30) month.push(e)
-    else older.push(e)
-  }
-
-  return [
-    { label: 'Pinned', items: pinned },
-    { label: 'Today', items: today },
-    { label: 'This week', items: week },
-    { label: 'This month', items: month },
-    { label: 'Older', items: older },
-  ].filter((g) => g.items.length > 0)
 }
 
 function groupConversations(items: ConversationInfo[]): { label: string; items: ConversationInfo[] }[] {

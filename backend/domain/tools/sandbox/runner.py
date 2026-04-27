@@ -170,6 +170,24 @@ def execute_export_sql(sql: str) -> SQLResult:
     return _run_sql(sql, EXPORT_MAX_ROWS, EXPORT_TIMEOUT_SECONDS)
 
 
+# Table-view chat row caps — selectable via the composer dropdown. The
+# upper bound matches the standard query cap; the lower bound is small
+# enough that an unconstrained query gets clamped hard.
+TABLE_MIN_ROWS = 1
+TABLE_MAX_ROWS = 500
+
+
+def execute_table_sql(sql: str, max_rows: int) -> SQLResult:
+    """Execute a read-only SQL query with a caller-chosen row cap.
+
+    Used by the `set_table` tool — the cap comes from the composer's
+    table-size dropdown so the user picks the table dimensions, not the
+    agent. `max_rows` is clamped to [TABLE_MIN_ROWS, TABLE_MAX_ROWS].
+    """
+    bounded = max(TABLE_MIN_ROWS, min(int(max_rows), TABLE_MAX_ROWS))
+    return _run_sql(sql, bounded, QUERY_TIMEOUT_SECONDS)
+
+
 def _ensure_limit(sql: str, max_rows: int) -> str:
     """Add LIMIT clause if missing, or cap an existing numeric LIMIT at max_rows.
 

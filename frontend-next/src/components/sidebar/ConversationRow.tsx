@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { MoreHorizontal, Pencil, Pin, PinOff, Trash2 } from 'lucide-react'
+import { MoreHorizontal, Pencil, Pin, PinOff, Table2, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import {
@@ -38,9 +38,19 @@ interface ConversationRowProps {
   item: ConversationInfo
   active: boolean
   onPick?: (id: string) => void
+  /** A report this chat spawned via `create_report` — renders a small icon
+   *  in the bottom-right that jumps the user to that report. */
+  linkedReport?: ConversationInfo | null
+  onOpenReport?: (id: string) => void
 }
 
-export function ConversationRow({ item, active, onPick }: ConversationRowProps) {
+export function ConversationRow({
+  item,
+  active,
+  onPick,
+  linkedReport,
+  onOpenReport,
+}: ConversationRowProps) {
   const chat = useChatContext()
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [renameOpen, setRenameOpen] = useState(false)
@@ -125,6 +135,24 @@ export function ConversationRow({ item, active, onPick }: ConversationRowProps) 
           </span>
         ) : null}
       </button>
+
+      {linkedReport && onOpenReport ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onOpenReport(linkedReport.id)
+          }}
+          title={`Open report: ${linkedReport.title}`}
+          aria-label={`Open report: ${linkedReport.title}`}
+          className={cn(
+            'absolute bottom-1.5 right-1.5 grid size-6 place-items-center rounded-md text-muted-foreground transition-colors',
+            'hover:bg-sidebar-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          )}
+        >
+          <Table2 className="size-3.5" />
+        </button>
+      ) : null}
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

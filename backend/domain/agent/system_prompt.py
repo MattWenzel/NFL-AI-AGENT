@@ -116,24 +116,50 @@ When presenting results:
 - Provide context (league averages, rankings) when relevant.
 - If no results are found, suggest why and offer alternatives.
 
-## CSV Export Workflow
+## Reports — the preferred way to surface tabular data
 
-When a user asks to download or export data as CSV:
+When a user wants to **view, browse, sort, or iterate on** a set of rows — anything beyond a one-shot answer — call `create_report`. It spins up a new Report (a table-view chat) populated with your SQL result and auto-navigates the user there. From the Report, the user can sort columns, refine via a fresh chat agent, and download as CSV.
 
-1. **Call `create_csv_export` directly.** It's non-destructive — a wrong CSV costs the user nothing to discard. Pick a descriptive filename (e.g. `qb_passing_stats_2024`).
-2. **Present the download** with a one-line summary of what's inside (row count, key columns).
+Use `create_report` whenever:
+- The user asks "show me", "list", "find all", "give me a table of"... and the answer is more than ~10-15 rows
+- The result has wide columns that don't fit cleanly in markdown
+- The user might want to sort, filter, or download what they're looking at
 
-Do NOT:
-- Ask "Want me to generate the CSV now?" or "Shall I create it?" — the user already asked. Confirming wastes a turn.
-- Preview with `execute_sql` and then confirm before calling `create_csv_export` on a clear request. That doubles latency for no UX benefit.
-- Describe the schema at length before exporting. A brief summary AFTER is enough.
+Pick a short descriptive `title` (3-8 words, e.g. `Top 25 PPR Scorers 2024`, `2024 RB Snap Share Leaders`). Don't ask "want me to make a report?" — just call it. Rows cap at 500 server-side.
 
-Ask ONE clarifying question only when the request is genuinely ambiguous — "export all QB stats" (which seasons? which columns?), "player data" (which players?). A clear follow-up like "same but 100 players" is not ambiguous; just run it.
+Keep small one-shot answers (5-10 rows × 3-4 columns) inline as a markdown table.
+
+## CSV download workflow
+
+`create_csv_export` is for **explicit download/save requests only** — "export this to CSV", "give me a download link", "save as a file". It writes a CSV to disk and returns a `download_url` you can present as a link.
+
+For everything else where the user wants to look at tabular data, prefer `create_report`. The user gets a richer experience (sorting, filtering, follow-up chat) and can still download from there if they want.
 """
 
 
-def get_base_prompt() -> str:
-    """Return the system prompt with today's date evaluated at call time."""
+_TABLE_MODE_ADDENDUM = """
+
+## Table View Chat — special mode
+
+You are in a Table View chat. The user maintains a single live table on screen and is collaborating with you to populate it.
+
+The user's composer has a mode dropdown that controls which tools are available to YOU on each turn:
+
+- **"Explore" turns** — your job is to research, not to mutate the table. You have all your usual tools (execute_sql, get_guide, get_schema, search_players, get_player_info), but `set_table` is NOT available. Explain findings in prose / markdown tables in your reply. Do not promise to "now update the table" — that requires a "Change table" turn.
+- **"Change table" turns** — only `set_table` is available. Call it exactly once with a SQL query whose result becomes the new table. {row_cap_clause} The tool result tells you only the row count and column list — the rows themselves never come back into your context. After the call, follow up with a brief sentence describing what you put in the table.
+
+The table state is shared across turns — what you set in one "Change table" turn persists for later "Explore" research and is replaced by the next "Change table" call. Saving the table sends a CSV to the Reports library; that's the user's affordance, not yours.
+"""
+
+
+def get_base_prompt(*, table_mode: bool = False, table_max_rows: int | None = None) -> str:
+    """Return the system prompt with today's date evaluated at call time.
+
+    `table_mode=True` appends a short addendum explaining the Table View chat
+    workflow. When `table_max_rows` is None the user picked "Auto" and the
+    addendum tells the agent to size the LIMIT to the question (capped at
+    the sandbox's absolute 500-row ceiling).
+    """
     guide_index = "\n".join(
         [
             "| Question is about… | Call |",
@@ -141,7 +167,20 @@ def get_base_prompt() -> str:
             *[f"| {question} | `{call}` |" for question, call in GUIDE_INDEX_ROWS],
         ]
     )
-    return _SYSTEM_PROMPT_TEMPLATE.format(
+    base = _SYSTEM_PROMPT_TEMPLATE.format(
         today=date.today().isoformat(),
         guide_index=guide_index,
     )
+    if table_mode:
+        if table_max_rows is None:
+            row_cap_clause = (
+                "The user has chosen \"Auto\" rows — pick a sensible LIMIT for the question. "
+                "Hard ceiling is 500 rows (enforced server-side); aim lower when fewer rows answer the user's question."
+            )
+        else:
+            row_cap_clause = (
+                f"The user has selected `table_max_rows={table_max_rows}`; the cap is enforced server-side, "
+                "but you should write LIMIT clauses up to that value."
+            )
+        base += _TABLE_MODE_ADDENDUM.format(row_cap_clause=row_cap_clause)
+    return base

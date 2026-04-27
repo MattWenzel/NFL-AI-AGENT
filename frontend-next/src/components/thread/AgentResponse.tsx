@@ -2,6 +2,7 @@ import { ChevronRight, AlertCircle, AlertTriangle, CheckCircle2, Loader2, Octago
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Markdown } from '@/components/thread/Markdown'
+import { hasSqlPayload } from '@/components/inspector/Inspector'
 import { useLayout } from '@/components/layout/AppShell'
 import { useChatContext } from '@/lib/chatContext'
 import { cn } from '@/lib/utils'
@@ -80,9 +81,10 @@ export function AgentResponse({
 
   const handleSelectTool = (run: ToolRunRecord) => {
     openDesktopInspector()
-    // Only execute_sql carries inspectable payloads — for guides, schemas, etc.
-    // we just scope the inspector to the surrounding exchange instead.
-    if (run.tool_name === 'execute_sql') {
+    // SQL-bearing tools (execute_sql, run_sql, set_table) carry an
+    // inspectable SQL payload — open ToolRunDetail directly. Guides,
+    // schemas, etc. just scope the inspector to the surrounding exchange.
+    if (hasSqlPayload(run.tool_name)) {
       selectToolRun(run.id, exchangeId)
     } else if (onSelect) {
       onSelect()
@@ -291,7 +293,7 @@ function StatusDot({ status }: { status: string }) {
 }
 
 function summarizeInput(toolName: string, input: Record<string, unknown>): string {
-  if (toolName === 'execute_sql' || toolName === 'run_sql') {
+  if (hasSqlPayload(toolName)) {
     if (typeof input.sql === 'string') {
       const sql = (input.sql as string).replace(/\s+/g, ' ').trim()
       return sql.length > 90 ? `${sql.slice(0, 87)}…` : sql
