@@ -10,6 +10,7 @@ library.
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 import logging
@@ -28,6 +29,10 @@ from backend.data import (
     TableStateRecord,
 )
 from backend.domain.providers import get_default_provider, get_provider
+from backend.domain.tools.sandbox.runner import (
+    SQLValidationError,
+    execute_safe_sql,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +47,14 @@ class TableChatNotFoundError(TableChatServiceError):
 
 class TableNotReadyError(TableChatServiceError):
     """Save was requested before any rows were generated."""
+
+
+class TableLockedError(TableChatServiceError):
+    """Direct SQL edit attempted while the table is locked."""
+
+
+class TableSqlError(TableChatServiceError):
+    """SQL failed validation or execution in the read-only sandbox."""
 
 
 def _sanitize_filename(name: str) -> str:
@@ -136,6 +149,42 @@ class TableChatService:
             raise TableChatNotFoundError("Table chat not found")
         if not await self.store.delete_session(conversation_id, user_id=user_id):
             raise TableChatNotFoundError("Table chat not found")
+
+    async def run_and_persist_sql(
+        self,
+        conversation_id: str,
+        *,
+        user_id: int,
+        sql: str,
+    ) -> TableStateRecord:
+        """Run user-edited SQL through the sandbox and replace the table state.
+
+        Mirrors what the agent's `set_table` tool does — same sandbox, same
+        persistence call — but is initiated directly by the user from the
+        Reports view's editable SQL panel. Refuses if the table is locked
+        (matching `set_table`'s behavior).
+        """
+        session = await self.store.get_session(conversation_id, user_id=user_id)
+        if session is None or session.kind != "table_chat":
+            raise TableChatNotFoundError("Table chat not found")
+        existing = await self.store.get_table_state(conversation_id)
+        if existing is not None and existing.locked:
+            raise TableLockedError(
+                "Table is locked — unlock it before editing the SQL."
+            )
+        try:
+            result = await asyncio.to_thread(execute_safe_sql, sql)
+        except SQLValidationError as exc:
+            raise TableSqlError(str(exc)) from exc
+        record = await self.store.upsert_table_state(
+            conversation_id,
+            columns=list(result.columns),
+            rows=list(result.rows),
+            last_sql=sql,
+            row_count=result.row_count,
+            truncated=result.truncated,
+        )
+        return record
 
     async def set_table_locked(
         self, conversation_id: str, *, user_id: int, locked: bool

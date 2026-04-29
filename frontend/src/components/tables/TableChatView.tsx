@@ -10,6 +10,7 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Pencil,
+  Play,
   Trash2,
   Unlock,
 } from 'lucide-react'
@@ -31,11 +32,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { ApiError } from '@/lib/api'
 import { useChatContext } from '@/lib/chatContext'
 import { sanitizeCsvFilename, tableToCsv } from '@/lib/csv'
 import { useTablesContext } from '@/lib/tablesContext'
 import { cn } from '@/lib/utils'
-import { setTableLocked } from '@/lib/tables'
+import { runReportSql, setTableLocked } from '@/lib/tables'
 import type { TableState } from '@/lib/tables'
 
 interface TableChatViewProps {
@@ -256,8 +259,23 @@ export function TableChatView({
 
   const hasRows = !!table && table.rows.length > 0
 
+  // Editable draft of the live table's SQL. Mirrors `table?.last_sql` and
+  // resyncs whenever the upstream value changes (agent ran `set_table`, or
+  // we just successfully ran user-edited SQL and refetched). In-flight local
+  // edits are clobbered by an upstream change — same trade-off as the
+  // Database editor.
+  const [sqlDraft, setSqlDraft] = useState<string>(table?.last_sql ?? '')
+  const [sqlRunning, setSqlRunning] = useState(false)
+  const [sqlError, setSqlError] = useState<string | null>(null)
+  const [sqlOpen, setSqlOpen] = useState(true)
+
+  useEffect(() => {
+    setSqlDraft(table?.last_sql ?? '')
+    setSqlError(null)
+  }, [table?.last_sql])
+
   const copySourceSql = useCallback(async () => {
-    const sql = table?.last_sql
+    const sql = sqlDraft || table?.last_sql
     if (!sql) return
     try {
       await navigator.clipboard.writeText(sql)
@@ -266,7 +284,28 @@ export function TableChatView({
     } catch {
       toast.error('Could not copy — your browser blocked clipboard access')
     }
-  }, [table?.last_sql])
+  }, [sqlDraft, table?.last_sql])
+
+  const runSql = useCallback(async () => {
+    const trimmed = sqlDraft.trim()
+    if (!trimmed || sqlRunning || isLocked) return
+    setSqlRunning(true)
+    setSqlError(null)
+    try {
+      await runReportSql(activeTableId, trimmed)
+      await refetch()
+    } catch (err) {
+      const message =
+        err instanceof ApiError
+          ? err.detail
+          : err instanceof Error
+            ? err.message
+            : 'Query failed'
+      setSqlError(message)
+    } finally {
+      setSqlRunning(false)
+    }
+  }, [activeTableId, isLocked, refetch, sqlDraft, sqlRunning])
 
   const downloadCsv = useCallback(() => {
     if (!table || table.rows.length === 0) return
@@ -387,7 +426,8 @@ export function TableChatView({
           {table?.last_sql ? (
             <div className="shrink-0 border-b border-border px-6 py-3">
               <Collapsible
-                defaultOpen={false}
+                open={sqlOpen}
+                onOpenChange={setSqlOpen}
                 className="overflow-hidden rounded-lg border border-border bg-muted/20"
               >
                 <div className="flex items-stretch">
@@ -399,17 +439,45 @@ export function TableChatView({
                   >
                     <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-150 group-data-[state=open]:rotate-90" />
                     <span className="text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                      Source SQL
+                      SQL
                     </span>
+                    {!sqlOpen && sqlDraft.trim() ? (
+                      <span className="truncate font-mono text-2xs text-muted-foreground/80">
+                        {sqlDraft.trim().split('\n')[0].slice(0, 120)}
+                        {sqlDraft.trim().split('\n').length > 1 || sqlDraft.trim().length > 120 ? ' …' : ''}
+                      </span>
+                    ) : null}
                   </CollapsibleTrigger>
                   <button
                     type="button"
+                    onClick={runSql}
+                    disabled={sqlRunning || isLocked || !sqlDraft.trim()}
+                    aria-label="Run SQL"
+                    title={
+                      isLocked
+                        ? 'Unlock the table to edit and run SQL'
+                        : 'Run SQL (⌘/Ctrl+Enter)'
+                    }
+                    className={cn(
+                      'flex shrink-0 items-center gap-1 px-3 text-2xs text-muted-foreground transition-colors',
+                      'hover:bg-muted/40 hover:text-foreground disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-muted-foreground',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
+                    )}
+                  >
+                    <Play className="size-3.5" />
+                    <span className="font-medium uppercase tracking-[0.14em]">
+                      {sqlRunning ? 'Running' : 'Run'}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={copySourceSql}
+                    disabled={!sqlDraft.trim()}
                     aria-label="Copy SQL"
                     title={sqlCopied ? 'Copied' : 'Copy SQL'}
                     className={cn(
                       'flex shrink-0 items-center gap-1 px-3 text-2xs text-muted-foreground transition-colors',
-                      'hover:bg-muted/40 hover:text-foreground',
+                      'hover:bg-muted/40 hover:text-foreground disabled:opacity-50',
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
                     )}
                   >
@@ -424,9 +492,37 @@ export function TableChatView({
                   </button>
                 </div>
                 <CollapsibleContent className="border-t border-border bg-background/50">
-                  <pre className="overflow-x-auto whitespace-pre-wrap px-3 py-2 font-mono text-xs leading-relaxed text-foreground">
-                    {table.last_sql}
-                  </pre>
+                  <Textarea
+                    className="min-h-[120px] max-h-[18rem] resize-y overflow-auto rounded-none border-0 bg-transparent font-mono text-xs leading-relaxed [field-sizing:fixed] focus-visible:ring-0 focus-visible:ring-offset-0"
+                    spellCheck={false}
+                    value={sqlDraft}
+                    onChange={(e) => setSqlDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                        e.preventDefault()
+                        runSql()
+                      }
+                    }}
+                    readOnly={isLocked}
+                    placeholder="SELECT ..."
+                  />
+                  <p className="border-t border-border px-3 py-1.5 text-2xs text-muted-foreground">
+                    {isLocked ? (
+                      <>Table is locked — unlock to edit and run.</>
+                    ) : (
+                      <>
+                        Read-only. Press{' '}
+                        <kbd className="rounded border border-border bg-muted px-1">⌘/Ctrl</kbd>
+                        <kbd className="ml-1 rounded border border-border bg-muted px-1">Enter</kbd>{' '}
+                        to run. Up to 500 rows.
+                      </>
+                    )}
+                  </p>
+                  {sqlError ? (
+                    <p className="border-t border-border bg-destructive/10 px-3 py-1.5 text-2xs text-destructive">
+                      {sqlError}
+                    </p>
+                  ) : null}
                 </CollapsibleContent>
               </Collapsible>
             </div>

@@ -29,3 +29,14 @@ export async function setTableLocked(
     body: JSON.stringify({ locked }),
   })
 }
+
+export async function runReportSql(
+  conversationId: string,
+  sql: string,
+): Promise<TableState> {
+  const res = await apiFetch(`/chat/tables/${encodeURIComponent(conversationId)}/sql`, {
+    method: 'PUT',
+    body: JSON.stringify({ sql }),
+  })
+  return (await res.json()) as TableState
+}

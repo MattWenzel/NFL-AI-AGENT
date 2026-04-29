@@ -41,6 +41,10 @@ class TableLockUpdate(BaseModel):
     locked: bool
 
 
+class TableRunSqlRequest(BaseModel):
+    sql: str = Field(..., min_length=1, max_length=20_000)
+
+
 class TableChatResponse(BaseModel):
     """Combined transcript + live table for the table-chat view."""
     conversation: ConversationTranscriptResponse
@@ -71,5 +75,6 @@ __all__ = [
     "TableChatResponse",
     "TableChatSaveRequest",
     "TableLockUpdate",
+    "TableRunSqlRequest",
     "TableState",
 ]

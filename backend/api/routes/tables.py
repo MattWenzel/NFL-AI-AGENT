@@ -24,11 +24,15 @@ from backend.api.schemas.tables import (
     TableChatResponse,
     TableChatSaveRequest,
     TableLockUpdate,
+    TableRunSqlRequest,
+    TableState,
 )
 from backend.application.tables import (
     TableChatNotFoundError,
     TableChatService,
+    TableLockedError,
     TableNotReadyError,
+    TableSqlError,
 )
 from backend.domain.auth.types import AuthenticatedUser
 from backend.server.csrf import verify_csrf
@@ -115,6 +119,27 @@ async def set_table_lock(
     except TableNotReadyError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     return OkResponse()
+
+
+@router.put("/{conversation_id}/sql", response_model=TableState)
+async def run_table_sql(
+    conversation_id: str,
+    body: TableRunSqlRequest,
+    service: TableChatService = Depends(get_table_chat_service),
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> TableState:
+    """Run user-edited SQL and replace the live table state."""
+    try:
+        record = await service.run_and_persist_sql(
+            conversation_id, user_id=user.id, sql=body.sql
+        )
+    except TableChatNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except TableLockedError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    except TableSqlError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return TableState.from_record(record)
 
 
 @router.delete("/{conversation_id}", response_model=OkResponse)
