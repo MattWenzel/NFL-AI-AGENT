@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react'
+import { AlertCircle, CheckCircle2, ChevronRight, Loader2 } from 'lucide-react'
 
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { cn } from '@/lib/utils'
 import type { HelperMessage, HelperToolRun } from '@/lib/dbHelperChat'
 
@@ -11,8 +13,9 @@ interface HelperMessageListProps {
 
 /** Slim message renderer for the SQL helper panel.
  *  No exchange grouping, no inspector deep-links, no markdown — keep it
- *  small and predictable. Tool calls render as collapsible details under
- *  the assistant turn that issued them. */
+ *  small and predictable. Tool calls roll up under a single "Thinking"
+ *  collapsible per assistant turn (matching the main chat); each row is
+ *  itself expandable to inspect the tool's input + result inline. */
 export function HelperMessageList({ messages, streaming, error }: HelperMessageListProps) {
   // Auto-scroll to the bottom on new content, mirroring the regular Thread.
   const tailRef = useRef<HTMLDivElement | null>(null)
@@ -76,13 +79,7 @@ function AssistantBubble({
   const hasContent = text.length > 0 || toolRuns.length > 0
   return (
     <div className="space-y-2">
-      {toolRuns.length > 0 ? (
-        <div className="space-y-1.5">
-          {toolRuns.map((run) => (
-            <ToolRunDetails key={run.id} run={run} />
-          ))}
-        </div>
-      ) : null}
+      {toolRuns.length > 0 ? <ThinkingBlock runs={toolRuns} /> : null}
       {text ? (
         <div className="whitespace-pre-wrap break-words text-foreground">{text}</div>
       ) : null}
@@ -96,7 +93,48 @@ function AssistantBubble({
   )
 }
 
-function ToolRunDetails({ run }: { run: HelperToolRun }) {
+function ThinkingBlock({ runs }: { runs: HelperToolRun[] }) {
+  const running = runs.some((r) => r.status === 'pending')
+  const errors = runs.filter((r) => r.status === 'failed').length
+  const label = `${runs.length} ${runs.length === 1 ? 'tool call' : 'tool calls'}`
+
+  return (
+    <Collapsible className="overflow-hidden rounded-lg border border-border bg-muted/20">
+      <CollapsibleTrigger
+        className={cn(
+          'group flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-muted/40',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
+        )}
+      >
+        <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-150 group-data-[state=open]:rotate-90" />
+        <span className="text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+          Thinking
+        </span>
+        <div className="ml-auto flex shrink-0 items-center gap-1.5 text-2xs text-muted-foreground">
+          {running ? (
+            <Loader2 className="size-3 animate-spin" />
+          ) : errors > 0 ? (
+            <AlertCircle className="size-3 text-destructive" />
+          ) : (
+            <CheckCircle2 className="size-3 text-accent" />
+          )}
+          <span className="tabular">{label}</span>
+        </div>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="border-t border-border bg-background/50">
+        <ul className="divide-y divide-border">
+          {runs.map((run) => (
+            <li key={run.id}>
+              <ToolRunRow run={run} />
+            </li>
+          ))}
+        </ul>
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
+
+function ToolRunRow({ run }: { run: HelperToolRun }) {
   const statusLabel =
     run.status === 'pending'
       ? 'running'
@@ -114,15 +152,15 @@ function ToolRunDetails({ run }: { run: HelperToolRun }) {
   })()
 
   return (
-    <details className="group rounded-md border border-border bg-muted/40 text-xs">
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-1.5">
+    <details className="group/run text-xs">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 transition-colors hover:bg-muted/40">
         <span className="font-mono font-medium text-foreground">{run.name}</span>
         {summary ? (
           <span className="truncate text-muted-foreground">{summary}</span>
         ) : null}
         <span
           className={cn(
-            'ml-auto text-2xs uppercase tracking-wide',
+            'ml-auto shrink-0 text-2xs uppercase tracking-wide',
             run.status === 'failed'
               ? 'text-destructive'
               : run.status === 'pending'
@@ -133,7 +171,7 @@ function ToolRunDetails({ run }: { run: HelperToolRun }) {
           {statusLabel}
         </span>
       </summary>
-      <div className="space-y-2 border-t border-border px-2.5 py-2">
+      <div className="space-y-2 border-t border-border bg-muted/20 px-3 py-2">
         <div>
           <p className="mb-1 text-2xs font-medium uppercase tracking-wide text-muted-foreground">
             Input
