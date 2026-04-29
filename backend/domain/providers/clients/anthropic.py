@@ -9,6 +9,7 @@ import time
 from typing import AsyncIterator
 
 import anthropic
+import httpx
 
 from backend.domain.providers.base import BaseLLMClient
 from backend.domain.providers.errors import ContextOverflowError, LLMError, RetryableError
@@ -78,9 +79,16 @@ class AnthropicClient(BaseLLMClient):
 
     def __init__(self, model: str, *, max_output_tokens: int = 16384, api_key: str | None = None):
         super().__init__(model, max_output_tokens=max_output_tokens)
-        self._client = anthropic.AsyncAnthropic(
-            api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"),
-        )
+        kwargs: dict = {"api_key": api_key or os.environ.get("ANTHROPIC_API_KEY")}
+        # Fly's IPv6 outbound from IAD is on a Cloudflare blocklist that
+        # serves the "Just a moment…" JS challenge HTML in place of the
+        # Anthropic API JSON. Force IPv4 outbound when FORCE_IPV4=1 is set
+        # (we set it on Fly; local dev leaves it unset and uses dual-stack).
+        if os.environ.get("FORCE_IPV4") == "1":
+            kwargs["http_client"] = httpx.AsyncClient(
+                transport=httpx.AsyncHTTPTransport(local_address="0.0.0.0"),
+            )
+        self._client = anthropic.AsyncAnthropic(**kwargs)
 
     @property
     def provider_name(self) -> str:

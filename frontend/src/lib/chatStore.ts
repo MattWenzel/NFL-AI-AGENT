@@ -421,6 +421,12 @@ export function useChat() {
       if (options.model) body.model = options.model
       if (options.toolChoice) body.tool_choice = options.toolChoice
 
+      // Track whether the server emitted an `error` SSE event so the
+      // post-stream transcript refetch can be skipped — `set-transcript`
+      // resets `streamError`, which would otherwise erase the red error
+      // banner the user just saw.
+      let streamErrored = false
+
       try {
         for await (const event of openSseStream('/chat/stream', body, { signal: controller.signal })) {
           switch (event.type) {
@@ -492,6 +498,7 @@ export function useChat() {
               }
               break
             case 'error':
+              streamErrored = true
               dispatch({
                 type: 'stream-error',
                 message: typeof event.message === 'string' ? event.message : 'Stream error',
@@ -506,8 +513,10 @@ export function useChat() {
 
         // Stream finished cleanly — pull authoritative transcript so tool
         // results, token counts, and stable IDs replace the optimistic shape.
+        // Skip on error: `set-transcript` resets `streamError`, which would
+        // erase the banner showing the user what just went wrong.
         const settledId = stateRef.current.conversationId
-        if (settledId) {
+        if (settledId && !streamErrored) {
           try {
             const transcript = await apiGet<ConversationTranscript>(
               `/chat/conversations/${encodeURIComponent(settledId)}/transcript`,
@@ -518,7 +527,7 @@ export function useChat() {
           }
           await refreshConversations()
         }
-        dispatch({ type: 'stream-done' })
+        if (!streamErrored) dispatch({ type: 'stream-done' })
       } catch (e) {
         if ((e as Error)?.name === 'AbortError') {
           // Pull the authoritative transcript so the optimistic partial
