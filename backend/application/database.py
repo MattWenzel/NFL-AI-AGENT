@@ -69,6 +69,31 @@ class DatabaseService:
         except SQLValidationError as exc:
             raise DatabaseQueryError(str(exc)) from exc
 
+    async def save_sql_as_report(
+        self,
+        *,
+        sql: str,
+        title: str | None,
+        user_id: int,
+    ) -> SessionRecord:
+        """Run `sql` server-side, then mint a Report seeded with the result.
+
+        Sandbox runs FIRST so a bad query 400s without leaving an orphan
+        session behind. Zero-row results are intentionally allowed — they
+        match the post-creation editable-SQL behavior on existing Reports
+        (the user can iterate without the agent).
+        """
+        result = await self.run_query(sql)
+        return await self.save_query_as_report(
+            sql=sql,
+            columns=result.columns,
+            rows=result.rows,
+            row_count=result.row_count,
+            truncated=result.truncated,
+            title=title,
+            user_id=user_id,
+        )
+
     async def save_query_as_report(
         self,
         *,

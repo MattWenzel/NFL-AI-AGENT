@@ -411,6 +411,7 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
               streaming={chat.streamStatus === 'streaming'}
               onSend={sendFirstReportMessage}
               onStop={chat.stop}
+              onSqlCreated={handleDatabaseSaveAsReport}
             />
           ) : restoringChat ? (
             // Blank pane during refresh-restore so the EmptyThread headline

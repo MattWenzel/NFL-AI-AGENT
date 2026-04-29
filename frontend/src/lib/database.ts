@@ -51,3 +51,18 @@ export async function saveQueryAsReport(
   })
   return (await res.json()) as { conversation_id: string }
 }
+
+export interface SeedReportFromSqlPayload {
+  sql: string
+  title?: string | null
+}
+
+export async function seedReportFromSql(
+  payload: SeedReportFromSqlPayload,
+): Promise<{ conversation_id: string }> {
+  const res = await apiFetch('/database/save-sql-as-report', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  return (await res.json()) as { conversation_id: string }
+}

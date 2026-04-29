@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  Check,
-  ChevronRight,
-  Copy,
   Download,
   Lock,
   Maximize2,
@@ -10,7 +7,6 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Pencil,
-  Play,
   Trash2,
   Unlock,
 } from 'lucide-react'
@@ -18,11 +14,11 @@ import { toast } from 'sonner'
 
 import { Composer } from '@/components/composer/Composer'
 import { LiveTableView } from '@/components/tables/LiveTableView'
+import { SqlEditorPanel } from '@/components/tables/SqlEditorPanel'
 import { Thread } from '@/components/thread/Thread'
 import { EmptyTableChat } from '@/components/tables/EmptyTableChat'
 import { useLayout } from '@/components/layout/AppShell'
 import { Button } from '@/components/ui/button'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
   Dialog,
   DialogContent,
@@ -32,7 +28,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import { ApiError } from '@/lib/api'
 import { useChatContext } from '@/lib/chatContext'
 import { sanitizeCsvFilename, tableToCsv } from '@/lib/csv'
@@ -104,7 +99,6 @@ export function TableChatView({
   const [renaming, setRenaming] = useState(false)
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
   const [bottomPx, setBottomPx] = useState<number>(() => readSplit())
-  const [sqlCopied, setSqlCopied] = useState(false)
   // "Expanded" focus mode: collapses the chat region to its floor, closes
   // the inspector, and remembers the prior split so the user can restore.
   const [expanded, setExpanded] = useState(false)
@@ -267,24 +261,11 @@ export function TableChatView({
   const [sqlDraft, setSqlDraft] = useState<string>(table?.last_sql ?? '')
   const [sqlRunning, setSqlRunning] = useState(false)
   const [sqlError, setSqlError] = useState<string | null>(null)
-  const [sqlOpen, setSqlOpen] = useState(true)
 
   useEffect(() => {
     setSqlDraft(table?.last_sql ?? '')
     setSqlError(null)
   }, [table?.last_sql])
-
-  const copySourceSql = useCallback(async () => {
-    const sql = sqlDraft || table?.last_sql
-    if (!sql) return
-    try {
-      await navigator.clipboard.writeText(sql)
-      setSqlCopied(true)
-      setTimeout(() => setSqlCopied(false), 1500)
-    } catch {
-      toast.error('Could not copy — your browser blocked clipboard access')
-    }
-  }, [sqlDraft, table?.last_sql])
 
   const runSql = useCallback(async () => {
     const trimmed = sqlDraft.trim()
@@ -425,106 +406,15 @@ export function TableChatView({
           </header>
           {table?.last_sql ? (
             <div className="shrink-0 border-b border-border px-6 py-3">
-              <Collapsible
-                open={sqlOpen}
-                onOpenChange={setSqlOpen}
-                className="overflow-hidden rounded-lg border border-border bg-muted/20"
-              >
-                <div className="flex items-stretch">
-                  <CollapsibleTrigger
-                    className={cn(
-                      'group flex flex-1 items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-muted/40',
-                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
-                    )}
-                  >
-                    <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-150 group-data-[state=open]:rotate-90" />
-                    <span className="text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                      SQL
-                    </span>
-                    {!sqlOpen && sqlDraft.trim() ? (
-                      <span className="truncate font-mono text-2xs text-muted-foreground/80">
-                        {sqlDraft.trim().split('\n')[0].slice(0, 120)}
-                        {sqlDraft.trim().split('\n').length > 1 || sqlDraft.trim().length > 120 ? ' …' : ''}
-                      </span>
-                    ) : null}
-                  </CollapsibleTrigger>
-                  <button
-                    type="button"
-                    onClick={runSql}
-                    disabled={sqlRunning || isLocked || !sqlDraft.trim()}
-                    aria-label="Run SQL"
-                    title={
-                      isLocked
-                        ? 'Unlock the table to edit and run SQL'
-                        : 'Run SQL (⌘/Ctrl+Enter)'
-                    }
-                    className={cn(
-                      'flex shrink-0 items-center gap-1 px-3 text-2xs text-muted-foreground transition-colors',
-                      'hover:bg-muted/40 hover:text-foreground disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-muted-foreground',
-                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
-                    )}
-                  >
-                    <Play className="size-3.5" />
-                    <span className="font-medium uppercase tracking-[0.14em]">
-                      {sqlRunning ? 'Running' : 'Run'}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={copySourceSql}
-                    disabled={!sqlDraft.trim()}
-                    aria-label="Copy SQL"
-                    title={sqlCopied ? 'Copied' : 'Copy SQL'}
-                    className={cn(
-                      'flex shrink-0 items-center gap-1 px-3 text-2xs text-muted-foreground transition-colors',
-                      'hover:bg-muted/40 hover:text-foreground disabled:opacity-50',
-                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
-                    )}
-                  >
-                    {sqlCopied ? (
-                      <Check className="size-3.5" />
-                    ) : (
-                      <Copy className="size-3.5" />
-                    )}
-                    <span className="font-medium uppercase tracking-[0.14em]">
-                      {sqlCopied ? 'Copied' : 'Copy'}
-                    </span>
-                  </button>
-                </div>
-                <CollapsibleContent className="border-t border-border bg-background/50">
-                  <Textarea
-                    className="min-h-[120px] max-h-[18rem] resize-y overflow-auto rounded-none border-0 bg-transparent font-mono text-xs leading-relaxed [field-sizing:fixed] focus-visible:ring-0 focus-visible:ring-offset-0"
-                    spellCheck={false}
-                    value={sqlDraft}
-                    onChange={(e) => setSqlDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                        e.preventDefault()
-                        runSql()
-                      }
-                    }}
-                    readOnly={isLocked}
-                    placeholder="SELECT ..."
-                  />
-                  <p className="border-t border-border px-3 py-1.5 text-2xs text-muted-foreground">
-                    {isLocked ? (
-                      <>Table is locked — unlock to edit and run.</>
-                    ) : (
-                      <>
-                        Read-only. Press{' '}
-                        <kbd className="rounded border border-border bg-muted px-1">⌘/Ctrl</kbd>
-                        <kbd className="ml-1 rounded border border-border bg-muted px-1">Enter</kbd>{' '}
-                        to run. Up to 500 rows.
-                      </>
-                    )}
-                  </p>
-                  {sqlError ? (
-                    <p className="border-t border-border bg-destructive/10 px-3 py-1.5 text-2xs text-destructive">
-                      {sqlError}
-                    </p>
-                  ) : null}
-                </CollapsibleContent>
-              </Collapsible>
+              <SqlEditorPanel
+                sql={sqlDraft}
+                onSqlChange={setSqlDraft}
+                onRun={runSql}
+                running={sqlRunning}
+                error={sqlError}
+                locked={isLocked}
+                defaultOpen={false}
+              />
             </div>
           ) : null}
           <LiveTableView table={table} loading={loading} error={error} />

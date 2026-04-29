@@ -42,6 +42,11 @@ class SaveAsReportRequest(BaseModel):
     title: str | None = Field(None, min_length=1, max_length=200)
 
 
+class SaveSqlAsReportRequest(BaseModel):
+    sql: str = Field(..., min_length=1, max_length=20_000)
+    title: str | None = Field(None, min_length=1, max_length=200)
+
+
 class SaveAsReportResponse(BaseModel):
     conversation_id: str
 
@@ -87,6 +92,7 @@ __all__ = [
     "QueryResponse",
     "SaveAsReportRequest",
     "SaveAsReportResponse",
+    "SaveSqlAsReportRequest",
     "TableColumn",
     "TableInfo",
 ]

@@ -28,6 +28,7 @@ from backend.api.schemas.database import (
     QueryResponse,
     SaveAsReportRequest,
     SaveAsReportResponse,
+    SaveSqlAsReportRequest,
     TableInfo,
 )
 from backend.application.database import DatabaseQueryError, DatabaseService
@@ -155,6 +156,28 @@ async def save_query_as_report(
         title=body.title,
         user_id=user.id,
     )
+    return SaveAsReportResponse(conversation_id=session.id)
+
+
+@router.post(
+    "/save-sql-as-report",
+    response_model=SaveAsReportResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def save_sql_as_report(
+    body: SaveSqlAsReportRequest,
+    service: DatabaseService = Depends(get_database_service),
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> SaveAsReportResponse:
+    """Run user-provided SQL and seed a brand-new Report with the result."""
+    try:
+        session = await service.save_sql_as_report(
+            sql=body.sql,
+            title=body.title,
+            user_id=user.id,
+        )
+    except DatabaseQueryError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     return SaveAsReportResponse(conversation_id=session.id)
 
 
