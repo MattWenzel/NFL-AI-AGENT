@@ -6,6 +6,8 @@ export interface ThemeContextValue {
   mode: ThemeMode
   resolved: 'light' | 'dark'
   setMode: (mode: ThemeMode) => void
+  auroraEnabled: boolean
+  setAuroraEnabled: (next: boolean) => void
 }
 
 export const ThemeContext = createContext<ThemeContextValue | null>(null)

@@ -1,4 +1,8 @@
+import { useTheme } from '@/lib/theme'
+
 export function AuroraBackground() {
+  const { auroraEnabled } = useTheme()
+  if (!auroraEnabled) return null
   return (
     <div
       aria-hidden="true"

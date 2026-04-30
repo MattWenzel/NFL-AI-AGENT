@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronUp, Droplet, LogOut, Monitor, Moon, Settings, Sun } from 'lucide-react'
+import { ChevronUp, Droplet, LogOut, Monitor, Moon, Settings, Sparkles, Sun } from 'lucide-react'
 
 import {
   AlertDialog,
@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -90,6 +91,15 @@ export function UserWidget({ user, onLogout, onOpenSettings }: UserWidgetProps) 
               System
             </DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuCheckboxItem
+            checked={theme.auroraEnabled}
+            onCheckedChange={(checked) => theme.setAuroraEnabled(!!checked)}
+            onSelect={(e) => e.preventDefault()}
+          >
+            <Sparkles className="size-4" />
+            Background effects
+          </DropdownMenuCheckboxItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onSelect={() => setConfirmSignOut(true)}>
             <LogOut className="size-4" />

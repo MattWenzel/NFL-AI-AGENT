@@ -3,11 +3,17 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ThemeContext, type ThemeMode } from '@/lib/theme'
 
 const STORAGE_KEY = 'chat-workspace.theme'
+const AURORA_KEY = 'chat-workspace.aurora'
 
 function readStoredMode(): ThemeMode {
   if (typeof window === 'undefined') return 'system'
   const raw = window.localStorage.getItem(STORAGE_KEY)
   return raw === 'light' || raw === 'dark' || raw === 'cobalt' || raw === 'system' ? raw : 'system'
+}
+
+function readStoredAurora(): boolean {
+  if (typeof window === 'undefined') return true
+  return window.localStorage.getItem(AURORA_KEY) !== 'off'
 }
 
 function systemPrefersDark(): boolean {
@@ -18,6 +24,7 @@ function systemPrefersDark(): boolean {
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [mode, setModeState] = useState<ThemeMode>(() => readStoredMode())
   const [systemDark, setSystemDark] = useState<boolean>(() => systemPrefersDark())
+  const [auroraEnabled, setAuroraState] = useState<boolean>(() => readStoredAurora())
 
   useEffect(() => {
     const mql = window.matchMedia('(prefers-color-scheme: dark)')
@@ -57,8 +64,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           // ignore storage failures (private mode, etc.)
         }
       },
+      auroraEnabled,
+      setAuroraEnabled: (next: boolean) => {
+        setAuroraState(next)
+        try {
+          window.localStorage.setItem(AURORA_KEY, next ? 'on' : 'off')
+        } catch {
+          // ignore
+        }
+      },
     }),
-    [mode, resolved],
+    [mode, resolved, auroraEnabled],
   )
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
