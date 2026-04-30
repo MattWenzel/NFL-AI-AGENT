@@ -4,6 +4,7 @@ import { AlertCircle, CheckCircle2, ChevronRight, Loader2 } from 'lucide-react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import type { HelperMessage, HelperToolRun } from '@/lib/state/dbHelperChat'
 import { useScrollToBottom } from '@/lib/useScrollToBottom'
+import { useStreamingFollow } from '@/lib/useStreamingFollow'
 import { cn } from '@/lib/utils'
 
 interface HelperMessageListProps {
@@ -18,6 +19,7 @@ interface HelperMessageListProps {
  *  so detail-view stays inside this list. */
 export function HelperMessageList({ messages, streaming, error }: HelperMessageListProps) {
   const tailRef = useRef<HTMLDivElement | null>(null)
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   // Trigger the scroll on user-message count rather than the full
   // message list, so streaming text deltas don't re-fire on every chunk.
   const userMessageCount = useMemo(
@@ -33,6 +35,9 @@ export function HelperMessageList({ messages, streaming, error }: HelperMessageL
     getElement: () => tailRef.current,
     block: 'end',
   })
+  // Sticky-bottom auto-follow during streaming. Pauses if the user
+  // scrolls up, resumes when they scroll back down.
+  useStreamingFollow({ containerRef: scrollContainerRef })
 
   if (messages.length === 0) {
     return (
@@ -45,7 +50,7 @@ export function HelperMessageList({ messages, streaming, error }: HelperMessageL
   }
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 py-6 lg:px-10">
         {messages.map((m, i) =>
           m.role === 'user' ? (

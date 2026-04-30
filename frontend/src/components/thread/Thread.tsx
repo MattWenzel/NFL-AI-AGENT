@@ -5,6 +5,7 @@ import { UserTurn } from '@/components/thread/UserTurn'
 import { useLayout } from '@/components/layout/AppShell'
 import { useChatContext } from '@/lib/state/chatContext'
 import { useScrollToBottom } from '@/lib/useScrollToBottom'
+import { useStreamingFollow } from '@/lib/useStreamingFollow'
 import type {
   AssistantPartRecord,
   ConversationTranscript,
@@ -92,6 +93,10 @@ export function Thread({ transcript }: ThreadProps) {
   }, [groups])
 
   const exchangeRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null)
+  // Sticky-bottom auto-follow: as agent text streams in, keep the page
+  // tracking the bottom — but pause if the user has scrolled up.
+  useStreamingFollow({ containerRef: scrollContainerRef })
 
   useEffect(() => {
     if (!selectedExchangeId) return
@@ -119,6 +124,7 @@ export function Thread({ transcript }: ThreadProps) {
 
   return (
     <div
+      ref={scrollContainerRef}
       className="flex-1 overflow-y-auto"
       onClick={() => {
         // Clicks that reach this far didn't hit a message — message and tool
