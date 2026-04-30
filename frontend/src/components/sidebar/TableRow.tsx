@@ -29,7 +29,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { useTablesContext } from '@/lib/tablesContext'
+import { useTablesContext } from '@/lib/state/tablesContext'
 import { absoluteTime } from '@/lib/datetime'
 import { cn } from '@/lib/utils'
 import type { ConversationInfo } from '@/lib/types'

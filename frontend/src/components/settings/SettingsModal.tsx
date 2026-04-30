@@ -2,7 +2,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AccountTab } from '@/components/settings/AccountTab'
 import { ProvidersTab } from '@/components/settings/ProvidersTab'
-import type { AuthUser } from '@/lib/auth'
+import type { AuthUser } from '@/lib/state/auth'
 
 interface SettingsModalProps {
   open: boolean

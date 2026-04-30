@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 
 import { apiDelete, apiGet, apiPatch, ApiError } from '@/lib/api'
-import { openSseStream } from '@/lib/sse'
+import { openSseStream } from '@/lib/api/sse'
 import type {
   AssistantPartRecord,
   ConversationInfo,

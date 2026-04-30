@@ -2,7 +2,7 @@ import { useMemo, useRef } from 'react'
 import { AlertCircle, CheckCircle2, ChevronRight, Loader2 } from 'lucide-react'
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import type { HelperMessage, HelperToolRun } from '@/lib/dbHelperChat'
+import type { HelperMessage, HelperToolRun } from '@/lib/state/dbHelperChat'
 import { useScrollToBottom } from '@/lib/useScrollToBottom'
 import { cn } from '@/lib/utils'
 

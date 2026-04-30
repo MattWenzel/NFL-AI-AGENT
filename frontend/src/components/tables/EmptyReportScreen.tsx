@@ -5,7 +5,7 @@ import { Composer } from '@/components/composer/Composer'
 import { SqlEditorPanel } from '@/components/tables/SqlEditorPanel'
 import { AuroraBackground } from '@/components/thread/AuroraBackground'
 import { ApiError } from '@/lib/api'
-import { seedReportFromSql } from '@/lib/database'
+import { seedReportFromSql } from '@/lib/api/database'
 
 interface EmptyReportScreenProps {
   streaming?: boolean

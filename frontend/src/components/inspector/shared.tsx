@@ -3,7 +3,7 @@ import { Database } from 'lucide-react'
 
 import { exchangeIdForTurn, hasSqlPayload } from '@/lib/transcript'
 import type { ConversationTranscript, ToolRunRecord } from '@/lib/types'
-import { useChatContext } from '@/lib/chatContext'
+import { useChatContext } from '@/lib/state/chatContext'
 import { cn } from '@/lib/utils'
 
 /** Section heading + body. Either `label` (text) or `labelButton`

@@ -28,8 +28,8 @@ import { ApiError } from '@/lib/api'
 import {
   runDatabaseQuery,
   type DatabaseQueryResult,
-} from '@/lib/database'
-import type { useDbHelperChat } from '@/lib/dbHelperChat'
+} from '@/lib/api/database'
+import type { useDbHelperChat } from '@/lib/state/dbHelperChat'
 
 import { HelperMessageList } from './HelperMessageList'
 import { SaveAsReportDialog } from './SaveAsReportDialog'

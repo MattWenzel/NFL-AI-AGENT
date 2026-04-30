@@ -4,7 +4,7 @@ import { ArrowUp, Settings2, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { useProviders } from '@/lib/providers'
+import { useProviders } from '@/lib/state/providers'
 import { cn } from '@/lib/utils'
 
 interface ComposerSendOptions {

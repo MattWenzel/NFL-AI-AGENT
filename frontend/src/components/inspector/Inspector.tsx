@@ -1,4 +1,4 @@
-import { useChatContext } from '@/lib/chatContext'
+import { useChatContext } from '@/lib/state/chatContext'
 
 import { ExchangeInspector } from './ExchangeInspector'
 import { Section } from './shared'

@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { cellTitle, cleanNumericString, compareValues } from '@/lib/csv'
-import type { TableState } from '@/lib/tables'
+import type { TableState } from '@/lib/api/tables'
 
 interface LiveTableViewProps {
   table: TableState | null

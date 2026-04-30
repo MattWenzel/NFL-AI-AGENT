@@ -17,9 +17,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { GoogleIcon } from '@/components/icons/BrandIcons'
 import { apiDelete, apiFetch, apiGet, apiPost, ApiError } from '@/lib/api'
-import type { AuthUser } from '@/lib/auth'
+import type { AuthUser } from '@/lib/state/auth'
 import { relativeTime } from '@/lib/datetime'
-import type { IdentitySummary } from '@/lib/settings'
+import type { IdentitySummary } from '@/lib/api/settings'
 
 interface AccountTabProps {
   user: AuthUser

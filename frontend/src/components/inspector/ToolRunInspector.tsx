@@ -2,7 +2,7 @@ import { ArrowLeft, ChevronLeft, ChevronRight, Database } from 'lucide-react'
 
 import { ToolPayload, prettyJson } from '@/components/thread/ToolPayload'
 import { Button } from '@/components/ui/button'
-import { useChatContext } from '@/lib/chatContext'
+import { useChatContext } from '@/lib/state/chatContext'
 import { relativeTime } from '@/lib/datetime'
 import {
   exchangeIdForTurn,

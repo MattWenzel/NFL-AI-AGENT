@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { AgentResponse } from '@/components/thread/AgentResponse'
 import { UserTurn } from '@/components/thread/UserTurn'
 import { useLayout } from '@/components/layout/AppShell'
-import { useChatContext } from '@/lib/chatContext'
+import { useChatContext } from '@/lib/state/chatContext'
 import { useScrollToBottom } from '@/lib/useScrollToBottom'
 import type {
   AssistantPartRecord,

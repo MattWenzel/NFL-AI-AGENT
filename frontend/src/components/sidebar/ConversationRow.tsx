@@ -29,7 +29,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { useChatContext } from '@/lib/chatContext'
+import { useChatContext } from '@/lib/state/chatContext'
 import { absoluteTime } from '@/lib/datetime'
 import { cn } from '@/lib/utils'
 import type { ConversationInfo } from '@/lib/types'

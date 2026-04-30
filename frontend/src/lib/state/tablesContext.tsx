@@ -1,6 +1,6 @@
 import { createContext, useContext, type ReactNode } from 'react'
 
-import { useTableChats } from '@/lib/tablesStore'
+import { useTableChats } from '@/lib/state/tablesStore'
 
 type TablesContextValue = ReturnType<typeof useTableChats>
 

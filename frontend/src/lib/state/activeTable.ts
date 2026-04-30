@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { apiGet, ApiError } from '@/lib/api'
-import type { TableChatResponse, TableState } from '@/lib/tables'
+import type { TableChatResponse, TableState } from '@/lib/api/tables'
 
 /**
  * Live table state for the open report. Decoupled from the chat

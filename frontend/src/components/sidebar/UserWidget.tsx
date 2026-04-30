@@ -23,7 +23,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useTheme, type ThemeMode } from '@/lib/theme'
-import type { AuthUser } from '@/lib/auth'
+import type { AuthUser } from '@/lib/state/auth'
 
 interface UserWidgetProps {
   user: AuthUser

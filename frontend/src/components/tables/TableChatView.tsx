@@ -30,11 +30,11 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { ApiError } from '@/lib/api'
-import { useChatContext } from '@/lib/chatContext'
+import { useChatContext } from '@/lib/state/chatContext'
 import { sanitizeCsvFilename, tableToCsv } from '@/lib/csv'
-import { useTablesContext } from '@/lib/tablesContext'
-import { runReportSql, setTableLocked } from '@/lib/tables'
-import type { TableState } from '@/lib/tables'
+import { useTablesContext } from '@/lib/state/tablesContext'
+import { runReportSql, setTableLocked } from '@/lib/api/tables'
+import type { TableState } from '@/lib/api/tables'
 
 interface TableChatViewProps {
   activeTableId: string

@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { saveQueryAsReport, type DatabaseQueryResult } from '@/lib/database'
+import { saveQueryAsReport, type DatabaseQueryResult } from '@/lib/api/database'
 
 interface SaveAsReportDialogProps {
   open: boolean

@@ -12,7 +12,7 @@ import type {
   ApiKeyStatus,
   CodexOAuthStartResponse,
   CodexOAuthStatusResponse,
-} from '@/lib/settings'
+} from '@/lib/api/settings'
 
 export function ProvidersTab() {
   const [statuses, setStatuses] = useState<ApiKeyStatus[]>([])

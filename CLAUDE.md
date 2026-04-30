@@ -134,23 +134,29 @@ frontend/                         # Browser UI — React + Vite + Tailwind + sha
     │   ├── thread/               #     transcript renderer + UserTurn / AgentResponse / ToolPayload (shared by Chat and Reports)
     │   └── ui/                   #     shadcn primitives
     └── lib/
-        ├── api.ts                #     apiFetch + CSRF plumbing
-        ├── chatStore.ts          #     central chat state (sessions, exchanges, streaming)
-        ├── chatContext.tsx       #     React context for the chat store
-        ├── dbHelperChat.ts       #     useDbHelperChat() — stateless helper hook
-        ├── tablesStore.ts        #     Reports/table_chat state
-        ├── tablesContext.tsx     #     context for the Reports view
-        ├── activeTable.ts        #     current Report selection
-        ├── database.ts           #     /database/* API client
-        ├── tables.ts             #     /reports + /tables API client
-        ├── sse.ts                #     openSseStream() — POST + EventSource reader
-        ├── auth.ts               #     /auth/* API client
-        ├── providers.ts          #     LLM provider registry mirror
-        ├── settings.ts           #     /settings/* API client
-        ├── csv.ts                #     CSV download helpers
-        ├── theme.ts              #     theme storage
-        ├── datetime.ts           #     formatting helpers
-        └── types.ts              #     shared TypeScript types
+        ├── api/                  #   HTTP clients — every fetch goes through here
+        │   ├── index.ts          #     apiFetch / apiGet / apiPost / apiPatch / apiDelete + ApiError + CSRF
+        │   ├── sse.ts            #     openSseStream() — POST + EventSource reader
+        │   ├── database.ts       #     /database/* API client
+        │   ├── tables.ts         #     /reports + /tables API client
+        │   └── settings.ts       #     /settings/* API client
+        ├── state/                #   stores, contexts, and stateful hooks
+        │   ├── chatStore.ts      #     central chat state (sessions, exchanges, streaming)
+        │   ├── chatContext.tsx   #     React context for the chat store
+        │   ├── tablesStore.ts    #     Reports/table_chat state
+        │   ├── tablesContext.tsx #     context for the Reports view
+        │   ├── activeTable.ts    #     current Report selection
+        │   ├── dbHelperChat.ts   #     useDbHelperChat() — stateless helper hook
+        │   ├── auth.ts           #     useAuth() + /auth/* calls
+        │   └── providers.ts      #     useProviders() — LLM provider registry mirror
+        ├── transcript.ts         #   pure transcript helpers (sliceForExchange, hasSqlPayload, ...)
+        ├── normalizedMessage.ts  #   common message shape + adapters from each store
+        ├── useScrollToBottom.ts  #   smooth-on-send / instant-on-switch scroll hook
+        ├── csv.ts                #   CSV download helpers
+        ├── theme.ts              #   theme storage
+        ├── datetime.ts           #   formatting helpers
+        ├── utils.ts              #   cn() — tailwind-merge + clsx
+        └── types.ts              #   shared TypeScript types (mirrors backend wire shapes)
 
 run.py                            # uvicorn entry point → backend.server.app:app
 tests/                            # pytest test suite

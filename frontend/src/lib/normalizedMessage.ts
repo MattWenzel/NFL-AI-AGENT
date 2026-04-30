@@ -9,7 +9,7 @@
  * Today's renderers (`Thread` / `HelperMessageList`) still read their
  * stores directly — this module is the seam, not yet the migration.
  */
-import type { HelperMessage } from '@/lib/dbHelperChat'
+import type { HelperMessage } from '@/lib/state/dbHelperChat'
 import type {
   AssistantPartRecord,
   ConversationTranscript,

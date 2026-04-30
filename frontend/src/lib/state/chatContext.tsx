@@ -1,6 +1,6 @@
 import { createContext, useContext, type ReactNode } from 'react'
 
-import { useChat } from '@/lib/chatStore'
+import { useChat } from '@/lib/state/chatStore'
 
 type ChatContextValue = ReturnType<typeof useChat>
 

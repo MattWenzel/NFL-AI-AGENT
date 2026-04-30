@@ -18,7 +18,7 @@ import {
   CommandList,
   CommandSeparator,
 } from '@/components/ui/command'
-import { useChatContext } from '@/lib/chatContext'
+import { useChatContext } from '@/lib/state/chatContext'
 import { useTheme } from '@/lib/theme'
 
 interface CommandPaletteProps {

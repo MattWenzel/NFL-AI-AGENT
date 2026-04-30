@@ -4,7 +4,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Markdown } from '@/components/thread/Markdown'
 import { hasSqlPayload } from '@/lib/transcript'
 import { useLayout } from '@/components/layout/AppShell'
-import { useChatContext } from '@/lib/chatContext'
+import { useChatContext } from '@/lib/state/chatContext'
 import { cn } from '@/lib/utils'
 import type {
   AssistantPartRecord,

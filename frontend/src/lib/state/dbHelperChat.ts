@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react'
 
 import { ApiError } from '@/lib/api'
-import { openSseStream } from '@/lib/sse'
+import { openSseStream } from '@/lib/api/sse'
 
 export interface UseDbHelperChatOptions {
   /** Fired when the agent calls the `run_in_editor` tool — the helper is

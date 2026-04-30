@@ -1,7 +1,7 @@
 import { ArrowLeft } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
-import { useChatContext } from '@/lib/chatContext'
+import { useChatContext } from '@/lib/state/chatContext'
 import { relativeTime } from '@/lib/datetime'
 import { sliceForExchange, type ExchangeSlice } from '@/lib/transcript'
 import type { ConversationTranscript, TurnRecord } from '@/lib/types'
