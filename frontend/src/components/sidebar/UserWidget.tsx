@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronUp, Droplet, LogOut, Monitor, Moon, Settings, Sparkles, Sun } from 'lucide-react'
+import { ChevronUp, LogOut, Settings } from 'lucide-react'
 
 import {
   AlertDialog,
@@ -13,16 +13,12 @@ import {
 } from '@/components/ui/alert-dialog'
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { useTheme, type ThemeMode } from '@/lib/theme'
 import type { AuthUser } from '@/lib/state/auth'
 
 interface UserWidgetProps {
@@ -36,7 +32,6 @@ function initial(email: string): string {
 }
 
 export function UserWidget({ user, onLogout, onOpenSettings }: UserWidgetProps) {
-  const theme = useTheme()
   const [confirmSignOut, setConfirmSignOut] = useState(false)
 
   return (
@@ -66,40 +61,6 @@ export function UserWidget({ user, onLogout, onOpenSettings }: UserWidgetProps) 
             <Settings className="size-4" />
             Settings
           </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel className="text-2xs uppercase tracking-[0.14em] text-muted-foreground">
-            Theme
-          </DropdownMenuLabel>
-          <DropdownMenuRadioGroup
-            value={theme.mode}
-            onValueChange={(v) => theme.setMode(v as ThemeMode)}
-          >
-            <DropdownMenuRadioItem value="light">
-              <Sun className="size-4" />
-              Light
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="dark">
-              <Moon className="size-4" />
-              Dark
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="cobalt">
-              <Droplet className="size-4" />
-              Cobalt
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="system">
-              <Monitor className="size-4" />
-              System
-            </DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
-          <DropdownMenuSeparator />
-          <DropdownMenuCheckboxItem
-            checked={theme.auroraEnabled}
-            onCheckedChange={(checked) => theme.setAuroraEnabled(!!checked)}
-            onSelect={(e) => e.preventDefault()}
-          >
-            <Sparkles className="size-4" />
-            Background effects
-          </DropdownMenuCheckboxItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onSelect={() => setConfirmSignOut(true)}>
             <LogOut className="size-4" />

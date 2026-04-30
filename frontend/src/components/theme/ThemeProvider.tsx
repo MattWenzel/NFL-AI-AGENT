@@ -8,7 +8,13 @@ const AURORA_KEY = 'chat-workspace.aurora'
 function readStoredMode(): ThemeMode {
   if (typeof window === 'undefined') return 'system'
   const raw = window.localStorage.getItem(STORAGE_KEY)
-  return raw === 'light' || raw === 'dark' || raw === 'cobalt' || raw === 'system' ? raw : 'system'
+  return raw === 'light' ||
+    raw === 'dark' ||
+    raw === 'cobalt' ||
+    raw === 'cyberpunk' ||
+    raw === 'system'
+    ? raw
+    : 'system'
 }
 
 function readStoredAurora(): boolean {
@@ -49,6 +55,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     // layer their own palette on top of `.dark` via these toggle classes.
     root.classList.toggle('theme-midnight', mode === 'dark')
     root.classList.toggle('theme-cobalt', mode === 'cobalt')
+    root.classList.toggle('theme-cyberpunk', mode === 'cyberpunk')
     root.style.colorScheme = resolved
   }, [resolved, mode])
 

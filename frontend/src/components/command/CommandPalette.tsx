@@ -7,6 +7,7 @@ import {
   Settings as SettingsIcon,
   Sun,
   SunMoon,
+  Zap,
 } from 'lucide-react'
 
 import {
@@ -88,6 +89,10 @@ export function CommandPalette({
           <CommandItem onSelect={() => close(() => theme.setMode('cobalt'))}>
             <Droplet className="size-4" />
             Cobalt
+          </CommandItem>
+          <CommandItem onSelect={() => close(() => theme.setMode('cyberpunk'))}>
+            <Zap className="size-4" />
+            Cyberpunk
           </CommandItem>
           <CommandItem onSelect={() => close(() => theme.setMode('system'))}>
             <SunMoon className="size-4" />

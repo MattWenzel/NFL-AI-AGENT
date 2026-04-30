@@ -313,6 +313,143 @@
     --sidebar-ring: rgba(47, 129, 247, 0.55);
 }
 
+/* ---------------------------------------------------------------- *
+ * CYBERPUNK — neon-on-black with cyan + purple accents, mono type,
+ * grid overlay, ambient glows. Toggled via .dark.theme-cyberpunk.
+ * Inspired by the fitness-tracker app's cyberpunk theme.
+ * ---------------------------------------------------------------- */
+.dark.theme-cyberpunk {
+    /* Surfaces — pure black canvas, near-black panels with a faint cyan
+       tilt so cards register as a layer above the grid bg. */
+    --background: #000000;
+    --foreground: oklch(0.94 0.04 195);
+    --card: oklch(0.16 0.02 220);
+    --card-foreground: oklch(0.94 0.04 195);
+    --popover: oklch(0.18 0.02 220);
+    --popover-foreground: oklch(0.94 0.04 195);
+
+    /* Primary — neon cyan. Buttons get an extra gradient further down. */
+    --primary: oklch(0.78 0.15 200);
+    --primary-foreground: #000000;
+
+    /* Secondary — deep teal-cyan well; user message bubbles use this. */
+    --secondary: oklch(0.32 0.10 215);
+    --secondary-foreground: oklch(0.94 0.04 195);
+
+    /* Muted — slightly elevated near-black with cyan tint. */
+    --muted: oklch(0.20 0.02 220);
+    --muted-foreground: oklch(0.74 0.10 195);
+
+    /* Accent — cyan, same hue as primary so selection states pop. */
+    --accent: oklch(0.78 0.15 200);
+    --accent-foreground: #000000;
+
+    /* Status — vivid neon. */
+    --destructive: oklch(0.72 0.20 20);
+    --success: oklch(0.85 0.18 165);
+    --warning: oklch(0.82 0.16 80);
+
+    /* Borders / rings — cyan with alpha. */
+    --border: oklch(0.78 0.15 200 / 0.20);
+    --input: oklch(0.78 0.15 200 / 0.25);
+    --ring: oklch(0.78 0.15 200 / 0.55);
+
+    /* Charts — cyan, magenta, neon-green, amber, purple. */
+    --chart-1: oklch(0.78 0.15 200);
+    --chart-2: oklch(0.70 0.22 320);
+    --chart-3: oklch(0.85 0.18 165);
+    --chart-4: oklch(0.82 0.16 80);
+    --chart-5: oklch(0.65 0.20 290);
+
+    /* Sidebar — even darker than canvas so it reads as a rail. */
+    --sidebar: oklch(0.04 0.02 230);
+    --sidebar-foreground: oklch(0.94 0.04 195);
+    --sidebar-primary: oklch(0.78 0.15 200);
+    --sidebar-primary-foreground: #000000;
+    --sidebar-accent: oklch(0.18 0.02 220);
+    --sidebar-accent-foreground: oklch(0.94 0.04 195);
+    --sidebar-border: oklch(0.78 0.15 200 / 0.14);
+    --sidebar-ring: oklch(0.78 0.15 200 / 0.55);
+
+    /* Type — full mono. JetBrains Mono is already loaded; the display
+       font also flips so hero numerals share the terminal feel. */
+    --font-sans: 'JetBrains Mono Variable', ui-monospace, Menlo, Consolas, monospace;
+    --font-display: 'JetBrains Mono Variable', ui-monospace, Menlo, Consolas, monospace;
+}
+
+/* App root needs to be transparent in cyberpunk so the grid + glows on
+   `body` show through. Body itself is bg-background (#000000) — the
+   decorations layer above body, below the actual content. */
+.theme-cyberpunk .app-root {
+    background-color: transparent;
+}
+
+/* Diagonal purple→cyan tint behind everything. Subtle — most of the
+   bg color comes from the body itself (pure black). */
+.theme-cyberpunk body {
+    background-image: linear-gradient(
+        135deg,
+        oklch(0.30 0.18 305 / 0.18),
+        transparent 40%,
+        oklch(0.40 0.10 200 / 0.18)
+    );
+    position: relative;
+}
+
+/* Grid overlay — cyan hairlines on a 50px square grid. Fixed so it
+   doesn't scroll with content. */
+.theme-cyberpunk body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+        linear-gradient(oklch(0.78 0.15 200 / 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, oklch(0.78 0.15 200 / 0.05) 1px, transparent 1px);
+    background-size: 50px 50px;
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* Ambient glows — slow-pulsing radial blobs at opposite corners. */
+.theme-cyberpunk body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+        radial-gradient(ellipse 600px 400px at 20% 80%, oklch(0.78 0.15 200 / 0.08), transparent),
+        radial-gradient(ellipse 500px 350px at 80% 20%, oklch(0.65 0.20 290 / 0.06), transparent);
+    pointer-events: none;
+    z-index: 0;
+    animation: cyber-ambient 8s ease-in-out infinite alternate;
+}
+
+@keyframes cyber-ambient {
+    0%   { opacity: 0.6; }
+    100% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .theme-cyberpunk body::after { animation: none; }
+}
+
+/* Primary buttons get a cyan→purple gradient and uppercase label. */
+.theme-cyberpunk [data-slot="button"][data-variant="default"] {
+    background: linear-gradient(135deg, oklch(0.78 0.15 200), oklch(0.65 0.20 290));
+    color: #000;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    border-color: transparent;
+}
+.theme-cyberpunk [data-slot="button"][data-variant="default"]:hover {
+    background: linear-gradient(135deg, oklch(0.72 0.16 200), oklch(0.58 0.22 290));
+}
+
+/* Subtle cyan glow on card hover so the panels feel "alive". */
+.theme-cyberpunk .bg-card:hover,
+.theme-cyberpunk [data-slot="card"]:hover {
+    box-shadow: 0 0 24px oklch(0.78 0.15 200 / 0.20);
+}
+
 @layer base {
     *, *::before, *::after {
         @apply border-border outline-ring/50;

@@ -117,7 +117,7 @@ export function AppShell({
 
   return (
     <LayoutContext.Provider value={ctx}>
-      <div className="relative flex h-dvh w-full overflow-hidden bg-background text-foreground">
+      <div className="app-root relative flex h-dvh w-full overflow-hidden bg-background text-foreground">
         {!desktopSidebarOpen ? (
           <button
             type="button"
