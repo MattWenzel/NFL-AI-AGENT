@@ -179,7 +179,7 @@ export function AppShell({
                 type="button"
                 onClick={onBrandClick}
                 disabled={!onBrandClick}
-                className="rounded font-brand text-base font-semibold tracking-tight transition-colors enabled:hover:text-foreground disabled:cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="rounded font-display text-base font-semibold tracking-tight transition-colors enabled:hover:text-foreground disabled:cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 NFL StatSource
               </button>

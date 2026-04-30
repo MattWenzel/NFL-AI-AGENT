@@ -183,7 +183,7 @@ export function Sidebar({
             aria-hidden="true"
             className="size-20 shrink-0 object-contain"
           />
-          <span className="ml-1 truncate font-brand text-lg font-semibold tracking-tight">
+          <span className="ml-1 truncate font-display text-lg font-semibold tracking-tight">
             NFL StatSource
           </span>
         </button>
