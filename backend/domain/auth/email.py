@@ -69,14 +69,14 @@ def build_verification_link(token: str) -> str:
 
 def send_verification_email(*, to: str, token: str) -> None:
     link = build_verification_link(token)
-    subject = "Verify your NFL Stats account"
+    subject = "Verify your NFL StatSource account"
     text = (
-        f"Welcome to NFL Stats!\n\n"
+        f"Welcome to NFL StatSource!\n\n"
         f"Click the link below to verify your email and finish signing up:\n{link}\n\n"
         f"The link expires in 24 hours. If you didn't sign up, ignore this email."
     )
     html = (
-        f"<p>Welcome to NFL Stats!</p>"
+        f"<p>Welcome to NFL StatSource!</p>"
         f"<p><a href=\"{link}\">Click here to verify your email</a> and finish signing up.</p>"
         f"<p>Or paste this link into your browser:<br><code>{link}</code></p>"
         f"<p>The link expires in 24 hours. If you didn't sign up, ignore this email.</p>"
@@ -88,14 +88,14 @@ def send_password_reset_email(*, to: str, token: str) -> None:
     """Stub for the future password reset flow. Kept here so landing reset
     later doesn't require adding a new module."""
     link = f"{APP_BASE_URL}/#/reset?{urlencode({'token': token})}"
-    subject = "Reset your NFL Stats password"
+    subject = "Reset your NFL StatSource password"
     text = (
-        f"Someone (hopefully you) asked to reset your NFL Stats password.\n\n"
+        f"Someone (hopefully you) asked to reset your NFL StatSource password.\n\n"
         f"Click the link below to set a new password:\n{link}\n\n"
         f"The link expires in 24 hours. If you didn't request this, ignore this email."
     )
     html = (
-        f"<p>Someone (hopefully you) asked to reset your NFL Stats password.</p>"
+        f"<p>Someone (hopefully you) asked to reset your NFL StatSource password.</p>"
         f"<p><a href=\"{link}\">Click here to set a new password</a>.</p>"
         f"<p>Or paste this link into your browser:<br><code>{link}</code></p>"
         f"<p>The link expires in 24 hours. If you didn't request this, ignore this email.</p>"

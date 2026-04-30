@@ -172,7 +172,7 @@ export function AppShell({
               >
                 <Menu className="size-5" />
               </Button>
-              <span className="font-display text-base font-semibold tracking-tight">NFL Stats</span>
+              <span className="font-display text-base font-semibold tracking-tight">NFL StatSource</span>
               {inspectorAvailable ? (
                 <Button
                   variant="ghost"

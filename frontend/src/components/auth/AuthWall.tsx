@@ -146,7 +146,7 @@ export function AuthWall({ onLogin, onRegister, errorMessage }: AuthWallProps) {
               className="size-32 object-contain"
             />
             <p className="text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-              NFL Stats
+              NFL StatSource
             </p>
           </div>
           <h1 className="font-display text-3xl font-medium tracking-tight">

@@ -170,14 +170,14 @@ export function Sidebar({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center px-3 py-3">
+      <div className="flex shrink-0 items-center py-3 pl-1 pr-3">
         <img
           src={logoUrl}
           alt=""
           aria-hidden="true"
           className="size-20 shrink-0 object-contain"
         />
-        <span className="ml-2.5 font-display text-lg font-semibold tracking-tight">NFL Stats</span>
+        <span className="ml-1 font-display text-lg font-semibold tracking-tight">NFL StatSource</span>
         <Button
           variant="ghost"
           size="icon"
