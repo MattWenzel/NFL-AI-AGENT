@@ -15,22 +15,30 @@ interface UserTurnProps {
  * itself to this Q/A pair.
  */
 export function UserTurn({ turn, selected = false, onSelect }: UserTurnProps) {
+  const interactive = !!onSelect
+  const baseClass = cn(
+    'max-w-2xl rounded-2xl rounded-tr-md bg-secondary px-4 py-2.5 text-left text-secondary-foreground',
+    interactive && 'cursor-pointer hover:shadow-sm transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+    interactive && selected && 'ring-2 ring-accent/60 dark:ring-accent/35',
+  )
   return (
     <div className="flex justify-end">
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation()
-          onSelect?.()
-        }}
-        className={cn(
-          'max-w-2xl rounded-2xl rounded-tr-md bg-secondary px-4 py-2.5 text-left text-secondary-foreground transition-shadow',
-          'cursor-pointer hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-          selected && 'ring-2 ring-accent/60 dark:ring-accent/35',
-        )}
-      >
-        <p className="whitespace-pre-wrap text-base leading-snug">{turn.text}</p>
-      </button>
+      {interactive ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onSelect?.()
+          }}
+          className={baseClass}
+        >
+          <p className="whitespace-pre-wrap text-base leading-snug">{turn.text}</p>
+        </button>
+      ) : (
+        <div className={baseClass}>
+          <p className="whitespace-pre-wrap text-sm leading-snug">{turn.text}</p>
+        </div>
+      )}
     </div>
   )
 }

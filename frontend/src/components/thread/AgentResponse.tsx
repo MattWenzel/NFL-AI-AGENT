@@ -91,28 +91,30 @@ export function AgentResponse({
     }
   }
 
+  const interactive = !!onSelect
+
   return (
     <div
-      role={onSelect ? 'button' : undefined}
-      tabIndex={onSelect ? 0 : undefined}
+      role={interactive ? 'button' : undefined}
+      tabIndex={interactive ? 0 : undefined}
       onClick={(e) => {
-        if (!onSelect) return
+        if (!interactive) return
         e.stopPropagation()
-        onSelect()
+        onSelect?.()
       }}
       onKeyDown={(e) => {
-        if (!onSelect) return
+        if (!interactive) return
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault()
-          onSelect()
+          onSelect?.()
         }
       }}
       className={cn(
         '-mx-3 space-y-2 rounded-xl px-3 py-2 transition-colors',
-        onSelect && 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        selected
+        interactive && 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        interactive && selected
           ? 'bg-accent/20 ring-1 ring-accent/55 hover:bg-accent/30 dark:bg-accent/8 dark:ring-accent/30 dark:hover:bg-accent/12'
-          : onSelect && 'hover:bg-muted/30',
+          : interactive && 'hover:bg-muted/30',
       )}
     >
       <p className="text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground">

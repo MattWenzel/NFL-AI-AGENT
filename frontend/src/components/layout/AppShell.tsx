@@ -9,13 +9,15 @@ interface AppShellProps {
   sidebar: ReactNode
   main: ReactNode
   inspector: ReactNode
-  /** Inspector defaults open only when the parent has something worth showing. */
+  /** Drives auto-close (when false) and visibility of the right-edge open
+   *  pill. Never auto-opens — user opens deliberately. */
   inspectorAvailable?: boolean
-  /** When set, takes precedence over `inspector` — used by the Database
-   *  view to slide a SQL helper chat into the same right pane. */
-  alternateInspector?: ReactNode
-  /** Header label for whichever pane is currently rendered. */
-  alternateInspectorLabel?: string
+  /** Custom header label for the regular `inspector` slot (defaults to "Inspector"). */
+  inspectorLabel?: string
+  /** Identifier for the active surface (chat id, table id, "database"…).
+   *  When this changes, the inspector force-closes so it never carries
+   *  a stale view across pages. */
+  surfaceKey?: string
 }
 
 type LayoutCtx = {
@@ -30,6 +32,9 @@ type LayoutCtx = {
   desktopInspectorOpen: boolean
   /** Flip the inspector's open state — used by the table-chat header toggle. */
   toggleDesktopInspector: () => void
+  /** Dismiss the mobile sidebar sheet — wired into sidebar row clicks so
+   *  picking an item doesn't leave the overlay covering the content. */
+  closeMobileSidebar: () => void
 }
 
 const LayoutContext = createContext<LayoutCtx | null>(null)
@@ -43,6 +48,7 @@ export function useLayout(): LayoutCtx {
       closeDesktopInspector: () => {},
       desktopInspectorOpen: false,
       toggleDesktopInspector: () => {},
+      closeMobileSidebar: () => {},
     }
   )
 }
@@ -52,86 +58,52 @@ export function AppShell({
   main,
   inspector,
   inspectorAvailable = false,
-  alternateInspector,
-  alternateInspectorLabel,
+  inspectorLabel,
+  surfaceKey,
 }: AppShellProps) {
-  const activeInspector = alternateInspector ?? inspector
-  const activeInspectorLabel =
-    alternateInspector && alternateInspectorLabel
-      ? alternateInspectorLabel
-      : 'Inspector'
+  const activeInspectorLabel = inspectorLabel ?? 'Inspector'
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false)
   const [desktopInspectorOpen, setDesktopInspectorOpen] = useState(false)
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true)
-
-  // Auto-open the desktop inspector once a transcript is loaded; force-close
-  // when there's nothing to inspect (e.g. report viewer) so the floating
-  // button can't overlap unrelated UI.
+  // True at md+ (768px). Used to skip auto-opening sheets on mobile so a
+  // navigation tap doesn't leave overlays covering the content.
+  const [isDesktop, setIsDesktop] = useState<boolean>(() =>
+    typeof window === 'undefined' ? true : window.matchMedia('(min-width: 768px)').matches,
+  )
   useEffect(() => {
-    setDesktopInspectorOpen(inspectorAvailable)
+    if (typeof window === 'undefined') return
+    const mq = window.matchMedia('(min-width: 768px)')
+    const onChange = () => setIsDesktop(mq.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+
+  // Close mobile-only sheets when crossing into desktop so we don't carry
+  // open state back if the viewport later shrinks again.
+  useEffect(() => {
+    if (isDesktop) {
+      setMobileSidebarOpen(false)
+      setMobileInspectorOpen(false)
+    }
+  }, [isDesktop])
+
+  // Auto-close the desktop inspector when there's nothing worth inspecting,
+  // but never auto-open — the user opens it deliberately via the right-edge
+  // pill or by clicking a message.
+  useEffect(() => {
+    if (!inspectorAvailable) setDesktopInspectorOpen(false)
   }, [inspectorAvailable])
 
-  // Close the desktop inspector when a pointer-down lands outside of it.
-  // For the regular inspector, clicks inside <main> are NOT treated as
-  // outside — selecting another message would otherwise race close-then-open,
-  // flicker the inspector closed mid-click, and reflow the page in a way
-  // that can swallow the click event entirely. The alternate-inspector
-  // path (currently the SQL helper) is a side conversation rather than a
-  // drill-down on the main view, so clicking the SQL editor / table
-  // dismisses the panel instead.
+  // Force-close the inspector whenever the active surface changes so the
+  // user never lands on a new page with the previous page's inspector view.
+  useEffect(() => {
+    setDesktopInspectorOpen(false)
+    setMobileInspectorOpen(false)
+  }, [surfaceKey])
+
   const inspectorRef = useRef<HTMLElement | null>(null)
   const mainRef = useRef<HTMLElement | null>(null)
-  const isAlternate = !!alternateInspector
-  useEffect(() => {
-    if (!desktopInspectorOpen) return
-    const onMouseDown = (e: MouseEvent) => {
-      const target = e.target
-      if (!(target instanceof Node)) return
-      if (inspectorRef.current?.contains(target)) return
-      // For the regular inspector, treat clicks inside main as in-bounds.
-      // For the alternate (SQL helper), don't — clicking back into the
-      // editor/table should dismiss the helper.
-      if (!isAlternate && mainRef.current?.contains(target)) return
-      if (!(target instanceof Element)) return
-      // For the alternate inspector, exempt clicks on toolbar buttons /
-      // selects / native form controls that perform their own action — if
-      // we close the panel on mousedown, the layout reflows out from
-      // under the cursor and the trailing click event misses the button.
-      // Passive areas (textareas, table cells, plain text) still dismiss.
-      if (
-        isAlternate &&
-        target.closest('button, [role="button"], select, [data-slot="select-trigger"]')
-      ) {
-        return
-      }
-      // Radix popovers (Select, DropdownMenu, etc.) portal their content
-      // to <body>, so a click on a Select item lives outside <main>.
-      // Popper-positioned content (DropdownMenu, default Popover) wraps
-      // in [data-radix-popper-content-wrapper]; item-aligned Select
-      // content does not, so also match the shadcn portal data-slots.
-      if (
-        target.closest(
-          '[data-radix-popper-content-wrapper],' +
-            '[data-slot="select-content"],' +
-            '[data-slot="dropdown-menu-content"],' +
-            '[data-slot="popover-content"],' +
-            '[data-slot="dialog-content"],' +
-            '[data-slot="alert-dialog-content"]',
-        )
-      ) {
-        return
-      }
-      // Radix modal Select sets pointer-events: none on outside content
-      // while open, which deflects the click target up to <html>/<body>.
-      // For one or two events after the dropdown closes that deflection
-      // can still leak; treat body/html as ambiguous and don't close.
-      if (target === document.documentElement || target === document.body) return
-      setDesktopInspectorOpen(false)
-    }
-    document.addEventListener('mousedown', onMouseDown)
-    return () => document.removeEventListener('mousedown', onMouseDown)
-  }, [desktopInspectorOpen, isAlternate])
 
   const ctx: LayoutCtx = {
     desktopSidebarOpen,
@@ -140,11 +112,34 @@ export function AppShell({
     closeDesktopInspector: () => setDesktopInspectorOpen(false),
     desktopInspectorOpen,
     toggleDesktopInspector: () => setDesktopInspectorOpen((v) => !v),
+    closeMobileSidebar: () => setMobileSidebarOpen(false),
   }
 
   return (
     <LayoutContext.Provider value={ctx}>
-      <div className="flex h-dvh w-full overflow-hidden bg-background text-foreground">
+      <div className="relative flex h-dvh w-full overflow-hidden bg-background text-foreground">
+        {!desktopSidebarOpen ? (
+          <button
+            type="button"
+            onClick={() => setDesktopSidebarOpen(true)}
+            className="absolute left-0 top-3 z-10 hidden h-8 w-8 items-center justify-center rounded-r-md border border-l-0 border-border bg-card text-muted-foreground transition-colors hover:bg-muted md:flex"
+            aria-label="Open sidebar"
+          >
+            <PanelLeftOpen className="size-4" />
+          </button>
+        ) : null}
+
+        {inspectorAvailable && !desktopInspectorOpen ? (
+          <button
+            type="button"
+            onClick={() => setDesktopInspectorOpen(true)}
+            className="absolute right-0 top-3 z-10 hidden h-8 w-8 items-center justify-center rounded-l-md border border-r-0 border-border bg-card text-muted-foreground transition-colors hover:bg-muted lg:flex"
+            aria-label="Open inspector"
+          >
+            <PanelRightOpen className="size-4" />
+          </button>
+        ) : null}
+
         <aside
           className={cn(
             'hidden md:flex shrink-0 flex-col overflow-hidden border-r border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out',
@@ -156,8 +151,11 @@ export function AppShell({
           <div className="h-full w-[280px] shrink-0">{sidebar}</div>
         </aside>
 
-        <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
-          <SheetContent side="left" className="w-[300px] p-0 bg-sidebar text-sidebar-foreground">
+        <Sheet open={!isDesktop && mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
+          <SheetContent
+            side="left"
+            className="data-[side=left]:w-[240px] data-[side=left]:sm:max-w-[240px] p-0 bg-sidebar text-sidebar-foreground"
+          >
             {sidebar}
           </SheetContent>
         </Sheet>
@@ -175,79 +173,61 @@ export function AppShell({
                 <Menu className="size-5" />
               </Button>
               <span className="font-display text-base font-semibold tracking-tight">NFL Stats</span>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="ml-auto h-9 w-9"
-                onClick={() => setMobileInspectorOpen(true)}
-                aria-label="Open inspector"
-              >
-                <PanelRightOpen className="size-5" />
-              </Button>
+              {inspectorAvailable ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="ml-auto h-9 w-9"
+                  onClick={() => setMobileInspectorOpen(true)}
+                  aria-label="Open inspector"
+                >
+                  <PanelRightOpen className="size-5" />
+                </Button>
+              ) : null}
             </header>
             <div className="flex min-h-0 flex-1 flex-col">{main}</div>
           </main>
 
-          {!desktopSidebarOpen ? (
-            <button
-              type="button"
-              onClick={() => setDesktopSidebarOpen(true)}
-              className="absolute left-0 top-3 hidden h-8 w-8 items-center justify-center rounded-r-md border border-l-0 border-border bg-card text-muted-foreground transition-colors hover:bg-muted md:flex"
-              aria-label="Open sidebar"
-            >
-              <PanelLeftOpen className="size-4" />
-            </button>
-          ) : null}
-
           <aside
             ref={inspectorRef}
             className={cn(
-              'hidden lg:flex shrink-0 flex-col border-l border-border bg-card transition-[width] duration-200 ease-out',
-              desktopInspectorOpen ? 'w-[360px]' : 'w-0',
+              'absolute inset-y-0 right-0 z-20 hidden lg:flex flex-col border-l border-border bg-card overflow-hidden shadow-xl transition-transform duration-200 ease-out',
+              'w-[320px] xl:w-[380px] 2xl:w-[440px]',
+              desktopInspectorOpen ? 'translate-x-0' : 'translate-x-full',
             )}
             aria-label="Runtime inspector"
             aria-hidden={!desktopInspectorOpen}
           >
-            {desktopInspectorOpen ? (
-              <div className="flex h-full flex-col overflow-hidden">
-                <div className="flex h-12 items-center justify-between border-b border-border px-4">
-                  <span className="text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                    {activeInspectorLabel}
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={() => setDesktopInspectorOpen(false)}
-                    aria-label={`Close ${activeInspectorLabel.toLowerCase()}`}
-                  >
-                    <PanelRightClose className="size-4" />
-                  </Button>
-                </div>
-                <div className="flex min-h-0 flex-1 flex-col">{activeInspector}</div>
+            <div className="flex h-full flex-col overflow-hidden">
+              <div className="flex h-12 items-center justify-between border-b border-border px-4">
+                <span className="text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                  {activeInspectorLabel}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => setDesktopInspectorOpen(false)}
+                  aria-label={`Close ${activeInspectorLabel.toLowerCase()}`}
+                >
+                  <PanelRightClose className="size-4" />
+                </Button>
               </div>
-            ) : null}
+              <div className="flex min-h-0 flex-1 flex-col">{inspector}</div>
+            </div>
           </aside>
 
-          {!desktopInspectorOpen && inspectorAvailable && !alternateInspector ? (
-            <button
-              type="button"
-              onClick={() => setDesktopInspectorOpen(true)}
-              className="absolute right-3 top-3 hidden items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground lg:flex"
+          <Sheet open={!isDesktop && mobileInspectorOpen} onOpenChange={setMobileInspectorOpen}>
+            <SheetContent
+              side="right"
+              className="flex w-[360px] flex-col p-0 bg-card"
             >
-              <PanelRightOpen className="size-3.5" />
-              <span>{activeInspectorLabel}</span>
-            </button>
-          ) : null}
-
-          <Sheet open={mobileInspectorOpen} onOpenChange={setMobileInspectorOpen}>
-            <SheetContent side="right" className="w-[360px] p-0 bg-card lg:hidden">
-              <div className="flex h-12 items-center border-b border-border px-4">
+              <div className="flex h-12 shrink-0 items-center border-b border-border px-4">
                 <span className="text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
                   {activeInspectorLabel}
                 </span>
               </div>
-              <div className="overflow-y-auto p-4">{activeInspector}</div>
+              <div className="flex min-h-0 flex-1 flex-col">{inspector}</div>
             </SheetContent>
           </Sheet>
         </div>

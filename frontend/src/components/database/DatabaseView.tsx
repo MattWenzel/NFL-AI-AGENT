@@ -7,35 +7,45 @@ import {
   useRef,
   useState,
 } from 'react'
-import { Check, ChevronRight, Copy, Database, MessageSquare, Play, Save } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronUp,
+  Database,
+  GripHorizontal,
+  Maximize2,
+  Minimize2,
+  Save,
+  Trash2,
+} from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible'
-import { useLayout } from '@/components/layout/AppShell'
+import { Composer } from '@/components/composer/Composer'
 import { LiveTableView } from '@/components/tables/LiveTableView'
-import { Textarea } from '@/components/ui/textarea'
+import { SqlEditorPanel } from '@/components/tables/SqlEditorPanel'
 import { ApiError } from '@/lib/api'
 import {
   runDatabaseQuery,
   type DatabaseQueryResult,
 } from '@/lib/database'
-import { cn } from '@/lib/utils'
+import type { useDbHelperChat } from '@/lib/dbHelperChat'
 
+import { HelperMessageList } from './HelperMessageList'
 import { SaveAsReportDialog } from './SaveAsReportDialog'
 
 const SQL_STORAGE_KEY = 'nfl-stats:database:last-sql'
 const TABLE_STORAGE_KEY = 'nfl-stats:database:last-table'
+
+type SplitMode = 'split' | 'table-min' | 'table-max' | 'chat-max'
 
 interface DatabaseViewProps {
   /** Table the user picked from the sidebar (null = open without preselect). */
   selectedTable: string | null
   onSelectedTableChange: (next: string | null) => void
   onSaveAsReport: (conversationId: string) => void
+  /** SQL helper chat — render the transcript inline below the table and
+   *  feed the docked composer through `helper.send`. */
+  helper: ReturnType<typeof useDbHelperChat>
 }
 
 export interface DatabaseViewHandle {
@@ -49,12 +59,9 @@ function defaultQueryFor(tableName: string): string {
 }
 
 export const DatabaseView = forwardRef<DatabaseViewHandle, DatabaseViewProps>(function DatabaseView(
-  { selectedTable, onSelectedTableChange, onSaveAsReport },
+  { selectedTable, onSelectedTableChange, onSaveAsReport, helper },
   ref,
 ) {
-  // SQL editor — restored from localStorage on first mount; cleared back to
-  // an auto-generated `SELECT *` when the user picks a table from the
-  // sidebar.
   const [sql, setSql] = useState<string>(() => {
     if (typeof localStorage === 'undefined') return ''
     return localStorage.getItem(SQL_STORAGE_KEY) ?? ''
@@ -64,23 +71,7 @@ export const DatabaseView = forwardRef<DatabaseViewHandle, DatabaseViewProps>(fu
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saveOpen, setSaveOpen] = useState(false)
-  const [sqlOpen, setSqlOpen] = useState(true)
-  const [sqlCopied, setSqlCopied] = useState(false)
 
-  const copySql = useCallback(async () => {
-    const trimmed = sql.trim()
-    if (!trimmed) return
-    try {
-      await navigator.clipboard.writeText(trimmed)
-      setSqlCopied(true)
-      setTimeout(() => setSqlCopied(false), 1500)
-    } catch {
-      toast.error('Could not copy — your browser blocked clipboard access')
-    }
-  }, [sql])
-
-  // Persist SQL to localStorage so reloading the tab doesn't wipe the
-  // user's in-progress query.
   useEffect(() => {
     try {
       localStorage.setItem(SQL_STORAGE_KEY, sql)
@@ -97,8 +88,6 @@ export const DatabaseView = forwardRef<DatabaseViewHandle, DatabaseViewProps>(fu
     }
   }, [selectedTable])
 
-  // Restore the previously-picked table on first mount when the parent
-  // didn't pass one in.
   const didRestoreRef = useRef(false)
   useEffect(() => {
     if (didRestoreRef.current) return
@@ -136,10 +125,6 @@ export const DatabaseView = forwardRef<DatabaseViewHandle, DatabaseViewProps>(fu
     }
   }, [])
 
-  // Imperative `runQuery(sql)` for the SQL helper's `run_in_editor`
-  // remote-control. The helper agent calls a tool, the SSE event flows
-  // through useDbHelperChat in App.tsx, which forwards the SQL here.
-  // Updates the editor and runs in one step so the user sees both.
   useImperativeHandle(
     ref,
     () => ({
@@ -147,19 +132,12 @@ export const DatabaseView = forwardRef<DatabaseViewHandle, DatabaseViewProps>(fu
         const next = incoming.trim()
         if (!next) return
         setSql(next)
-        // Skip the natural "selectedTable changed → auto-run" race by
-        // running directly with the helper's SQL rather than letting the
-        // table-change effect overwrite it.
         runQuery(next)
       },
     }),
     [runQuery],
   )
 
-  // When the user picks a new table from the sidebar, replace the editor
-  // contents with a default `SELECT *` and immediately run it. We compare
-  // against the last-handled selection so editing the SQL after picking
-  // doesn't get clobbered every render.
   const lastSelectedTableRef = useRef<string | null>(null)
   useEffect(() => {
     if (!selectedTable) return
@@ -170,10 +148,6 @@ export const DatabaseView = forwardRef<DatabaseViewHandle, DatabaseViewProps>(fu
     runQuery(next)
   }, [selectedTable, runQuery])
 
-  // LiveTableView's `table` prop is typed as `TableState` (which is shared
-  // with the table-chat view) and includes `locked` / `last_sql` /
-  // `updated_at`. The renderer only reads columns/rows/row_count/truncated
-  // — fill the rest with neutral defaults to satisfy the shape.
   const tableForResult = useMemo(() => {
     if (!result) return null
     return {
@@ -194,133 +168,199 @@ export const DatabaseView = forwardRef<DatabaseViewHandle, DatabaseViewProps>(fu
     onSaveAsReport(conversationId)
   }
 
-  // The SQL helper lives in the right pane; expose a toolbar toggle when
-  // the panel is closed so the user can reopen it without a floating CTA
-  // overlapping the table.
-  const layout = useLayout()
+  // Vertical split: table on top, helper transcript below. Mirrors
+  // TableChatView's layout so Reports and Database feel the same.
+  const [tablePct, setTablePct] = useState(55)
+  const [mode, setMode] = useState<SplitMode>('table-max')
+  const splitRef = useRef<HTMLDivElement | null>(null)
+  const [dragging, setDragging] = useState(false)
+
+  useEffect(() => {
+    if (!dragging) return
+    const onMove = (ev: MouseEvent) => {
+      const el = splitRef.current
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      const pct = ((ev.clientY - rect.top) / rect.height) * 100
+      setTablePct(Math.min(Math.max(pct, 15), 85))
+    }
+    const onUp = () => setDragging(false)
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+    return () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+  }, [dragging])
+
+  const tableMinimized = mode === 'table-min'
+  const tableMaxed = mode === 'table-max'
+  const chatMaxed = mode === 'chat-max'
+  const showTable = !chatMaxed
+  const showTableBody = !tableMinimized
+  const showChat = !tableMaxed
+  const showHandle = mode === 'split'
+
+  const tableFlex =
+    mode === 'split'
+      ? { flex: `1 1 ${tablePct}%`, minHeight: 0 }
+      : mode === 'table-max'
+        ? { flex: '1 1 auto', minHeight: 0 }
+        : { flex: '0 0 auto' } // minimized — fits the header only
+  const chatFlex =
+    mode === 'split'
+      ? { flex: `1 1 ${100 - tablePct}%`, minHeight: 0 }
+      : { flex: '1 1 auto', minHeight: 0 }
+
+  // Auto-restore split when sending a message in maximized mode so the
+  // helper's reply is visible.
+  const handleSend: typeof helper.send = (message, opts) => {
+    if (mode === 'table-max') setMode('split')
+    return helper.send(message, opts)
+  }
 
   return (
-    <div className="mx-auto flex min-h-0 w-full flex-1 flex-col px-6 pt-6 pb-3 lg:px-10">
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-      <div className="flex shrink-0 items-center gap-2 border-b border-border px-6 py-3">
-        <Database className="size-4 text-muted-foreground" />
-        <h1 className="text-lg font-semibold tracking-tight">
-          Database
-          {selectedTable ? (
-            <span className="ml-2 font-mono text-sm font-normal text-muted-foreground">
-              · {selectedTable}
-            </span>
-          ) : null}
-        </h1>
-        <div className="ml-auto flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => runQuery(sql)}
-            disabled={loading || !sql.trim()}
+    <div className="flex min-h-0 w-full flex-1 flex-col">
+      <div
+        ref={splitRef}
+        className="mx-auto flex min-h-0 w-full flex-1 flex-col overflow-hidden px-6 pt-6 lg:px-10"
+      >
+        {showTable ? (
+          <div
+            style={tableFlex}
+            className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm"
           >
-            <Play className="size-4" />
-            Run
-          </Button>
-          <Button
-            variant="default"
-            size="sm"
-            onClick={() => setSaveOpen(true)}
-            disabled={!canSave}
-            title={canSave ? 'Save as Report' : 'Run a query that returns rows first'}
-          >
-            <Save className="size-4" />
-            Save as Report
-          </Button>
-          {!layout.desktopInspectorOpen ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={layout.toggleDesktopInspector}
-              title="Open SQL helper"
-            >
-              <MessageSquare className="size-4" />
-              SQL helper
-            </Button>
-          ) : null}
-        </div>
-      </div>
+            <div className="flex shrink-0 items-center gap-2 border-b border-border px-6 py-3">
+              <Database className="size-4 text-muted-foreground" />
+              <h1 className="text-lg font-semibold tracking-tight">
+                Database
+                {selectedTable ? (
+                  <span className="ml-2 font-mono text-sm font-normal text-muted-foreground">
+                    · {selectedTable}
+                  </span>
+                ) : null}
+              </h1>
+              <div className="ml-auto flex items-center gap-2">
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => setSaveOpen(true)}
+                  disabled={!canSave}
+                  title={canSave ? 'Save as Report' : 'Run a query that returns rows first'}
+                >
+                  <Save className="size-4" />
+                  Save as Report
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 text-muted-foreground hover:text-foreground"
+                  onClick={() => setMode(tableMinimized ? 'split' : 'table-min')}
+                  aria-pressed={tableMinimized}
+                  aria-label={tableMinimized ? 'Restore split' : 'Minimize table'}
+                  title={tableMinimized ? 'Restore split' : 'Minimize table'}
+                >
+                  {tableMinimized ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 text-muted-foreground hover:text-foreground"
+                  onClick={() => setMode(tableMaxed ? 'split' : 'table-max')}
+                  aria-pressed={tableMaxed}
+                  aria-label={tableMaxed ? 'Restore split' : 'Maximize table'}
+                  title={tableMaxed ? 'Restore split' : 'Maximize table'}
+                >
+                  {tableMaxed ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+                </Button>
+              </div>
+            </div>
 
-      <div className="shrink-0 border-b border-border px-6 py-3">
-        <Collapsible
-          open={sqlOpen}
-          onOpenChange={setSqlOpen}
-          className="overflow-hidden rounded-lg border border-border bg-muted/20"
-        >
-          <div className="flex items-stretch">
-            <CollapsibleTrigger
-              className={cn(
-                'group flex flex-1 items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-muted/40',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
-              )}
-            >
-              <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-150 group-data-[state=open]:rotate-90" />
-              <span className="text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                SQL
-              </span>
-              {!sqlOpen && sql.trim() ? (
-                <span className="truncate font-mono text-2xs text-muted-foreground/80">
-                  {sql.trim().split('\n')[0].slice(0, 120)}
-                  {sql.trim().split('\n').length > 1 || sql.trim().length > 120 ? ' …' : ''}
-                </span>
-              ) : null}
-            </CollapsibleTrigger>
-            <button
-              type="button"
-              onClick={copySql}
-              disabled={!sql.trim()}
-              aria-label="Copy SQL"
-              title={sqlCopied ? 'Copied' : 'Copy SQL'}
-              className={cn(
-                'flex shrink-0 items-center gap-1 px-3 text-2xs text-muted-foreground transition-colors',
-                'hover:bg-muted/40 hover:text-foreground disabled:opacity-50',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
-              )}
-            >
-              {sqlCopied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-              <span className="font-medium uppercase tracking-[0.14em]">
-                {sqlCopied ? 'Copied' : 'Copy'}
-              </span>
-            </button>
+            {showTableBody ? (
+              <>
+                <div className="shrink-0 border-b border-border px-6 py-3">
+                  <SqlEditorPanel
+                    sql={sql}
+                    onSqlChange={setSql}
+                    onRun={() => runQuery(sql)}
+                    running={loading}
+                    error={error}
+                    defaultOpen={false}
+                    placeholder="SELECT * FROM players LIMIT 100"
+                  />
+                </div>
+
+                <div className="flex min-h-0 flex-1 flex-col">
+                  <LiveTableView
+                    table={tableForResult}
+                    loading={loading}
+                    error={null}
+                    emptyHint="Pick a table on the left, or write a query above and run it."
+                  />
+                </div>
+              </>
+            ) : null}
           </div>
-          <CollapsibleContent className="border-t border-border bg-background/50">
-            <Textarea
-              className="min-h-[120px] resize-y rounded-none border-0 bg-transparent font-mono text-sm focus-visible:ring-0 focus-visible:ring-offset-0"
-              spellCheck={false}
-              value={sql}
-              onChange={(e) => setSql(e.target.value)}
-              onKeyDown={(e) => {
-                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                  e.preventDefault()
-                  runQuery(sql)
-                }
-              }}
-              placeholder="SELECT * FROM players LIMIT 100"
+        ) : null}
+
+        {showHandle ? (
+          <div
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize table and chat"
+            onMouseDown={(e) => {
+              e.preventDefault()
+              setDragging(true)
+            }}
+            className="group flex h-2 shrink-0 cursor-row-resize items-center justify-center"
+          >
+            <div className="h-px w-full bg-transparent transition-colors group-hover:bg-border" />
+            <GripHorizontal className="absolute size-4 text-muted-foreground/40 group-hover:text-muted-foreground" />
+          </div>
+        ) : null}
+
+        {showChat ? (
+          <div style={chatFlex} className="relative flex min-h-0 flex-col">
+            <div className="absolute right-2 top-2 z-10 flex items-center gap-1">
+              {helper.messages.length > 0 && !helper.streaming ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 text-muted-foreground hover:text-foreground"
+                  onClick={helper.clear}
+                  aria-label="Clear helper chat"
+                  title="Clear helper chat"
+                >
+                  <Trash2 className="size-4" />
+                </Button>
+              ) : null}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 text-muted-foreground hover:text-foreground"
+                onClick={() => setMode(chatMaxed ? 'split' : 'chat-max')}
+                aria-pressed={chatMaxed}
+                aria-label={chatMaxed ? 'Restore split' : 'Maximize chat'}
+                title={chatMaxed ? 'Restore split' : 'Maximize chat'}
+              >
+                {chatMaxed ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+              </Button>
+            </div>
+            <HelperMessageList
+              messages={helper.messages}
+              streaming={helper.streaming}
+              error={helper.error}
             />
-            <p className="border-t border-border px-3 py-1.5 text-2xs text-muted-foreground">
-              Read-only. Press{' '}
-              <kbd className="rounded border border-border bg-muted px-1">⌘/Ctrl</kbd>
-              <kbd className="ml-1 rounded border border-border bg-muted px-1">Enter</kbd> to run.
-              Up to 500 rows.
-            </p>
-          </CollapsibleContent>
-        </Collapsible>
+          </div>
+        ) : null}
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col">
-        <LiveTableView
-          table={tableForResult}
-          loading={loading}
-          error={error}
-          emptyHint="Pick a table on the left, or write a query above and run it."
-        />
-      </div>
-      </div>
+      <Composer
+        streaming={helper.streaming}
+        onSend={(message, opts) => handleSend(message, opts)}
+        onStop={helper.stop}
+        placeholder="Ask about the schema, plan a query, or paste SQL…"
+      />
 
       <SaveAsReportDialog
         open={saveOpen}

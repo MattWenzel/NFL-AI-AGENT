@@ -67,6 +67,30 @@ export function Sidebar({
   const layout = useLayout()
   const [query, setQuery] = useState('')
 
+  // Close the mobile sidebar sheet whenever the user picks something —
+  // otherwise the overlay stays covering the content the user just opened.
+  // No-op on desktop since `mobileSidebarOpen` is already false there.
+  const handleNewChat = () => {
+    layout.closeMobileSidebar()
+    onNewChat?.()
+  }
+  const handleNewTable = () => {
+    layout.closeMobileSidebar()
+    onNewTable?.()
+  }
+  const handleOpenConversation = (id: string) => {
+    layout.closeMobileSidebar()
+    onOpenConversation?.(id)
+  }
+  const handleOpenTable = (id: string) => {
+    layout.closeMobileSidebar()
+    onOpenTable?.(id)
+  }
+  const handleOpenDatabase = (tableName?: string) => {
+    layout.closeMobileSidebar()
+    onOpenDatabase?.(tableName)
+  }
+
   // Lazy-fetch the table list the first time the Database tab becomes
   // active. The list rarely changes in practice (it's the nflverse schema)
   // so a single fetch per session is fine.
@@ -169,7 +193,7 @@ export function Sidebar({
         <Button
           variant="ghost"
           className="h-10 w-full justify-start gap-2.5 text-base font-medium text-sidebar-foreground hover:bg-sidebar-accent"
-          onClick={onNewChat}
+          onClick={handleNewChat}
         >
           <Plus className="size-5" />
           New chat
@@ -178,7 +202,7 @@ export function Sidebar({
           <Button
             variant="ghost"
             className="h-10 w-full justify-start gap-2.5 text-base font-medium text-sidebar-foreground hover:bg-sidebar-accent"
-            onClick={onNewTable}
+            onClick={handleNewTable}
           >
             <Table2 className="size-5" />
             New report
@@ -247,9 +271,9 @@ export function Sidebar({
                 label={g.label}
                 items={g.items}
                 activeId={chat.conversationId}
-                onPick={onOpenConversation}
+                onPick={handleOpenConversation}
                 reportsByChat={reportsByChat}
-                onOpenReport={onOpenTable}
+                onOpenReport={handleOpenTable}
               />
             ))
           )}
@@ -271,7 +295,7 @@ export function Sidebar({
                 label={g.label}
                 items={g.items}
                 activeId={activeTableId ?? null}
-                onPick={onOpenTable}
+                onPick={handleOpenTable}
               />
             ))
           )}
@@ -295,7 +319,7 @@ export function Sidebar({
                 <li key={table.name}>
                   <button
                     type="button"
-                    onClick={() => onOpenDatabase?.(table.name)}
+                    onClick={() => handleOpenDatabase(table.name)}
                     className={cn(
                       'flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm text-sidebar-foreground',
                       isActive

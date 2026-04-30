@@ -14,7 +14,6 @@ import { SettingsModal } from '@/components/settings/SettingsModal'
 import { TableChatView } from '@/components/tables/TableChatView'
 import { EmptyReportScreen } from '@/components/tables/EmptyReportScreen'
 import { DatabaseView, type DatabaseViewHandle } from '@/components/database/DatabaseView'
-import { DbHelperChat } from '@/components/database/DbHelperChat'
 import { useAuth, type AuthUser } from '@/lib/auth'
 import { ChatProvider, useChatContext } from '@/lib/chatContext'
 import { TablesProvider, useTablesContext } from '@/lib/tablesContext'
@@ -225,6 +224,10 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
     setActiveTableId(null)
     setPendingReport(false)
     setDatabaseOpen(true)
+    // Database has no chat transcript of its own — drop any lingering
+    // exchange/tool-run selection from the previous surface so the inspector
+    // can't surface stale content if the user pops it open here.
+    chat.clearSelection()
     if (tableName) setSelectedDatabaseTable(tableName)
   }
 
@@ -340,21 +343,48 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
     setTimeout(() => refetchActiveTableRef.current(), 0)
   }
 
+  // Single send closure for the Reports chat pane. Mirrors how the Database
+  // page wires its helper — the chat pane lives in the right inspector slot
+  // and gets a parent-built handler that refetches the table on every
+  // `set_table` event and follows the agent's `create_report` to the new
+  // session.
+  const sendReportTurn = (
+    message: string,
+    opts: {
+      provider: string
+      model: string
+      toolChoice: 'auto' | 'required' | 'none'
+    },
+  ) => {
+    chat
+      .send(message, {
+        provider: opts.provider,
+        model: opts.model,
+        toolChoice: opts.toolChoice,
+        onTableUpdated: () => refetchActiveTableRef.current(),
+        onReportCreated: handleReportCreated,
+      })
+      .finally(() => {
+        tables.refresh()
+      })
+  }
+
   return (
     <>
       <AppShell
-        inspectorAvailable={
+        surfaceKey={
           databaseOpen
-            ? true
-            : !activeTableId &&
-              !pendingReport &&
-              !!chat.transcript &&
-              chat.transcript.turns.length > 0
+            ? 'database'
+            : activeTableId
+              ? `table:${activeTableId}`
+              : `chat:${chat.transcript?.session_id ?? 'new'}`
         }
-        alternateInspector={
-          databaseOpen ? <DbHelperChat helper={dbHelperChat} /> : undefined
+        inspectorAvailable={
+          !databaseOpen &&
+          !pendingReport &&
+          !!chat.transcript &&
+          chat.transcript.turns.length > 0
         }
-        alternateInspectorLabel={databaseOpen ? 'SQL helper' : undefined}
         sidebar={
           <Sidebar
             user={user}
@@ -387,6 +417,7 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
               selectedTable={selectedDatabaseTable}
               onSelectedTableChange={setSelectedDatabaseTable}
               onSaveAsReport={handleDatabaseSaveAsReport}
+              helper={dbHelperChat}
             />
           ) : activeTableId ? (
             <TableChatView
@@ -404,7 +435,9 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
                 chat.newConversation()
                 setPendingReport(true)
               }}
-              onReportCreated={handleReportCreated}
+              onSend={sendReportTurn}
+              streaming={chat.streamStatus === 'streaming'}
+              onStop={chat.stop}
             />
           ) : pendingReport ? (
             <EmptyReportScreen

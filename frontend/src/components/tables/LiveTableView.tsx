@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
-import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react'
+import { ArrowDown, ArrowUp, ArrowUpDown, Search, X } from 'lucide-react'
 
+import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { cellTitle, cleanNumericString, compareValues } from '@/lib/csv'
@@ -17,6 +18,16 @@ interface LiveTableViewProps {
 type SortDirection = 'asc' | 'desc'
 type SortState = { column: string | null; direction: SortDirection }
 
+function rowMatchesQuery(row: Record<string, unknown>, columns: string[], q: string): boolean {
+  for (const col of columns) {
+    const v = row[col]
+    if (v == null) continue
+    const s = typeof v === 'string' ? v : String(v)
+    if (s.toLowerCase().includes(q)) return true
+  }
+  return false
+}
+
 export function LiveTableView({
   table,
   loading,
@@ -24,14 +35,22 @@ export function LiveTableView({
   emptyHint = 'Ask the agent to build one.',
 }: LiveTableViewProps) {
   const [sort, setSort] = useState<SortState>({ column: null, direction: 'asc' })
+  const [search, setSearch] = useState('')
+
+  // Filter first so sort operates on the visible subset.
+  const filteredRows = useMemo(() => {
+    if (!table) return []
+    const q = search.trim().toLowerCase()
+    if (!q) return table.rows
+    return table.rows.filter((r) => rowMatchesQuery(r, table.columns, q))
+  }, [table, search])
 
   const sortedRows = useMemo(() => {
-    if (!table) return []
-    if (!sort.column) return table.rows
+    if (!sort.column) return filteredRows
     const col = sort.column
     const dir = sort.direction === 'asc' ? 1 : -1
-    return [...table.rows].sort((a, b) => dir * compareValues(a[col], b[col]))
-  }, [table, sort])
+    return [...filteredRows].sort((a, b) => dir * compareValues(a[col], b[col]))
+  }, [filteredRows, sort])
 
   const onHeaderClick = (col: string) => {
     setSort((prev) =>
@@ -68,9 +87,45 @@ export function LiveTableView({
     )
   }
 
+  const totalRows = table.rows.length
+  const filteredCount = filteredRows.length
+  const trimmedSearch = search.trim()
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex-1 min-h-0 overflow-auto">
+    <div className="flex min-h-0 flex-col">
+      <div className="flex shrink-0 items-center gap-3 border-b border-border px-6 py-2">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            type="search"
+            placeholder="Search rows…"
+            className="h-8 pl-8 pr-8 text-sm"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          {search ? (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              aria-label="Clear search"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
+            >
+              <X className="size-3.5" />
+            </button>
+          ) : null}
+        </div>
+        {trimmedSearch ? (
+          <p className="shrink-0 text-2xs text-muted-foreground">
+            {filteredCount.toLocaleString()} of {totalRows.toLocaleString()}
+          </p>
+        ) : null}
+      </div>
+      <div className="min-h-0 overflow-auto">
+        {trimmedSearch && filteredCount === 0 ? (
+          <div className="grid h-full place-items-center px-6 text-sm text-muted-foreground">
+            No rows match "{trimmedSearch}"
+          </div>
+        ) : (
         <table className="min-w-full border-separate border-spacing-0 text-sm">
           <thead className="sticky top-0 z-10 bg-card">
             <tr>
@@ -114,6 +169,7 @@ export function LiveTableView({
             ))}
           </tbody>
         </table>
+        )}
         {table.truncated ? (
           <p className="px-6 py-3 text-2xs text-muted-foreground">
             Result was capped at {table.row_count.toLocaleString()} rows. Increase the size dropdown

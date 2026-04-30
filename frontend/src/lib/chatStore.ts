@@ -329,6 +329,10 @@ export function useChat() {
   }, [])
 
   const loadConversation = useCallback(async (id: string) => {
+    // Selection points at an exchange/tool run in the *current* transcript;
+    // it would dangle once the new transcript loads, so clear it up front.
+    setSelectedExchangeId(null)
+    setSelectedToolRunId(null)
     try {
       const transcript = await apiGet<ConversationTranscript>(
         `/chat/conversations/${encodeURIComponent(id)}/transcript`,
@@ -343,6 +347,8 @@ export function useChat() {
   const newConversation = useCallback(() => {
     abortRef.current?.abort()
     abortRef.current = null
+    setSelectedExchangeId(null)
+    setSelectedToolRunId(null)
     dispatch({ type: 'new-conversation' })
   }, [])
 

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { ArrowUp, Square } from 'lucide-react'
+import { ArrowUp, Settings2, Square } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useProviders } from '@/lib/providers'
 import { cn } from '@/lib/utils'
@@ -21,8 +22,10 @@ interface ComposerProps {
    *   than a hard divider line.
    * "centered" — used on the empty/new-chat state alongside the prompt
    *   headline; flows in normal layout, no backdrop, no divider.
+   * "compact" — for narrow side panes (Reports chat). Tighter padding,
+   *   no max-width cap, smaller minimum textarea height.
    */
-  variant?: 'docked' | 'centered'
+  variant?: 'docked' | 'centered' | 'compact'
   /** Optional placeholder override — used by the table view to hint that
    *  the message will affect a shared table. */
   placeholder?: string
@@ -104,12 +107,17 @@ export function Composer({
     [providers, provider],
   )
 
+  // ChatGPT-style auto-grow: starts at one line, grows with content, caps
+  // at 240px and scrolls inside. The compact (side-pane) variant skips
+  // this — its textarea is locked at h-16 so toggling the chat pane open
+  // and closed doesn't visibly resize the input.
   useEffect(() => {
+    if (variant === 'compact') return
     const el = textareaRef.current
     if (!el) return
     el.style.height = 'auto'
-    el.style.height = `${Math.min(Math.max(el.scrollHeight, 80), 240)}px`
-  }, [value])
+    el.style.height = `${Math.min(Math.max(el.scrollHeight, 44), 240)}px`
+  }, [value, variant])
 
   // Validate the persisted provider against what the server reports. If it's
   // missing or now unavailable (key revoked, registry change), fall back to
@@ -156,90 +164,198 @@ export function Composer({
   return (
     <div
       className={cn(
-        'px-6 lg:px-10',
+        'shrink-0',
+        variant === 'compact' ? 'px-3 pb-3 pt-3' : 'px-6 lg:px-10',
         variant === 'docked' && 'pb-4 pt-8',
         variant === 'centered' && 'pb-2 pt-0',
       )}
     >
-      <div className="mx-auto w-full max-w-6xl">
-        <div className="rounded-2xl border border-border bg-card shadow-sm focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-0">
+      <div className={cn('mx-auto w-full', variant !== 'compact' && 'max-w-6xl')}>
+        <div
+          className={cn(
+            'border border-border bg-card shadow-sm focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-0',
+            variant === 'compact' ? 'rounded-xl' : 'rounded-2xl',
+          )}
+        >
           <textarea
             ref={textareaRef}
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder={placeholder ?? 'Ask about a player, season, matchup, or matchup history...'}
-            rows={2}
+            rows={1}
             disabled={disabled || streaming}
-            className="block w-full resize-none bg-transparent px-4 pb-2 pt-4 text-base leading-snug placeholder:text-muted-foreground focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+            className={cn(
+              'block w-full resize-none bg-transparent leading-snug placeholder:text-muted-foreground focus:outline-none disabled:cursor-not-allowed disabled:opacity-60',
+              variant === 'compact'
+                ? 'h-16 overflow-y-auto px-3 pb-1.5 pt-3 text-sm [field-sizing:fixed]'
+                : 'overflow-y-auto px-4 pb-2 pt-3 text-base',
+            )}
             aria-label="Message"
           />
-          <div className="flex items-center gap-1.5 px-2 pb-2 pt-1">
-            <Select
-              value={provider ?? undefined}
-              onValueChange={setProvider}
-              disabled={streaming || providersStatus !== 'ready'}
-            >
-              <SelectTrigger size="sm" className="h-7 gap-1 border-0 bg-transparent px-2 text-xs hover:bg-muted">
-                <SelectValue placeholder={providersStatus === 'loading' ? 'Loading…' : 'Provider'} />
-              </SelectTrigger>
-              <SelectContent>
-                {[...providers]
-                  // Sort available first so the dropdown leads with usable picks.
-                  .sort((a, b) => Number(b.available) - Number(a.available))
-                  .map((p) => (
-                    <SelectItem
-                      key={p.name}
-                      value={p.name}
-                      className="text-xs"
-                      disabled={!p.available}
+          <div
+            className={cn(
+              'flex items-center gap-1.5',
+              variant === 'compact' ? 'px-1.5 pb-1.5 pt-0.5' : 'px-2 pb-2 pt-1',
+            )}
+          >
+            {variant === 'compact' ? (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-7 w-7 shrink-0 text-muted-foreground hover:bg-muted"
+                    aria-label="Composer settings"
+                    title="Provider / model / tool choice"
+                  >
+                    <Settings2 className="size-3.5" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="start" side="top" className="w-64 space-y-3">
+                  <div className="space-y-2">
+                    <p className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Provider
+                    </p>
+                    <Select
+                      value={provider ?? undefined}
+                      onValueChange={setProvider}
+                      disabled={providersStatus !== 'ready'}
                     >
-                      {p.display_name}
-                      {!p.available ? ' — set key in Settings' : ''}
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={model ?? undefined}
-              onValueChange={setModel}
-              disabled={streaming || models.length === 0}
-            >
-              <SelectTrigger size="sm" className="h-7 gap-1 border-0 bg-transparent px-2 text-xs hover:bg-muted">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {models.map((m) => (
-                  <SelectItem key={m} value={m} className="text-xs">
-                    {m}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={toolChoice}
-              onValueChange={(v) => setToolChoice(v as 'auto' | 'required' | 'none')}
-              disabled={streaming}
-            >
-              <SelectTrigger size="sm" className="h-7 gap-1 border-0 bg-transparent px-2 text-xs hover:bg-muted">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {TOOL_CHOICES.map((c) => (
-                  <SelectItem key={c.value} value={c.value} className="text-xs">
-                    {c.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                      <SelectTrigger size="sm" className="h-8 w-full text-xs">
+                        <SelectValue
+                          placeholder={providersStatus === 'loading' ? 'Loading…' : 'Provider'}
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[...providers]
+                          .sort((a, b) => Number(b.available) - Number(a.available))
+                          .map((p) => (
+                            <SelectItem
+                              key={p.name}
+                              value={p.name}
+                              className="text-xs"
+                              disabled={!p.available}
+                            >
+                              {p.display_name}
+                              {!p.available ? ' — set key in Settings' : ''}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Model
+                    </p>
+                    <Select
+                      value={model ?? undefined}
+                      onValueChange={setModel}
+                      disabled={models.length === 0}
+                    >
+                      <SelectTrigger size="sm" className="h-8 w-full text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {models.map((m) => (
+                          <SelectItem key={m} value={m} className="text-xs">
+                            {m}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Tool use
+                    </p>
+                    <Select
+                      value={toolChoice}
+                      onValueChange={(v) => setToolChoice(v as 'auto' | 'required' | 'none')}
+                    >
+                      <SelectTrigger size="sm" className="h-8 w-full text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TOOL_CHOICES.map((c) => (
+                          <SelectItem key={c.value} value={c.value} className="text-xs">
+                            {c.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            ) : (
+              <>
+                <Select
+                  value={provider ?? undefined}
+                  onValueChange={setProvider}
+                  disabled={streaming || providersStatus !== 'ready'}
+                >
+                  <SelectTrigger size="sm" className="h-7 gap-1 border-0 bg-transparent px-2 text-xs hover:bg-muted">
+                    <SelectValue placeholder={providersStatus === 'loading' ? 'Loading…' : 'Provider'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[...providers]
+                      .sort((a, b) => Number(b.available) - Number(a.available))
+                      .map((p) => (
+                        <SelectItem
+                          key={p.name}
+                          value={p.name}
+                          className="text-xs"
+                          disabled={!p.available}
+                        >
+                          {p.display_name}
+                          {!p.available ? ' — set key in Settings' : ''}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={model ?? undefined}
+                  onValueChange={setModel}
+                  disabled={streaming || models.length === 0}
+                >
+                  <SelectTrigger size="sm" className="h-7 gap-1 border-0 bg-transparent px-2 text-xs hover:bg-muted">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {models.map((m) => (
+                      <SelectItem key={m} value={m} className="text-xs">
+                        {m}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={toolChoice}
+                  onValueChange={(v) => setToolChoice(v as 'auto' | 'required' | 'none')}
+                  disabled={streaming}
+                >
+                  <SelectTrigger size="sm" className="h-7 gap-1 border-0 bg-transparent px-2 text-xs hover:bg-muted">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TOOL_CHOICES.map((c) => (
+                      <SelectItem key={c.value} value={c.value} className="text-xs">
+                        {c.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </>
+            )}
 
             {streaming ? (
               <Button
                 type="button"
-                variant="secondary"
+                variant={variant === 'compact' ? 'outline' : 'secondary'}
                 size="icon"
                 onClick={onStop}
-                className="ml-auto size-8 rounded-full"
+                className={cn('ml-auto rounded-full', variant === 'compact' ? 'h-7 w-7' : 'size-8')}
                 aria-label="Stop"
               >
                 <Square className="size-3.5" />
@@ -250,15 +366,20 @@ export function Composer({
                 size="icon"
                 onClick={submit}
                 disabled={disabled || !value.trim() || !provider || !model}
-                className="ml-auto size-8 rounded-full"
+                className={cn('ml-auto rounded-full', variant === 'compact' ? 'h-7 w-7' : 'size-8')}
                 aria-label="Send"
               >
-                <ArrowUp className="size-4" />
+                <ArrowUp className={variant === 'compact' ? 'size-3.5' : 'size-4'} />
               </Button>
             )}
           </div>
         </div>
-        <p className="mt-2 text-center text-2xs text-muted-foreground">
+        <p
+          className={cn(
+            'text-center text-2xs text-muted-foreground',
+            variant === 'compact' ? 'mt-1.5' : 'mt-2',
+          )}
+        >
           Enter to send · Shift+Enter for a new line
         </p>
       </div>

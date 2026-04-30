@@ -128,9 +128,6 @@ export function Thread({ transcript }: ThreadProps) {
       onClick={() => {
         // Clicks that reach this far didn't hit a message — message and tool
         // clicks stopPropagation, so this only fires for empty thread space.
-        // Clear the in-thread selection AND dismiss the inspector; the
-        // AppShell-level click-outside ignores everything in <main>, so this
-        // is the explicit channel for "background click closes inspector".
         if (selectedExchangeId || selectedToolRunId) clearSelection()
         closeDesktopInspector()
       }}
