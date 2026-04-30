@@ -374,3 +374,56 @@
         @apply bg-transparent;
     }
 }
+
+/* Aurora background — slow-drifting blurred radial gradients used behind
+   empty states. Three blobs with offset animations create a subtle
+   "northern lights" feel without competing with content. */
+.aurora-blob {
+    position: absolute;
+    border-radius: 9999px;
+    filter: blur(110px);
+    opacity: 0.22;
+    will-change: transform;
+}
+.dark .aurora-blob {
+    opacity: 0.14;
+}
+.aurora-blob-a {
+    width: clamp(38rem, 55vw, 70rem);
+    height: clamp(38rem, 55vw, 70rem);
+    left: -10%;
+    top: -15%;
+    background: radial-gradient(circle, oklch(0.72 0.18 250) 0%, transparent 65%);
+    animation: aurora-drift-a 22s ease-in-out infinite;
+}
+.aurora-blob-b {
+    width: clamp(34rem, 50vw, 64rem);
+    height: clamp(34rem, 50vw, 64rem);
+    right: -10%;
+    top: 20%;
+    background: radial-gradient(circle, oklch(0.68 0.20 320) 0%, transparent 65%);
+    animation: aurora-drift-b 28s ease-in-out infinite;
+}
+.aurora-blob-c {
+    width: clamp(30rem, 50vw, 60rem);
+    height: clamp(30rem, 50vw, 60rem);
+    left: 20%;
+    bottom: -15%;
+    background: radial-gradient(circle, oklch(0.74 0.16 200) 0%, transparent 65%);
+    animation: aurora-drift-c 24s ease-in-out infinite;
+}
+@keyframes aurora-drift-a {
+    0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+    50%      { transform: translate3d(6rem, 4rem, 0) scale(1.1); }
+}
+@keyframes aurora-drift-b {
+    0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+    50%      { transform: translate3d(-5rem, -3rem, 0) scale(0.95); }
+}
+@keyframes aurora-drift-c {
+    0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+    50%      { transform: translate3d(4rem, -5rem, 0) scale(1.08); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .aurora-blob { animation: none; }
+}

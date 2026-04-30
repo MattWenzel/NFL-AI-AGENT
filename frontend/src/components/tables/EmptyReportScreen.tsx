@@ -3,6 +3,7 @@ import { useCallback, useState } from 'react'
 import logoUrl from '@/assets/logo.png'
 import { Composer } from '@/components/composer/Composer'
 import { SqlEditorPanel } from '@/components/tables/SqlEditorPanel'
+import { AuroraBackground } from '@/components/thread/AuroraBackground'
 import { ApiError } from '@/lib/api'
 import { seedReportFromSql } from '@/lib/database'
 
@@ -62,7 +63,8 @@ export function EmptyReportScreen({
   }, [sql, running, onSqlCreated])
 
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-10 px-6 pb-24">
+    <div className="relative flex flex-1 flex-col items-center justify-center gap-10 overflow-hidden px-6 pb-24">
+      <AuroraBackground />
       <div className="flex max-w-md flex-col items-center gap-5 text-center">
         <img
           src={logoUrl}

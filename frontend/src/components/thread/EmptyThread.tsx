@@ -2,6 +2,8 @@ import type { ReactNode } from 'react'
 
 import logoUrl from '@/assets/logo.png'
 
+import { AuroraBackground } from './AuroraBackground'
+
 interface EmptyThreadProps {
   /** Composer rendered alongside the headline so the input sits with the prompt. */
   children?: ReactNode
@@ -9,7 +11,8 @@ interface EmptyThreadProps {
 
 export function EmptyThread({ children }: EmptyThreadProps) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-10 px-6 pb-24">
+    <div className="relative flex flex-1 flex-col items-center justify-center gap-10 overflow-hidden px-6 pb-24">
+      <AuroraBackground />
       <div className="flex max-w-md flex-col items-center gap-5 text-center">
         <img
           src={logoUrl}

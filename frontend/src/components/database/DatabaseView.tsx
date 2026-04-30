@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/button'
 import { Composer } from '@/components/composer/Composer'
 import { LiveTableView } from '@/components/tables/LiveTableView'
 import { SqlEditorPanel } from '@/components/tables/SqlEditorPanel'
+import { AuroraBackground } from '@/components/thread/AuroraBackground'
 import { ApiError } from '@/lib/api'
 import {
   runDatabaseQuery,
@@ -220,10 +221,11 @@ export const DatabaseView = forwardRef<DatabaseViewHandle, DatabaseViewProps>(fu
   }
 
   return (
-    <div className="flex min-h-0 w-full flex-1 flex-col">
+    <div className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden">
+      <AuroraBackground />
       <div
         ref={splitRef}
-        className="mx-auto flex min-h-0 w-full flex-1 flex-col overflow-hidden px-6 pt-6 lg:px-10"
+        className="relative mx-auto flex min-h-0 w-full flex-1 flex-col overflow-hidden px-6 pt-6 lg:px-10"
       >
         {showTable ? (
           <div

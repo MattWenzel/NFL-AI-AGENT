@@ -17,6 +17,7 @@ import { Composer } from '@/components/composer/Composer'
 import { EmptyTableChat } from '@/components/tables/EmptyTableChat'
 import { LiveTableView } from '@/components/tables/LiveTableView'
 import { SqlEditorPanel } from '@/components/tables/SqlEditorPanel'
+import { AuroraBackground } from '@/components/thread/AuroraBackground'
 import { Thread } from '@/components/thread/Thread'
 import { Button } from '@/components/ui/button'
 import {
@@ -234,10 +235,11 @@ export function TableChatView({
   const chatStreaming = chat.streamStatus === 'streaming'
 
   return (
-    <div className="flex min-h-0 w-full flex-1 flex-col">
+    <div className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden">
+      <AuroraBackground />
       <div
         ref={splitRef}
-        className="mx-auto flex min-h-0 w-full flex-1 flex-col overflow-hidden px-6 pt-6 lg:px-10"
+        className="relative mx-auto flex min-h-0 w-full flex-1 flex-col overflow-hidden px-6 pt-6 lg:px-10"
       >
         {showTable ? (
           <div
