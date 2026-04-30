@@ -284,11 +284,11 @@ export function TableChatView({
                   }
                 >
                   {isLocked ? <Lock className="size-4" /> : <Unlock className="size-4" />}
-                  {isLocked ? 'Locked' : 'Lock'}
+                  <span className="hidden sm:inline">{isLocked ? 'Locked' : 'Lock'}</span>
                 </Button>
-                <Button size="sm" onClick={downloadCsv} disabled={!hasRows}>
+                <Button size="sm" onClick={downloadCsv} disabled={!hasRows} aria-label="Download CSV">
                   <Download className="size-4" />
-                  Download
+                  <span className="hidden sm:inline">Download</span>
                 </Button>
                 <Button
                   variant="ghost"
