@@ -18,6 +18,7 @@ import { DatabaseView, type DatabaseViewHandle } from '@/components/database/Dat
 import { useAuth, type AuthUser } from '@/lib/state/auth'
 import { ChatProvider, useChatContext } from '@/lib/state/chatContext'
 import { NavigationProvider } from '@/lib/state/navigation'
+import { useSurface } from '@/lib/state/surface'
 import { TablesProvider, useTablesContext } from '@/lib/state/tablesContext'
 import { useActiveTable } from '@/lib/state/activeTable'
 import { useDbHelperChat } from '@/lib/state/dbHelperChat'
@@ -25,6 +26,27 @@ import type { ConversationInfo } from '@/lib/types'
 
 export default function App() {
   const auth = useAuth()
+
+  // Reset the URL to `/` when the user signs out so a subsequent
+  // sign-in (same or different account) lands on the empty new-chat
+  // screen instead of inheriting the previous user's deep link — that
+  // chat ID won't be visible to the new account and the load would
+  // fail with "Failed to load conversation". Only fires on the
+  // authenticated→anonymous transition so initial-load deep-links
+  // from a signed-out session are preserved.
+  const prevAuthStatusRef = useRef(auth.state.status)
+  useEffect(() => {
+    const prev = prevAuthStatusRef.current
+    prevAuthStatusRef.current = auth.state.status
+    if (
+      prev === 'authenticated' &&
+      auth.state.status === 'anonymous' &&
+      typeof window !== 'undefined' &&
+      window.location.pathname !== '/'
+    ) {
+      window.history.replaceState(null, '', '/')
+    }
+  }, [auth.state.status])
 
   return (
     <ThemeProvider>
@@ -46,58 +68,6 @@ export default function App() {
   )
 }
 
-const VIEW_KEY_PREFIX = 'nfl-stats:last-view:'
-
-// `kind: 'report'` here means a Report (the live editable table) — not the
-// old read-only CSV library, which has been removed. `kind: 'database'`
-// has no id (the page is stateless) but optionally remembers the
-// last-picked table so reload restores the same `SELECT *` view.
-type LastView =
-  | { kind: 'chat' | 'report'; id: string }
-  | { kind: 'database'; table?: string }
-  | { kind: 'pending-report' }
-
-function readLastView(userId: number): LastView | null {
-  try {
-    const raw = localStorage.getItem(VIEW_KEY_PREFIX + userId)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as Partial<LastView> & {
-      kind?: string
-      id?: unknown
-      table?: unknown
-    }
-    if (!parsed) return null
-    if (
-      (parsed.kind === 'chat' || parsed.kind === 'report') &&
-      typeof parsed.id === 'string'
-    ) {
-      return { kind: parsed.kind, id: parsed.id }
-    }
-    if (parsed.kind === 'database') {
-      return {
-        kind: 'database',
-        table: typeof parsed.table === 'string' ? parsed.table : undefined,
-      }
-    }
-    if (parsed.kind === 'pending-report') {
-      return { kind: 'pending-report' }
-    }
-  } catch {
-    // localStorage may be unavailable (private mode) or hold corrupted JSON.
-  }
-  return null
-}
-
-function writeLastView(userId: number, v: LastView | null) {
-  try {
-    if (v) localStorage.setItem(VIEW_KEY_PREFIX + userId, JSON.stringify(v))
-    else localStorage.removeItem(VIEW_KEY_PREFIX + userId)
-  } catch {
-    // Quota or availability errors are non-fatal — refresh-restore is a
-    // nice-to-have, not a correctness requirement.
-  }
-}
-
 /** Pick the conversation with the latest `updated_at`, ignoring pin
  *  status. The sidebar list sorts pinned items first, so taking [0]
  *  doesn't give the actual most-recent chat when any pins exist. */
@@ -113,47 +83,28 @@ function mostRecentConversation(items: ConversationInfo[]): ConversationInfo | n
 function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   const chat = useChatContext()
   const tables = useTablesContext()
+  const { surface, navigate } = useSurface()
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
-  // Read the saved view synchronously so the very first render already
-  // reflects "you were on a report"/"chat" — otherwise the EmptyThread
-  // headline flashes before the restore effect runs.
-  const initialView = useRef<LastView | null>(readLastView(user.id))
-  const [activeTableId, setActiveTableId] = useState<string | null>(
-    initialView.current?.kind === 'report' ? initialView.current.id : null,
-  )
-  const [restoringChat, setRestoringChat] = useState<boolean>(
-    initialView.current?.kind === 'chat' || initialView.current?.kind === 'report',
-  )
-  // True between clicking "New report" and the user sending the first
-  // message. While true the empty-report screen is shown and no
-  // /chat/tables session has been created yet.
-  const [pendingReport, setPendingReport] = useState(
-    initialView.current?.kind === 'pending-report',
-  )
-  // The Database browser is a separate top-level view — no sessions, no
-  // transcripts. `selectedDatabaseTable` is the table name the user picked
-  // from the sidebar, which the view turns into `SELECT * FROM <t> LIMIT 100`
-  // on first paint. `null` means the user opened the tab but hasn't picked.
-  const [databaseOpen, setDatabaseOpen] = useState(
-    initialView.current?.kind === 'database',
-  )
-  const [selectedDatabaseTable, setSelectedDatabaseTable] = useState<string | null>(
-    initialView.current?.kind === 'database'
-      ? initialView.current.table ?? null
-      : null,
-  )
-  const didRestoreRef = useRef(false)
 
-  // Lifted from TableChatView so `handleReportCreated` can call refetch the
-  // same way the edit flow's `onTableUpdated` calls refetch — i.e. the SSE
-  // event is the trigger, not the (timing-fragile) mount-effect inside the
-  // freshly-mounted TableChatView.
+  // Project the URL-driven Surface into the per-area state the rest of
+  // the workspace expects. Refreshing or arriving via deep-link
+  // hydrates these from the URL automatically.
+  const activeTableId = surface.kind === 'report' ? surface.id : null
+  const pendingReport = surface.kind === 'pending-report'
+  const databaseOpen = surface.kind === 'database'
+  const selectedDatabaseTable = surface.kind === 'database' ? surface.table ?? null : null
+
+  // True when the URL points at a chat/report but the chat store hasn't
+  // loaded it yet — used to render a blank pane instead of flashing the
+  // EmptyThread headline before the transcript arrives.
+  const expectedConversationId =
+    surface.kind === 'chat' || surface.kind === 'report' ? surface.id : null
+  const loadingConversation =
+    expectedConversationId !== null && chat.conversationId !== expectedConversationId
+
   const activeTable = useActiveTable(activeTableId)
 
-  // Imperative handle on the Database view so the helper's `run_in_editor`
-  // tool can populate the editor + trigger a run. Only valid while the
-  // database view is mounted.
   const databaseViewRef = useRef<DatabaseViewHandle | null>(null)
 
   // Owned at this level so closing/reopening the SQL helper panel inside
@@ -165,121 +116,78 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
     },
   })
 
-  // Kick off the chat-transcript fetch; the lazy initial state above already
-  // suppressed the new-chat flash, this just resolves the loading gate once
-  // the transcript arrives (or fails).
+  // Sync the chat store with the URL. When surface points at a chat or
+  // report, ensure that conversation is loaded; on home / pending-report,
+  // drop any in-flight chat so the previous conversation doesn't bleed
+  // into the next view (Inspector / streaming state). On database, just
+  // clear the inspector selection — there's no transcript to preserve.
   useEffect(() => {
-    if (didRestoreRef.current) return
-    didRestoreRef.current = true
-    const v = initialView.current
-    if (v?.kind !== 'chat' && v?.kind !== 'report') return
-    chat.loadConversation(v.id).finally(() => setRestoringChat(false))
-    // Restore must run exactly once per session; capturing chat in deps
-    // would re-trigger on every render since the context value is fresh.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user.id])
-
-  // Persist whichever view is currently active.
-  useEffect(() => {
-    if (databaseOpen) {
-      writeLastView(user.id, {
-        kind: 'database',
-        table: selectedDatabaseTable ?? undefined,
-      })
-    } else if (activeTableId) {
-      writeLastView(user.id, { kind: 'report', id: activeTableId })
-    } else if (pendingReport) {
-      writeLastView(user.id, { kind: 'pending-report' })
-    } else if (chat.conversationId) {
-      writeLastView(user.id, { kind: 'chat', id: chat.conversationId })
-    } else {
-      writeLastView(user.id, null)
+    if (surface.kind === 'chat' || surface.kind === 'report') {
+      if (chat.conversationId !== surface.id) {
+        chat.loadConversation(surface.id)
+      }
+    } else if (surface.kind === 'home' || surface.kind === 'pending-report') {
+      if (chat.conversationId !== null || chat.transcript !== null) {
+        chat.newConversation()
+      }
+    } else if (surface.kind === 'database') {
+      chat.clearSelection()
     }
-  }, [user.id, databaseOpen, selectedDatabaseTable, activeTableId, pendingReport, chat.conversationId])
-
-  // If the active report disappears from the tables list (deleted from the
-  // sidebar's 3-dot menu, the toolbar Delete, or another tab), bail out of
-  // the report view and land on the empty new-report screen. Mirrors how
-  // `chat.removeConversation` clears `chat.conversationId` when the deleted
-  // id was the active one — but for tables, the active id lives here in
-  // App.tsx, so the cleanup also lives here.
-  useEffect(() => {
-    if (!activeTableId) return
-    if (tables.status !== 'ready') return
-    if (tables.tables.some((t) => t.id === activeTableId)) return
-    setActiveTableId(null)
-    chat.newConversation()
-    setPendingReport(true)
-    // chat is stable (the context value's mutators are useCallback'd).
+    // chat methods are stable (useCallback'd); the surface is the trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTableId, tables.status, tables.tables])
+  }, [surface])
 
-  const openConversation = (id: string) => {
-    setActiveTableId(null)
-    setPendingReport(false)
-    setDatabaseOpen(false)
-    chat.loadConversation(id)
-  }
+  // When a fresh chat picks up its real conversation_id (from the SSE
+  // 'conversation_id' event after the first send), promote the URL from
+  // `/` to `/chat/:id` so the back button can return here later. Replace
+  // (not push) — there's no meaningful prior history entry to preserve.
+  //
+  // Gate on `streamStatus !== 'idle'` so we only fire during the
+  // send-from-home window. Without this guard, clicking "New chat" while
+  // on /chat/abc would re-promote to /chat/abc: both this effect and
+  // the surface-sync effect run on the same render, but surface-sync's
+  // dispatch hasn't reduced into chat.conversationId yet — so we'd see
+  // the stale 'abc' and bounce the URL back.
+  useEffect(() => {
+    if (
+      surface.kind === 'home' &&
+      chat.conversationId &&
+      chat.streamStatus !== 'idle'
+    ) {
+      navigate({ kind: 'chat', id: chat.conversationId }, { replace: true })
+    }
+  }, [surface.kind, chat.conversationId, chat.streamStatus, navigate])
 
-  const openTable = (id: string) => {
-    setActiveTableId(id)
-    setPendingReport(false)
-    setDatabaseOpen(false)
-    // The table-chat view reuses the chat transcript pipeline for the bottom
-    // chat panel — load the same conversation so `chat.send` posts there.
-    chat.loadConversation(id)
-  }
+  // If the active report disappears from the tables list (deleted from
+  // the sidebar's 3-dot menu, the toolbar Delete, or another tab), bail
+  // back to the empty new-report screen. Replace so the dead URL doesn't
+  // sit in the back stack.
+  useEffect(() => {
+    if (surface.kind !== 'report') return
+    if (tables.status !== 'ready') return
+    if (tables.tables.some((t) => t.id === surface.id)) return
+    navigate({ kind: 'pending-report' }, { replace: true })
+  }, [surface, tables.status, tables.tables, navigate])
 
-  const openDatabase = (tableName?: string) => {
-    setActiveTableId(null)
-    setPendingReport(false)
-    setDatabaseOpen(true)
-    // Database has no chat transcript of its own — drop any lingering
-    // exchange/tool-run selection from the previous surface so the inspector
-    // can't surface stale content if the user pops it open here.
-    chat.clearSelection()
-    if (tableName) setSelectedDatabaseTable(tableName)
-  }
+  const openConversation = (id: string) => navigate({ kind: 'chat', id })
+  const openTable = (id: string) => navigate({ kind: 'report', id })
+  const openDatabase = (table?: string) => navigate({ kind: 'database', table })
+  const newTableChat = () => navigate({ kind: 'pending-report' })
+  const newChat = () => navigate({ kind: 'home' })
 
   const switchToChats = () => {
-    setActiveTableId(null)
-    setPendingReport(false)
-    setDatabaseOpen(false)
-    // The bottom panel of the report view shares the chat transcript
-    // pipeline, so when the user came from a report the loaded transcript
-    // belongs to a table-chat session and isn't in chat.conversations.
-    // Always reset on tab-switch: jump to the most recently touched chat
-    // (pin status ignored — pinned items live at the top of the sidebar
-    // list but the user wants their actual most-recent conversation here),
-    // or fall back to the empty new-chat homepage when there's no history.
+    if (surface.kind === 'chat' || surface.kind === 'home') return
     const mostRecent = mostRecentConversation(chat.conversations)
-    if (mostRecent) {
-      chat.loadConversation(mostRecent.id)
-    } else {
-      chat.newConversation()
-    }
+    navigate(mostRecent ? { kind: 'chat', id: mostRecent.id } : { kind: 'home' })
   }
 
   const switchToTables = () => {
-    setDatabaseOpen(false)
-    if (!activeTableId && tables.tables.length > 0) {
-      openTable(tables.tables[0].id)
-    } else if (!activeTableId) {
-      // No reports yet — clear any chat and show the empty new-report
-      // screen so the user can start one.
-      chat.newConversation()
-      setPendingReport(true)
+    if (surface.kind === 'report' || surface.kind === 'pending-report') return
+    if (tables.tables.length > 0) {
+      navigate({ kind: 'report', id: tables.tables[0].id })
+    } else {
+      navigate({ kind: 'pending-report' })
     }
-  }
-
-  const newTableChat = () => {
-    // Don't create a session up front — show the empty new-report screen
-    // and defer creation until the user sends the first message. Mirrors
-    // the regular "New chat" flow.
-    setActiveTableId(null)
-    setDatabaseOpen(false)
-    chat.newConversation()
-    setPendingReport(true)
   }
 
   // Called from the Database view's "Save as Report" success path — the
@@ -289,9 +197,10 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
     openTable(conversationId)
   }
 
-  // First-send handler from the empty-report screen: creates the table_chat
-  // session, then sends the message into it (using overrideConversationId
-  // so the optimistic turn lands in the new session before SSE confirms).
+  // First-send handler from the empty-report screen: creates the
+  // table_chat session, then sends the message into it. Replace (not
+  // push) the URL from /report/new → /report/:id so back returns to
+  // wherever the user came from, not to the empty new-report screen.
   const sendFirstReportMessage = async (
     message: string,
     opts: {
@@ -309,11 +218,7 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
     } catch {
       return
     }
-    setActiveTableId(created.id)
-    setPendingReport(false)
-    // Fire-and-forget; refresh the tables list when the stream finishes so
-    // the sidebar picks up the title that the SQL projection derives from
-    // the first user turn (otherwise the row stays as "New conversation").
+    navigate({ kind: 'report', id: created.id }, { replace: true })
     chat
       .send(message, {
         provider: opts.provider,
@@ -321,9 +226,6 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
         toolChoice: opts.toolChoice,
         overrideConversationId: created.id,
         onReportCreated: handleReportCreated,
-        // The first send into a fresh report can trigger set_table —
-        // mirror TableChatView's edit-flow refetch so the table populates
-        // without waiting on the (timing-fragile) mount-effect alone.
         onTableUpdated: () => refetchActiveTableRef.current(),
       })
       .finally(() => {
@@ -331,27 +233,21 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
       })
   }
 
-  // Always-fresh ref to `activeTable.refetch` so the create-report handler
-  // can fire it after the navigation re-render, when refetch's closure is
-  // bound to the new activeTableId.
+  // Always-fresh ref to `activeTable.refetch` so send handlers can fire
+  // it after the navigation re-render, when refetch's closure is bound
+  // to the new activeTableId.
   const refetchActiveTableRef = useRef(activeTable.refetch)
   useEffect(() => {
     refetchActiveTableRef.current = activeTable.refetch
   }, [activeTable.refetch])
 
-  // Wired into every send call below — when the agent calls `create_report`,
-  // refresh the sidebar list so the new report shows up there. We deliberately
-  // do NOT auto-navigate; instead, the AgentResponse renders an inline link
-  // card the user can click to open the report.
+  // When the agent calls `create_report`, refresh the sidebar so the new
+  // report shows up there. We don't auto-navigate — the AgentResponse
+  // renders an inline link card the user clicks to open the report.
   const handleReportCreated = (_payload: { report_id: string }) => {
     tables.refresh()
   }
 
-  // Single send closure for the Reports chat pane. Mirrors how the Database
-  // page wires its helper — the chat pane lives in the right inspector slot
-  // and gets a parent-built handler that refetches the table on every
-  // `set_table` event and follows the agent's `create_report` to the new
-  // session.
   const sendReportTurn = (
     message: string,
     opts: {
@@ -394,12 +290,7 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
             user={user}
             onLogout={onLogout}
             onOpenSettings={() => setSettingsOpen(true)}
-            onNewChat={() => {
-              setActiveTableId(null)
-              setPendingReport(false)
-              setDatabaseOpen(false)
-              chat.newConversation()
-            }}
+            onNewChat={newChat}
             onOpenConversation={openConversation}
             onSwitchToChats={switchToChats}
             activeTableId={activeTableId}
@@ -419,30 +310,31 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
             <DatabaseView
               ref={databaseViewRef}
               selectedTable={selectedDatabaseTable}
-              onSelectedTableChange={setSelectedDatabaseTable}
               onSaveAsReport={handleDatabaseSaveAsReport}
               helper={dbHelperChat}
             />
           ) : activeTableId ? (
-            <TableChatView
-              key={activeTableId}
-              activeTableId={activeTableId}
-              table={activeTable.table}
-              tableLoading={activeTable.loading}
-              tableError={activeTable.error}
-              refetchTable={activeTable.refetch}
-              onClose={() => {
-                // Fired after the user deletes the report. Drop the now-stale
-                // conversation transcript and land on the empty new-report
-                // screen rather than the chat view.
-                setActiveTableId(null)
-                chat.newConversation()
-                setPendingReport(true)
-              }}
-              onSend={sendReportTurn}
-              streaming={chat.streamStatus === 'streaming'}
-              onStop={chat.stop}
-            />
+            loadingConversation ? (
+              // Blank pane until the report's transcript loads.
+              <div className="flex-1" />
+            ) : (
+              <TableChatView
+                key={activeTableId}
+                activeTableId={activeTableId}
+                table={activeTable.table}
+                tableLoading={activeTable.loading}
+                tableError={activeTable.error}
+                refetchTable={activeTable.refetch}
+                onClose={() => {
+                  // Fired after the user deletes the report. Drop the
+                  // now-stale URL and land on the empty new-report screen.
+                  navigate({ kind: 'pending-report' }, { replace: true })
+                }}
+                onSend={sendReportTurn}
+                streaming={chat.streamStatus === 'streaming'}
+                onStop={chat.stop}
+              />
+            )
           ) : pendingReport ? (
             <EmptyReportScreen
               streaming={chat.streamStatus === 'streaming'}
@@ -450,9 +342,10 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
               onStop={chat.stop}
               onSqlCreated={handleDatabaseSaveAsReport}
             />
-          ) : restoringChat ? (
-            // Blank pane during refresh-restore so the EmptyThread headline
-            // doesn't flash before the transcript arrives.
+          ) : loadingConversation ? (
+            // Blank pane during deep-link / refresh restore so the
+            // EmptyThread headline doesn't flash before the transcript
+            // arrives.
             <div className="flex-1" />
           ) : chat.transcript && chat.transcript.turns.length > 0 ? (
             <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -498,12 +391,7 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
       <CommandPalette
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
-        onNewChat={() => {
-          setActiveTableId(null)
-          setPendingReport(false)
-          setDatabaseOpen(false)
-          chat.newConversation()
-        }}
+        onNewChat={newChat}
         onPickConversation={openConversation}
         onOpenSettings={() => setSettingsOpen(true)}
         onSignOut={onLogout}

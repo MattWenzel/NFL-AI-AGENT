@@ -111,8 +111,8 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     # Serve the UI from the same origin as the API. Specific API routes above
-    # take precedence; the mounts below only catch asset requests and the
-    # bare root.
+    # take precedence; the mounts below only catch asset requests, the bare
+    # root, and the SPA catchall for client-side routing.
     index_path = FRONTEND_DIST / "index.html"
     if index_path.is_file():
         app.mount(
@@ -124,6 +124,14 @@ def create_app() -> FastAPI:
 
         @app.get("/", include_in_schema=False)
         def serve_ui():
+            return FileResponse(index_path)
+
+        # SPA catchall — serves index.html for any path not matched by an
+        # API route or `/assets`. Lets the browser back/forward buttons
+        # navigate between in-app surfaces (chats, reports, database).
+        # Registered LAST so all specific routers above win first.
+        @app.get("/{full_path:path}", include_in_schema=False)
+        def serve_spa(full_path: str):  # noqa: ARG001 — path captured for matching only
             return FileResponse(index_path)
     else:
         logger.warning(

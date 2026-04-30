@@ -35,12 +35,10 @@ import { HelperMessageList } from './HelperMessageList'
 import { SaveAsReportDialog } from './SaveAsReportDialog'
 
 const SQL_STORAGE_KEY = 'nfl-stats:database:last-sql'
-const TABLE_STORAGE_KEY = 'nfl-stats:database:last-table'
 
 interface DatabaseViewProps {
   /** Table the user picked from the sidebar (null = open without preselect). */
   selectedTable: string | null
-  onSelectedTableChange: (next: string | null) => void
   onSaveAsReport: (conversationId: string) => void
   /** SQL helper chat — render the transcript inline below the table and
    *  feed the docked composer through `helper.send`. */
@@ -58,7 +56,7 @@ function defaultQueryFor(tableName: string): string {
 }
 
 export const DatabaseView = forwardRef<DatabaseViewHandle, DatabaseViewProps>(function DatabaseView(
-  { selectedTable, onSelectedTableChange, onSaveAsReport, helper },
+  { selectedTable, onSaveAsReport, helper },
   ref,
 ) {
   const [sql, setSql] = useState<string>(() => {
@@ -78,27 +76,6 @@ export const DatabaseView = forwardRef<DatabaseViewHandle, DatabaseViewProps>(fu
       // quota / private mode — non-fatal
     }
   }, [sql])
-
-  useEffect(() => {
-    try {
-      if (selectedTable) localStorage.setItem(TABLE_STORAGE_KEY, selectedTable)
-    } catch {
-      // ignore
-    }
-  }, [selectedTable])
-
-  const didRestoreRef = useRef(false)
-  useEffect(() => {
-    if (didRestoreRef.current) return
-    didRestoreRef.current = true
-    if (selectedTable) return
-    try {
-      const stored = localStorage.getItem(TABLE_STORAGE_KEY)
-      if (stored) onSelectedTableChange(stored)
-    } catch {
-      // ignore
-    }
-  }, [selectedTable, onSelectedTableChange])
 
   const runQuery = useCallback(async (sqlToRun: string) => {
     const trimmed = sqlToRun.trim()
