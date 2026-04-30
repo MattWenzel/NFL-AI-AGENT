@@ -96,6 +96,7 @@ These bite every LLM that doesn't read the guides carefully. Burn them in:
 5. **`play_by_play` is large (1.28M rows × 372 cols).** Always filter by `season` / `week` / `team` / player — unfiltered scans time out.
 6. **Defensive stats live on `season_stats` / `game_stats` in a `def_*` block** (`def_sacks`, `def_interceptions`, `def_tackles_solo`, `def_fumbles_forced`, etc.) — use these for season/weekly totals. `pfr_advanced` now also has defensive stats. `play_by_play` is only for play-level detail (who sacked on 3rd down, which INT was returned for a TD).
 7. **Column-name traps on `game_stats` / `season_stats`** — these plain names DO NOT exist; the query will error out:
+   - `games_played` / `gp` → `games` (just `games` on both `season_stats` and `team_season_stats`)
    - `sacks` → `sacks_suffered` (offensive, QB got sacked) or `def_sacks` (defensive)
    - `sack_yards` → `sack_yards_lost` (offensive) or `def_sack_yards` (defensive)
    - `interceptions` → `passing_interceptions` (QB threw) or `def_interceptions` (defender caught)
