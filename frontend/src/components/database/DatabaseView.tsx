@@ -170,7 +170,7 @@ export const DatabaseView = forwardRef<DatabaseViewHandle, DatabaseViewProps>(fu
 
   // Vertical split: table on top, helper transcript below. Mirrors
   // TableChatView's layout so Reports and Database feel the same.
-  const [tablePct, setTablePct] = useState(55)
+  const [tablePct, setTablePct] = useState(70)
   const [mode, setMode] = useState<SplitMode>('table-max')
   const splitRef = useRef<HTMLDivElement | null>(null)
   const [dragging, setDragging] = useState(false)

@@ -179,7 +179,7 @@ export function TableChatView({
   // Vertical split between table (top) and chat (bottom). `tablePct` is the
   // table's share of the available height when in split mode; the rest goes
   // to the chat. `mode` lets the user maximize either section to take 100%.
-  const [tablePct, setTablePct] = useState(55)
+  const [tablePct, setTablePct] = useState(70)
   const [mode, setMode] = useState<SplitMode>('split')
   const splitRef = useRef<HTMLDivElement | null>(null)
   const [dragging, setDragging] = useState(false)
