@@ -2,7 +2,7 @@ import { ChevronRight, AlertCircle, AlertTriangle, CheckCircle2, Loader2, Octago
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Markdown } from '@/components/thread/Markdown'
-import { hasSqlPayload } from '@/components/inspector/Inspector'
+import { hasSqlPayload } from '@/lib/transcript'
 import { useLayout } from '@/components/layout/AppShell'
 import { useChatContext } from '@/lib/chatContext'
 import { cn } from '@/lib/utils'
@@ -110,7 +110,7 @@ export function AgentResponse({
         }
       }}
       className={cn(
-        '-mx-3 space-y-2 rounded-xl px-3 py-2 transition-colors',
+        '-mx-3 flex flex-col gap-2 rounded-xl px-3 py-2 transition-colors',
         interactive && 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         interactive && selected
           ? 'bg-accent/20 ring-1 ring-accent/55 hover:bg-accent/30 dark:bg-accent/8 dark:ring-accent/30 dark:hover:bg-accent/12'
@@ -134,7 +134,7 @@ export function AgentResponse({
           <summary className="cursor-pointer text-2xs font-medium uppercase tracking-[0.14em] hover:text-foreground">
             Reasoning
           </summary>
-          <div className="mt-1 space-y-2">
+          <div className="mt-1 flex flex-col gap-2">
             {reasoningParts.map((p) => (
               <p key={p.id} className="whitespace-pre-wrap leading-relaxed">
                 {p.content}

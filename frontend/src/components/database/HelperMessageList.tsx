@@ -1,8 +1,9 @@
-import { useEffect, useRef } from 'react'
+import { useMemo, useRef } from 'react'
 import { AlertCircle, CheckCircle2, ChevronRight, Loader2 } from 'lucide-react'
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import type { HelperMessage, HelperToolRun } from '@/lib/dbHelperChat'
+import { useScrollToBottom } from '@/lib/useScrollToBottom'
 import { cn } from '@/lib/utils'
 
 interface HelperMessageListProps {
@@ -17,9 +18,21 @@ interface HelperMessageListProps {
  *  so detail-view stays inside this list. */
 export function HelperMessageList({ messages, streaming, error }: HelperMessageListProps) {
   const tailRef = useRef<HTMLDivElement | null>(null)
-  useEffect(() => {
-    tailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [messages, streaming])
+  // Trigger the scroll on user-message count rather than the full
+  // message list, so streaming text deltas don't re-fire on every chunk.
+  const userMessageCount = useMemo(
+    () => messages.filter((m) => m.role === 'user').length,
+    [messages],
+  )
+  useScrollToBottom({
+    trackedKey: userMessageCount > 0 ? `user-${userMessageCount}` : null,
+    // The helper is ephemeral — no session id to anchor on. Passing a
+    // stable string keeps `isFreshLoad` false after the first send so
+    // every scroll uses the smooth animation.
+    resetKey: 'helper',
+    getElement: () => tailRef.current,
+    block: 'end',
+  })
 
   if (messages.length === 0) {
     return (
@@ -33,7 +46,7 @@ export function HelperMessageList({ messages, streaming, error }: HelperMessageL
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-6xl space-y-8 px-6 py-6 lg:px-10">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 py-6 lg:px-10">
         {messages.map((m, i) =>
           m.role === 'user' ? (
             <UserBubble key={i} text={m.text} />
@@ -78,7 +91,7 @@ function AssistantBubble({
 }) {
   const hasContent = text.length > 0 || toolRuns.length > 0
   return (
-    <div className="-mx-3 space-y-2 rounded-xl px-3 py-2">
+    <div className="-mx-3 flex flex-col gap-2 rounded-xl px-3 py-2">
       <p className="text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
         Agent
       </p>
@@ -155,7 +168,7 @@ function ToolRunRow({ run }: { run: HelperToolRun }) {
           ) : null}
           <ChevronRight className="ml-auto size-3 shrink-0 text-muted-foreground transition-transform duration-150 group-open:rotate-90" />
         </summary>
-        <div className="space-y-2 border-t border-border bg-background/40 px-3 py-2 text-xs">
+        <div className="flex flex-col gap-2 border-t border-border bg-background/40 px-3 py-2 text-xs">
           {inputJson ? (
             <div>
               <p className="text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground">

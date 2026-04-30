@@ -77,7 +77,7 @@ export function SaveAsReportDialog({
             able to chat with the agent to refine it.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
           <label htmlFor="report-title" className="text-sm font-medium">
             Title
           </label>

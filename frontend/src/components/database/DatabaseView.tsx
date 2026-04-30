@@ -11,7 +11,6 @@ import {
   ChevronDown,
   ChevronUp,
   Database,
-  GripHorizontal,
   Maximize2,
   Minimize2,
   Save,
@@ -21,6 +20,7 @@ import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Composer } from '@/components/composer/Composer'
+import { SplitPane, type SplitMode } from '@/components/layout/SplitPane'
 import { LiveTableView } from '@/components/tables/LiveTableView'
 import { SqlEditorPanel } from '@/components/tables/SqlEditorPanel'
 import { AuroraBackground } from '@/components/thread/AuroraBackground'
@@ -36,8 +36,6 @@ import { SaveAsReportDialog } from './SaveAsReportDialog'
 
 const SQL_STORAGE_KEY = 'nfl-stats:database:last-sql'
 const TABLE_STORAGE_KEY = 'nfl-stats:database:last-table'
-
-type SplitMode = 'split' | 'table-min' | 'table-max' | 'chat-max'
 
 interface DatabaseViewProps {
   /** Table the user picked from the sidebar (null = open without preselect). */
@@ -171,191 +169,135 @@ export const DatabaseView = forwardRef<DatabaseViewHandle, DatabaseViewProps>(fu
 
   // Vertical split: table on top, helper transcript below. Mirrors
   // TableChatView's layout so Reports and Database feel the same.
-  const [tablePct, setTablePct] = useState(70)
-  const [mode, setMode] = useState<SplitMode>('table-max')
-  const splitRef = useRef<HTMLDivElement | null>(null)
-  const [dragging, setDragging] = useState(false)
-
-  useEffect(() => {
-    if (!dragging) return
-    const onMove = (ev: MouseEvent) => {
-      const el = splitRef.current
-      if (!el) return
-      const rect = el.getBoundingClientRect()
-      const pct = ((ev.clientY - rect.top) / rect.height) * 100
-      setTablePct(Math.min(Math.max(pct, 15), 85))
-    }
-    const onUp = () => setDragging(false)
-    document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup', onUp)
-    return () => {
-      document.removeEventListener('mousemove', onMove)
-      document.removeEventListener('mouseup', onUp)
-    }
-  }, [dragging])
-
-  const tableMinimized = mode === 'table-min'
-  const tableMaxed = mode === 'table-max'
-  const chatMaxed = mode === 'chat-max'
-  const showTable = !chatMaxed
+  // Defaults to top-max (table-only) since the helper chat is opt-in;
+  // the user opens it via the maximize-chat button.
+  const [mode, setMode] = useState<SplitMode>('top-max')
+  const tableMinimized = mode === 'top-min'
+  const tableMaxed = mode === 'top-max'
+  const chatMaxed = mode === 'bottom-max'
   const showTableBody = !tableMinimized
-  const showChat = !tableMaxed
-  const showHandle = mode === 'split'
-
-  const tableFlex =
-    mode === 'split'
-      ? { flex: `1 1 ${tablePct}%`, minHeight: 0 }
-      : mode === 'table-max'
-        ? { flex: '1 1 auto', minHeight: 0 }
-        : { flex: '0 0 auto' } // minimized — fits the header only
-  const chatFlex =
-    mode === 'split'
-      ? { flex: `1 1 ${100 - tablePct}%`, minHeight: 0 }
-      : { flex: '1 1 auto', minHeight: 0 }
 
   // Auto-restore split when sending a message in maximized mode so the
   // helper's reply is visible.
   const handleSend: typeof helper.send = (message, opts) => {
-    if (mode === 'table-max') setMode('split')
+    if (mode === 'top-max') setMode('split')
     return helper.send(message, opts)
   }
+
+  const tablePane = (
+    <>
+      <div className="flex shrink-0 items-center gap-2 border-b border-border px-6 py-3">
+        <Database className="size-4 text-muted-foreground" />
+        <h1 className="text-lg font-semibold tracking-tight">
+          Database
+          {selectedTable ? (
+            <span className="ml-2 font-mono text-sm font-normal text-muted-foreground">
+              · {selectedTable}
+            </span>
+          ) : null}
+        </h1>
+        <div className="ml-auto flex items-center gap-2">
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => setSaveOpen(true)}
+            disabled={!canSave}
+            title={canSave ? 'Save as Report' : 'Run a query that returns rows first'}
+          >
+            <Save className="size-4" />
+            Save as Report
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 text-muted-foreground hover:text-foreground"
+            onClick={() => setMode(tableMinimized ? 'split' : 'top-min')}
+            aria-pressed={tableMinimized}
+            aria-label={tableMinimized ? 'Restore split' : 'Minimize table'}
+            title={tableMinimized ? 'Restore split' : 'Minimize table'}
+          >
+            {tableMinimized ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 text-muted-foreground hover:text-foreground"
+            onClick={() => setMode(tableMaxed ? 'split' : 'top-max')}
+            aria-pressed={tableMaxed}
+            aria-label={tableMaxed ? 'Restore split' : 'Maximize table'}
+            title={tableMaxed ? 'Restore split' : 'Maximize table'}
+          >
+            {tableMaxed ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+          </Button>
+        </div>
+      </div>
+
+      {showTableBody ? (
+        <>
+          <div className="shrink-0 border-b border-border px-6 py-3">
+            <SqlEditorPanel
+              sql={sql}
+              onSqlChange={setSql}
+              onRun={() => runQuery(sql)}
+              running={loading}
+              error={error}
+              defaultOpen={false}
+              placeholder="SELECT * FROM players LIMIT 100"
+            />
+          </div>
+
+          <div className="flex min-h-0 flex-1 flex-col">
+            <LiveTableView
+              table={tableForResult}
+              loading={loading}
+              error={null}
+              emptyHint="Pick a table on the left, or write a query above and run it."
+            />
+          </div>
+        </>
+      ) : null}
+    </>
+  )
+
+  const chatPane = (
+    <>
+      <div className="absolute right-2 top-2 z-10 flex items-center gap-1">
+        {helper.messages.length > 0 && !helper.streaming ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7 text-muted-foreground hover:text-foreground"
+            onClick={helper.clear}
+            aria-label="Clear helper chat"
+            title="Clear helper chat"
+          >
+            <Trash2 className="size-4" />
+          </Button>
+        ) : null}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7 text-muted-foreground hover:text-foreground"
+          onClick={() => setMode(chatMaxed ? 'split' : 'bottom-max')}
+          aria-pressed={chatMaxed}
+          aria-label={chatMaxed ? 'Restore split' : 'Maximize chat'}
+          title={chatMaxed ? 'Restore split' : 'Maximize chat'}
+        >
+          {chatMaxed ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+        </Button>
+      </div>
+      <HelperMessageList
+        messages={helper.messages}
+        streaming={helper.streaming}
+        error={helper.error}
+      />
+    </>
+  )
 
   return (
     <div className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden">
       <AuroraBackground />
-      <div
-        ref={splitRef}
-        className="relative mx-auto flex min-h-0 w-full flex-1 flex-col overflow-hidden px-6 pt-6 lg:px-10"
-      >
-        {showTable ? (
-          <div
-            style={tableFlex}
-            className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm"
-          >
-            <div className="flex shrink-0 items-center gap-2 border-b border-border px-6 py-3">
-              <Database className="size-4 text-muted-foreground" />
-              <h1 className="text-lg font-semibold tracking-tight">
-                Database
-                {selectedTable ? (
-                  <span className="ml-2 font-mono text-sm font-normal text-muted-foreground">
-                    · {selectedTable}
-                  </span>
-                ) : null}
-              </h1>
-              <div className="ml-auto flex items-center gap-2">
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={() => setSaveOpen(true)}
-                  disabled={!canSave}
-                  title={canSave ? 'Save as Report' : 'Run a query that returns rows first'}
-                >
-                  <Save className="size-4" />
-                  Save as Report
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-8 text-muted-foreground hover:text-foreground"
-                  onClick={() => setMode(tableMinimized ? 'split' : 'table-min')}
-                  aria-pressed={tableMinimized}
-                  aria-label={tableMinimized ? 'Restore split' : 'Minimize table'}
-                  title={tableMinimized ? 'Restore split' : 'Minimize table'}
-                >
-                  {tableMinimized ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-8 text-muted-foreground hover:text-foreground"
-                  onClick={() => setMode(tableMaxed ? 'split' : 'table-max')}
-                  aria-pressed={tableMaxed}
-                  aria-label={tableMaxed ? 'Restore split' : 'Maximize table'}
-                  title={tableMaxed ? 'Restore split' : 'Maximize table'}
-                >
-                  {tableMaxed ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
-                </Button>
-              </div>
-            </div>
-
-            {showTableBody ? (
-              <>
-                <div className="shrink-0 border-b border-border px-6 py-3">
-                  <SqlEditorPanel
-                    sql={sql}
-                    onSqlChange={setSql}
-                    onRun={() => runQuery(sql)}
-                    running={loading}
-                    error={error}
-                    defaultOpen={false}
-                    placeholder="SELECT * FROM players LIMIT 100"
-                  />
-                </div>
-
-                <div className="flex min-h-0 flex-1 flex-col">
-                  <LiveTableView
-                    table={tableForResult}
-                    loading={loading}
-                    error={null}
-                    emptyHint="Pick a table on the left, or write a query above and run it."
-                  />
-                </div>
-              </>
-            ) : null}
-          </div>
-        ) : null}
-
-        {showHandle ? (
-          <div
-            role="separator"
-            aria-orientation="horizontal"
-            aria-label="Resize table and chat"
-            onMouseDown={(e) => {
-              e.preventDefault()
-              setDragging(true)
-            }}
-            className="group flex h-2 shrink-0 cursor-row-resize items-center justify-center"
-          >
-            <div className="h-px w-full bg-transparent transition-colors group-hover:bg-border" />
-            <GripHorizontal className="absolute size-4 text-muted-foreground/40 group-hover:text-muted-foreground" />
-          </div>
-        ) : null}
-
-        {showChat ? (
-          <div style={chatFlex} className="relative flex min-h-0 flex-col">
-            <div className="absolute right-2 top-2 z-10 flex items-center gap-1">
-              {helper.messages.length > 0 && !helper.streaming ? (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-7 text-muted-foreground hover:text-foreground"
-                  onClick={helper.clear}
-                  aria-label="Clear helper chat"
-                  title="Clear helper chat"
-                >
-                  <Trash2 className="size-4" />
-                </Button>
-              ) : null}
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7 text-muted-foreground hover:text-foreground"
-                onClick={() => setMode(chatMaxed ? 'split' : 'chat-max')}
-                aria-pressed={chatMaxed}
-                aria-label={chatMaxed ? 'Restore split' : 'Maximize chat'}
-                title={chatMaxed ? 'Restore split' : 'Maximize chat'}
-              >
-                {chatMaxed ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
-              </Button>
-            </div>
-            <HelperMessageList
-              messages={helper.messages}
-              streaming={helper.streaming}
-              error={helper.error}
-            />
-          </div>
-        ) : null}
-      </div>
+      <SplitPane mode={mode} topPane={tablePane} bottomPane={chatPane} />
 
       <Composer
         streaming={helper.streaming}

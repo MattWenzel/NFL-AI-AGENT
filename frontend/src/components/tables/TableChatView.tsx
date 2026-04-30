@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   ChevronDown,
   ChevronUp,
   Download,
-  GripHorizontal,
   Lock,
   Maximize2,
   Minimize2,
@@ -14,6 +13,7 @@ import {
 import { toast } from 'sonner'
 
 import { Composer } from '@/components/composer/Composer'
+import { SplitPane, type SplitMode } from '@/components/layout/SplitPane'
 import { EmptyTableChat } from '@/components/tables/EmptyTableChat'
 import { LiveTableView } from '@/components/tables/LiveTableView'
 import { SqlEditorPanel } from '@/components/tables/SqlEditorPanel'
@@ -35,8 +35,6 @@ import { sanitizeCsvFilename, tableToCsv } from '@/lib/csv'
 import { useTablesContext } from '@/lib/tablesContext'
 import { runReportSql, setTableLocked } from '@/lib/tables'
 import type { TableState } from '@/lib/tables'
-
-type SplitMode = 'split' | 'table-min' | 'table-max' | 'chat-max'
 
 interface TableChatViewProps {
   activeTableId: string
@@ -177,56 +175,21 @@ export function TableChatView({
     setTimeout(() => URL.revokeObjectURL(href), 0)
   }, [table, title])
 
-  // Vertical split between table (top) and chat (bottom). `tablePct` is the
-  // table's share of the available height when in split mode; the rest goes
-  // to the chat. `mode` lets the user maximize either section to take 100%.
-  const [tablePct, setTablePct] = useState(70)
+  // Vertical split between table (top) and chat (bottom). The split layout
+  // primitive owns drag-to-resize internally; we just track which mode the
+  // user has chosen so the maximize/minimize buttons work and so we can
+  // flip back to `split` when sending a message.
   const [mode, setMode] = useState<SplitMode>('split')
-  const splitRef = useRef<HTMLDivElement | null>(null)
-  const [dragging, setDragging] = useState(false)
-
-  useEffect(() => {
-    if (!dragging) return
-    const onMove = (ev: MouseEvent) => {
-      const el = splitRef.current
-      if (!el) return
-      const rect = el.getBoundingClientRect()
-      const pct = ((ev.clientY - rect.top) / rect.height) * 100
-      setTablePct(Math.min(Math.max(pct, 15), 85))
-    }
-    const onUp = () => setDragging(false)
-    document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup', onUp)
-    return () => {
-      document.removeEventListener('mousemove', onMove)
-      document.removeEventListener('mouseup', onUp)
-    }
-  }, [dragging])
-
-  const tableMinimized = mode === 'table-min'
-  const tableMaxed = mode === 'table-max'
-  const chatMaxed = mode === 'chat-max'
-  const showTable = !chatMaxed
+  const tableMinimized = mode === 'top-min'
+  const tableMaxed = mode === 'top-max'
+  const chatMaxed = mode === 'bottom-max'
   const showTableBody = !tableMinimized
-  const showChat = !tableMaxed
-  const showHandle = mode === 'split'
-
-  const tableFlex =
-    mode === 'split'
-      ? { flex: `1 1 ${tablePct}%`, minHeight: 0 }
-      : mode === 'table-max'
-        ? { flex: '1 1 auto', minHeight: 0 }
-        : { flex: '0 0 auto' } // minimized — fits the header only
-  const chatFlex =
-    mode === 'split'
-      ? { flex: `1 1 ${100 - tablePct}%`, minHeight: 0 }
-      : { flex: '1 1 auto', minHeight: 0 }
 
   // Sending a message while the table is fully maximized would otherwise
   // hide the agent's response — auto-drop back to the split layout so the
   // user sees the reply immediately.
   const handleSend: typeof onSend = (message, opts) => {
-    if (mode === 'table-max') setMode('split')
+    if (mode === 'top-max') setMode('split')
     onSend(message, opts)
   }
 
@@ -234,160 +197,138 @@ export function TableChatView({
   const hasTurns = !!transcript && transcript.turns.length > 0
   const chatStreaming = chat.streamStatus === 'streaming'
 
-  return (
-    <div className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden">
-      <AuroraBackground />
-      <div
-        ref={splitRef}
-        className="relative mx-auto flex min-h-0 w-full flex-1 flex-col overflow-hidden px-6 pt-6 lg:px-10"
-      >
-        {showTable ? (
-          <div
-            style={tableFlex}
-            className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm"
-          >
-            <header className="flex shrink-0 items-start gap-3 border-b border-border px-6 py-4">
-              <div className="min-w-0 flex-1 space-y-1">
-                <p className="text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                  Report
-                </p>
-                <div className="flex items-center gap-2">
-                  <h1 className="truncate font-display text-2xl font-medium tracking-tight">{title}</h1>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7 text-muted-foreground hover:text-foreground"
-                    onClick={startRename}
-                    aria-label="Rename report"
-                  >
-                    <Pencil className="size-4" />
-                  </Button>
-                </div>
-                {table ? (
-                  <p className="text-2xs text-muted-foreground">
-                    {table.row_count.toLocaleString()} rows · {table.columns.length} columns
-                    {table.truncated ? ' · capped' : ''}
-                    {isLocked ? ' · locked' : ''}
-                  </p>
-                ) : null}
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <Button
-                  variant={isLocked ? 'secondary' : 'ghost'}
-                  size="sm"
-                  onClick={toggleLock}
-                  disabled={!table || lockBusy}
-                  aria-pressed={isLocked}
-                  aria-label={isLocked ? 'Unlock table' : 'Lock table'}
-                  title={
-                    isLocked
-                      ? 'Table is locked — the agent cannot change it. Click to unlock.'
-                      : 'Lock the table so the agent cannot change it.'
-                  }
-                >
-                  {isLocked ? <Lock className="size-4" /> : <Unlock className="size-4" />}
-                  <span className="hidden sm:inline">{isLocked ? 'Locked' : 'Lock'}</span>
-                </Button>
-                <Button size="sm" onClick={downloadCsv} disabled={!hasRows} aria-label="Download CSV">
-                  <Download className="size-4" />
-                  <span className="hidden sm:inline">Download</span>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-8 text-muted-foreground hover:text-foreground"
-                  onClick={() => setMode(tableMinimized ? 'split' : 'table-min')}
-                  aria-pressed={tableMinimized}
-                  aria-label={tableMinimized ? 'Restore split' : 'Minimize table'}
-                  title={tableMinimized ? 'Restore split' : 'Minimize table'}
-                >
-                  {tableMinimized ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-8 text-muted-foreground hover:text-foreground"
-                  onClick={() => setMode(tableMaxed ? 'split' : 'table-max')}
-                  aria-pressed={tableMaxed}
-                  aria-label={tableMaxed ? 'Restore split' : 'Maximize table'}
-                  title={tableMaxed ? 'Restore split' : 'Maximize table'}
-                >
-                  {tableMaxed ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setConfirmDeleteOpen(true)}
-                  aria-label="Delete report"
-                  className="text-muted-foreground hover:text-destructive"
-                >
-                  <Trash2 className="size-4" />
-                </Button>
-              </div>
-            </header>
-            {showTableBody ? (
-              <>
-                {table?.last_sql ? (
-                  <div className="shrink-0 border-b border-border px-6 py-3">
-                    <SqlEditorPanel
-                      sql={sqlDraft}
-                      onSqlChange={setSqlDraft}
-                      onRun={runSql}
-                      running={sqlRunning}
-                      error={sqlError}
-                      locked={isLocked}
-                      defaultOpen={false}
-                    />
-                  </div>
-                ) : null}
-                <LiveTableView table={table} loading={loading} error={error} />
-              </>
-            ) : null}
-          </div>
-        ) : null}
-
-        {showHandle ? (
-          <div
-            role="separator"
-            aria-orientation="horizontal"
-            aria-label="Resize table and chat"
-            onMouseDown={(e) => {
-              e.preventDefault()
-              setDragging(true)
-            }}
-            className="group flex h-2 shrink-0 cursor-row-resize items-center justify-center"
-          >
-            <div className="h-px w-full bg-transparent transition-colors group-hover:bg-border" />
-            <GripHorizontal className="absolute size-4 text-muted-foreground/40 group-hover:text-muted-foreground" />
-          </div>
-        ) : null}
-
-        {showChat ? (
-          <div style={chatFlex} className="relative flex min-h-0 flex-col">
+  const tablePane = (
+    <>
+      <header className="flex shrink-0 items-start gap-3 border-b border-border px-6 py-4">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <p className="text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+            Report
+          </p>
+          <div className="flex items-center gap-2">
+            <h1 className="truncate font-display text-2xl font-medium tracking-tight">{title}</h1>
             <Button
               variant="ghost"
               size="icon"
-              className="absolute right-2 top-2 z-10 size-7 text-muted-foreground hover:text-foreground"
-              onClick={() => setMode(chatMaxed ? 'split' : 'chat-max')}
-              aria-pressed={chatMaxed}
-              aria-label={chatMaxed ? 'Restore split' : 'Maximize chat'}
-              title={chatMaxed ? 'Restore split' : 'Maximize chat'}
+              className="size-7 text-muted-foreground hover:text-foreground"
+              onClick={startRename}
+              aria-label="Rename report"
             >
-              {chatMaxed ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+              <Pencil className="size-4" />
             </Button>
-            {hasTurns ? (
-              <Thread transcript={transcript!} />
-            ) : (
-              <EmptyTableChat streaming={chatStreaming} />
-            )}
-            {chat.streamError ? (
-              <div className="px-4 py-2 text-center text-xs text-destructive">
-                {chat.streamError}
-              </div>
-            ) : null}
           </div>
-        ) : null}
-      </div>
+          {table ? (
+            <p className="text-2xs text-muted-foreground">
+              {table.row_count.toLocaleString()} rows · {table.columns.length} columns
+              {table.truncated ? ' · capped' : ''}
+              {isLocked ? ' · locked' : ''}
+            </p>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button
+            variant={isLocked ? 'secondary' : 'ghost'}
+            size="sm"
+            onClick={toggleLock}
+            disabled={!table || lockBusy}
+            aria-pressed={isLocked}
+            aria-label={isLocked ? 'Unlock table' : 'Lock table'}
+            title={
+              isLocked
+                ? 'Table is locked — the agent cannot change it. Click to unlock.'
+                : 'Lock the table so the agent cannot change it.'
+            }
+          >
+            {isLocked ? <Lock className="size-4" /> : <Unlock className="size-4" />}
+            <span className="hidden sm:inline">{isLocked ? 'Locked' : 'Lock'}</span>
+          </Button>
+          <Button size="sm" onClick={downloadCsv} disabled={!hasRows} aria-label="Download CSV">
+            <Download className="size-4" />
+            <span className="hidden sm:inline">Download</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 text-muted-foreground hover:text-foreground"
+            onClick={() => setMode(tableMinimized ? 'split' : 'top-min')}
+            aria-pressed={tableMinimized}
+            aria-label={tableMinimized ? 'Restore split' : 'Minimize table'}
+            title={tableMinimized ? 'Restore split' : 'Minimize table'}
+          >
+            {tableMinimized ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 text-muted-foreground hover:text-foreground"
+            onClick={() => setMode(tableMaxed ? 'split' : 'top-max')}
+            aria-pressed={tableMaxed}
+            aria-label={tableMaxed ? 'Restore split' : 'Maximize table'}
+            title={tableMaxed ? 'Restore split' : 'Maximize table'}
+          >
+            {tableMaxed ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setConfirmDeleteOpen(true)}
+            aria-label="Delete report"
+            className="text-muted-foreground hover:text-destructive"
+          >
+            <Trash2 className="size-4" />
+          </Button>
+        </div>
+      </header>
+      {showTableBody ? (
+        <>
+          {table?.last_sql ? (
+            <div className="shrink-0 border-b border-border px-6 py-3">
+              <SqlEditorPanel
+                sql={sqlDraft}
+                onSqlChange={setSqlDraft}
+                onRun={runSql}
+                running={sqlRunning}
+                error={sqlError}
+                locked={isLocked}
+                defaultOpen={false}
+              />
+            </div>
+          ) : null}
+          <LiveTableView table={table} loading={loading} error={error} />
+        </>
+      ) : null}
+    </>
+  )
+
+  const chatPane = (
+    <>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="absolute right-2 top-2 z-10 size-7 text-muted-foreground hover:text-foreground"
+        onClick={() => setMode(chatMaxed ? 'split' : 'bottom-max')}
+        aria-pressed={chatMaxed}
+        aria-label={chatMaxed ? 'Restore split' : 'Maximize chat'}
+        title={chatMaxed ? 'Restore split' : 'Maximize chat'}
+      >
+        {chatMaxed ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+      </Button>
+      {hasTurns ? (
+        <Thread transcript={transcript!} />
+      ) : (
+        <EmptyTableChat streaming={chatStreaming} />
+      )}
+      {chat.streamError ? (
+        <div className="px-4 py-2 text-center text-xs text-destructive">
+          {chat.streamError}
+        </div>
+      ) : null}
+    </>
+  )
+
+  return (
+    <div className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden">
+      <AuroraBackground />
+      <SplitPane mode={mode} topPane={tablePane} bottomPane={chatPane} />
 
       <Composer
         streaming={streaming}

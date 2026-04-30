@@ -4,6 +4,7 @@ import { AgentResponse } from '@/components/thread/AgentResponse'
 import { UserTurn } from '@/components/thread/UserTurn'
 import { useLayout } from '@/components/layout/AppShell'
 import { useChatContext } from '@/lib/chatContext'
+import { useScrollToBottom } from '@/lib/useScrollToBottom'
 import type {
   AssistantPartRecord,
   ConversationTranscript,
@@ -109,18 +110,12 @@ export function Thread({ transcript }: ThreadProps) {
     }
     return null
   }, [groups])
-  const prevSessionIdRef = useRef<string | null>(null)
-  useEffect(() => {
-    if (!lastUserTurnId) return
-    const el = exchangeRefs.current.get(lastUserTurnId)
-    if (!el) return
-    const isNewConversation = prevSessionIdRef.current !== transcript.session_id
-    prevSessionIdRef.current = transcript.session_id
-    el.scrollIntoView({
-      behavior: isNewConversation ? 'auto' : 'smooth',
-      block: 'start',
-    })
-  }, [lastUserTurnId, transcript.session_id])
+  useScrollToBottom({
+    trackedKey: lastUserTurnId,
+    resetKey: transcript.session_id,
+    getElement: () =>
+      lastUserTurnId ? exchangeRefs.current.get(lastUserTurnId) ?? null : null,
+  })
 
   return (
     <div
@@ -132,7 +127,7 @@ export function Thread({ transcript }: ThreadProps) {
         closeDesktopInspector()
       }}
     >
-      <div className="mx-auto w-full max-w-6xl space-y-8 px-6 py-6 lg:px-10">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 py-6 lg:px-10">
         {groups.map((g, i) => {
           const setAnchorRef = anchorFlags[i]
             ? (el: HTMLDivElement | null) => {

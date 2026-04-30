@@ -72,7 +72,7 @@ export function EmptyReportScreen({
           aria-hidden="true"
           className="size-32 object-contain"
         />
-        <div className="space-y-4">
+        <div className="flex flex-col gap-4">
           <h1 className="font-display text-4xl font-medium tracking-tight">
             Build a report
           </h1>

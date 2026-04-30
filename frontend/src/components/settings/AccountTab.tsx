@@ -28,8 +28,8 @@ interface AccountTabProps {
 
 export function AccountTab({ user, onAccountDeleted }: AccountTabProps) {
   return (
-    <div className="space-y-8">
-      <section className="space-y-3">
+    <div className="flex flex-col gap-8">
+      <section className="flex flex-col gap-3">
         <h3 className="text-base font-semibold">Email</h3>
         <p className="text-sm text-muted-foreground">{user.email}</p>
       </section>
@@ -95,14 +95,14 @@ function LinkedAccountsSection() {
   const hasGoogle = !!googleIdentity
 
   return (
-    <section className="space-y-3 border-t border-border pt-6">
+    <section className="flex flex-col gap-3 border-t border-border pt-6">
       <h3 className="text-base font-semibold">Linked accounts</h3>
       {loading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : error ? (
         <p className="text-sm text-destructive">{error}</p>
       ) : (
-        <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+        <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">
           <div className="flex items-baseline gap-3">
             <GoogleIcon className="size-4 self-center" />
             <h4 className="text-sm font-semibold">Google</h4>
@@ -194,10 +194,10 @@ function ChangePasswordSection() {
   }
 
   return (
-    <section className="space-y-3">
+    <section className="flex flex-col gap-3">
       <h3 className="text-base font-semibold">Change password</h3>
-      <form onSubmit={submit} className="space-y-3">
-        <div className="space-y-2">
+      <form onSubmit={submit} className="flex flex-col gap-3">
+        <div className="flex flex-col gap-2">
           <Label htmlFor="current-password" className="text-xs">Current password</Label>
           <Input
             id="current-password"
@@ -209,7 +209,7 @@ function ChangePasswordSection() {
             disabled={busy}
           />
         </div>
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
           <Label htmlFor="new-password" className="text-xs">New password</Label>
           <Input
             id="new-password"
@@ -222,7 +222,7 @@ function ChangePasswordSection() {
             disabled={busy}
           />
         </div>
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
           <Label htmlFor="confirm-password" className="text-xs">Confirm new password</Label>
           <Input
             id="confirm-password"
@@ -268,7 +268,7 @@ function DeleteAccountSection({ onDeleted }: { onDeleted: () => void }) {
   }
 
   return (
-    <section className="space-y-3 border-t border-border pt-6">
+    <section className="flex flex-col gap-3 border-t border-border pt-6">
       <h3 className="text-base font-semibold">Delete account</h3>
       <p className="text-sm text-muted-foreground">
         Permanently remove your account and all conversations and CSVs.
@@ -295,7 +295,7 @@ function DeleteAccountSection({ onDeleted }: { onDeleted: () => void }) {
               All conversations and exported CSVs will be removed. Confirm by entering your password.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             <Label htmlFor="delete-password" className="text-xs">Password</Label>
             <Input
               id="delete-password"

@@ -122,7 +122,7 @@ export function AppShell({
           <button
             type="button"
             onClick={() => setDesktopSidebarOpen(true)}
-            className="absolute left-0 top-3 z-10 hidden h-8 w-8 items-center justify-center rounded-r-md border border-l-0 border-border bg-card text-muted-foreground transition-colors hover:bg-muted md:flex"
+            className="absolute left-0 top-3 z-10 hidden size-8 items-center justify-center rounded-r-md border border-l-0 border-border bg-card text-muted-foreground transition-colors hover:bg-muted md:flex"
             aria-label="Open sidebar"
           >
             <PanelLeftOpen className="size-4" />
@@ -133,7 +133,7 @@ export function AppShell({
           <button
             type="button"
             onClick={() => setDesktopInspectorOpen(true)}
-            className="absolute right-0 top-3 z-10 hidden h-8 w-8 items-center justify-center rounded-l-md border border-r-0 border-border bg-card text-muted-foreground transition-colors hover:bg-muted lg:flex"
+            className="absolute right-0 top-3 z-10 hidden size-8 items-center justify-center rounded-l-md border border-r-0 border-border bg-card text-muted-foreground transition-colors hover:bg-muted lg:flex"
             aria-label="Open inspector"
           >
             <PanelRightOpen className="size-4" />
@@ -166,7 +166,7 @@ export function AppShell({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9"
+                className="size-9"
                 onClick={() => setMobileSidebarOpen(true)}
                 aria-label="Open menu"
               >
@@ -177,7 +177,7 @@ export function AppShell({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="ml-auto h-9 w-9"
+                  className="ml-auto size-9"
                   onClick={() => setMobileInspectorOpen(true)}
                   aria-label="Open inspector"
                 >
@@ -206,7 +206,7 @@ export function AppShell({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7"
+                  className="size-7"
                   onClick={() => setDesktopInspectorOpen(false)}
                   aria-label={`Close ${activeInspectorLabel.toLowerCase()}`}
                 >

@@ -43,7 +43,7 @@ export function ProvidersTab() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="flex flex-col gap-5">
       {statuses.map((s) =>
         s.credential_shape === 'codex_oauth' ? (
           <CodexProviderRow key={s.provider} status={s} onChange={refresh} />
@@ -108,7 +108,7 @@ function ApiKeyProviderRow({ status, onChange }: { status: ApiKeyStatus; onChang
   }
 
   return (
-    <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+    <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">
       <div className="flex items-baseline gap-3">
         {brandIconFor(status.provider)}
         <h3 className="text-base font-semibold">{status.display_name}</h3>
@@ -126,7 +126,7 @@ function ApiKeyProviderRow({ status, onChange }: { status: ApiKeyStatus; onChang
       </div>
 
       {editing ? (
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
           <Label htmlFor={`key-${status.provider}`} className="text-xs">
             API key
           </Label>
@@ -285,7 +285,7 @@ function CodexProviderRow({ status, onChange }: { status: ApiKeyStatus; onChange
   }
 
   return (
-    <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+    <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">
       <div className="flex items-baseline gap-3">
         <OpenAIIcon className="size-4 self-center" />
         <h3 className="text-base font-semibold">{status.display_name}</h3>
@@ -304,7 +304,7 @@ function CodexProviderRow({ status, onChange }: { status: ApiKeyStatus; onChange
       </p>
 
       {pending ? (
-        <div className="space-y-2 rounded-md border border-border bg-muted/30 px-3 py-3">
+        <div className="flex flex-col gap-2 rounded-md border border-border bg-muted/30 px-3 py-3">
           <p className="text-xs">
             Visit{' '}
             <a

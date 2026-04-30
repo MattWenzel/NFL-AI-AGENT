@@ -172,15 +172,15 @@ export function Composer({
           type="button"
           size="icon"
           variant="ghost"
-          className="h-7 w-7 shrink-0 text-muted-foreground hover:bg-muted"
+          className="size-7 shrink-0 text-muted-foreground hover:bg-muted"
           aria-label="Composer settings"
           title="Provider / model / tool choice"
         >
           <Settings2 className="size-3.5" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" side="top" className="w-64 space-y-3">
-        <div className="space-y-2">
+      <PopoverContent align="start" side="top" className="flex w-64 flex-col gap-3">
+        <div className="flex flex-col gap-2">
           <p className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
             Provider
           </p>
@@ -211,7 +211,7 @@ export function Composer({
             </SelectContent>
           </Select>
         </div>
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
           <p className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
             Model
           </p>
@@ -232,7 +232,7 @@ export function Composer({
             </SelectContent>
           </Select>
         </div>
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
           <p className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
             Tool use
           </p>
@@ -366,7 +366,7 @@ export function Composer({
                 variant={variant === 'compact' ? 'outline' : 'secondary'}
                 size="icon"
                 onClick={onStop}
-                className={cn('ml-auto rounded-full', variant === 'compact' ? 'h-7 w-7' : 'size-8')}
+                className={cn('ml-auto rounded-full', variant === 'compact' ? 'size-7' : 'size-8')}
                 aria-label="Stop"
               >
                 <Square className="size-3.5" />
@@ -377,7 +377,7 @@ export function Composer({
                 size="icon"
                 onClick={submit}
                 disabled={disabled || !value.trim() || !provider || !model}
-                className={cn('ml-auto rounded-full', variant === 'compact' ? 'h-7 w-7' : 'size-8')}
+                className={cn('ml-auto rounded-full', variant === 'compact' ? 'size-7' : 'size-8')}
                 aria-label="Send"
               >
                 <ArrowUp className={variant === 'compact' ? 'size-3.5' : 'size-4'} />

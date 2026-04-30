@@ -131,7 +131,7 @@ frontend/                         # Browser UI — React + Vite + Tailwind + sha
     │   ├── sidebar/              #     conversation/report list with column-search
     │   ├── tables/               #     Reports view — TableChatView, save flow
     │   ├── theme/                #     theme tokens + provider
-    │   ├── thread/               #     legacy thread renderer (still used in places)
+    │   ├── thread/               #     transcript renderer + UserTurn / AgentResponse / ToolPayload (shared by Chat and Reports)
     │   └── ui/                   #     shadcn primitives
     └── lib/
         ├── api.ts                #     apiFetch + CSRF plumbing

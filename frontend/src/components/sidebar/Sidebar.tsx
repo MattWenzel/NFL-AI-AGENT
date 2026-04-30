@@ -189,7 +189,7 @@ export function Sidebar({
         </Button>
       </div>
 
-      <div className="space-y-1 px-2 pt-1">
+      <div className="flex flex-col gap-1 px-2 pt-1">
         <Button
           variant="ghost"
           className="h-10 w-full justify-start gap-2.5 text-base font-medium text-sidebar-foreground hover:bg-sidebar-accent"
@@ -311,7 +311,7 @@ export function Sidebar({
           ) : filteredDbTables.length === 0 ? (
             <SidebarMessage label={query ? 'No matches' : 'No tables found'} />
           ) : (
-            <ul className="space-y-px">
+            <ul className="flex flex-col gap-px">
               {filteredDbTables.map(({ table, matchedColumns }) => {
                 const isActive =
                   databaseOpen && selectedDatabaseTable === table.name
@@ -378,7 +378,7 @@ function SidebarGroup({
           {label}
         </p>
       ) : null}
-      <ul className="space-y-px">
+      <ul className="flex flex-col gap-px">
         {items.map((item) => (
           <ConversationRow
             key={item.id}
@@ -413,7 +413,7 @@ function TableGroup({
           {label}
         </p>
       ) : null}
-      <ul className="space-y-px">
+      <ul className="flex flex-col gap-px">
         {items.map((item) => (
           <TableRow
             key={item.id}

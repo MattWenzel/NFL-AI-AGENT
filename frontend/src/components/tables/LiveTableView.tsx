@@ -68,7 +68,7 @@ export function LiveTableView({
 
   if (loading && !table) {
     return (
-      <div className="space-y-3 p-6">
+      <div className="flex flex-col gap-3 p-6">
         <Skeleton className="h-6 w-full" />
         <Skeleton className="h-6 w-full" />
         <Skeleton className="h-6 w-full" />
@@ -79,7 +79,7 @@ export function LiveTableView({
   if (!table || table.rows.length === 0) {
     return (
       <div className="grid flex-1 place-items-center px-6 text-center">
-        <div className="max-w-md space-y-2">
+        <div className="flex max-w-md flex-col gap-2">
           <p className="text-base text-muted-foreground">No table yet.</p>
           <p className="text-sm text-muted-foreground/80">{emptyHint}</p>
         </div>

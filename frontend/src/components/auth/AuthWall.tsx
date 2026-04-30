@@ -136,8 +136,8 @@ export function AuthWall({ onLogin, onRegister, errorMessage }: AuthWallProps) {
 
   return (
     <div className="grid min-h-dvh place-items-center bg-background px-6">
-      <div className="w-full max-w-sm space-y-8">
-        <div className="space-y-2 text-center">
+      <div className="flex w-full max-w-sm flex-col gap-8">
+        <div className="flex flex-col gap-2 text-center">
           <div className="flex flex-col items-center gap-2">
             <img
               src={logoUrl}
@@ -157,8 +157,8 @@ export function AuthWall({ onLogin, onRegister, errorMessage }: AuthWallProps) {
           </p>
         </div>
 
-        <form onSubmit={submit} className="space-y-4">
-          <div className="space-y-2">
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
             <Label htmlFor="email" className="text-xs">Email</Label>
             <Input
               id="email"
@@ -170,7 +170,7 @@ export function AuthWall({ onLogin, onRegister, errorMessage }: AuthWallProps) {
               placeholder="you@example.com"
             />
           </div>
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             <Label htmlFor="password" className="text-xs">Password</Label>
             <Input
               id="password"
@@ -183,7 +183,7 @@ export function AuthWall({ onLogin, onRegister, errorMessage }: AuthWallProps) {
             />
           </div>
           {mode === 'signup' ? (
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2">
               <Label htmlFor="invite" className="text-xs">
                 Invite code <span className="text-muted-foreground">(if required)</span>
               </Label>
@@ -217,7 +217,7 @@ export function AuthWall({ onLogin, onRegister, errorMessage }: AuthWallProps) {
           </div>
         </div>
 
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
           <Button variant="secondary" className="w-full gap-2" asChild>
             <a href="/auth/oauth/google/start">
               <GoogleIcon />
@@ -225,7 +225,7 @@ export function AuthWall({ onLogin, onRegister, errorMessage }: AuthWallProps) {
             </a>
           </Button>
           {chatgptFlow ? (
-            <div className="space-y-2 rounded-md border border-border bg-muted/30 px-3 py-3 text-left">
+            <div className="flex flex-col gap-2 rounded-md border border-border bg-muted/30 px-3 py-3 text-left">
               <p className="text-xs">
                 Visit{' '}
                 <a
