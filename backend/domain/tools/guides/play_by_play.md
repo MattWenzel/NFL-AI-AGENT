@@ -207,7 +207,7 @@ GROUP BY p.player_gsis_id, p.display_name ORDER BY total_tds DESC LIMIT 20;
 ## Performance tips
 
 - **Filter PBP on its OWN columns, not via JOIN predicates.** Prefer `WHERE pbp.season_type='POST' AND pbp.week IN (21,22)` over `JOIN games g ON g.game_id = pbp.game_id WHERE g.game_type='SB'` — the direct PBP filter narrows the scan before any join runs.
-- **Pattern:** reduce PBP rows with `season`, `season_type`, `week`, `posteam`, or a player_id column FIRST. Any JOIN to `games` or `players` should come after — it runs against the already-small result set.
+- **Pattern:** reduce PBP rows with `season`, `season_type`, `week`, `posteam`, or one of the per-role player columns (`passer_player_id`, `rusher_player_id`, `receiver_player_id`, etc.) FIRST. Any JOIN to `games` or `players` should come after — it runs against the already-small result set.
 - Filter before joining. `SELECT … FROM play_by_play JOIN players …` on an unfiltered PBP scan will time out.
 - Break complex PBP queries into parts (passing TDs, rushing TDs, receiving TDs each in a separate CTE) rather than one giant join.
 - `play_by_play.season_type` = `'REG'` / `'POST'` (binary; same as game_stats/season_stats). `play_by_play.game_date` (NOT `gameday`).

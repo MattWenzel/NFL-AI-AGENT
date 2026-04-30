@@ -81,16 +81,21 @@ Each guide has column references, gotchas, and copy-pasteable SQL templates for 
 
 These bite every LLM that doesn't read the guides carefully. Burn them in:
 
-1. **Kicker queries require `p.position = 'K'`** from the `players` table, plus the custom scoring formula from `get_guide("fantasy")`. `fantasy_points` on kickers is ~0.0 — never use it for kicker rankings.
-2. **`game_type` vs `season_type` are different columns on different tables.**
+1. **The player-id column is literally `player_gsis_id` on every table — including `players` itself.** Same column name on both sides of the join. Common wrong guesses (binder errors every time):
+   - ❌ `p.gsis_id` / `p.id` / `p.player_id`  → ✅ `p.player_gsis_id`
+   - ❌ `gs.player_id` / `gs.gsis_id`  → ✅ `gs.player_gsis_id`
+   - Canonical pattern: `JOIN players p ON p.player_gsis_id = gs.player_gsis_id`
+   - Same on `season_stats`, `weekly_rosters`, `snap_counts`, `ngs_stats`, `pfr_advanced`, `qbr`, `injuries`, `pbp_participation`, etc. — all `player_gsis_id`. There is no shortened `gsis_id` or generic `player_id` column anywhere.
+2. **Kicker queries require `p.position = 'K'`** from the `players` table, plus the custom scoring formula from `get_guide("fantasy")`. `fantasy_points` on kickers is ~0.0 — never use it for kicker rankings.
+3. **`game_type` vs `season_type` are different columns on different tables.**
    - `game_type` (granular): games, snap_counts, depth_charts → `'REG'`/`'WC'`/`'DIV'`/`'CON'`/`'SB'`. **No `'POST'` value.**
    - `season_type` (binary): game_stats, season_stats, ngs_stats, play_by_play → `'REG'`/`'POST'`.
    - QBR is the odd one out: `season_type` = `'Regular'`/`'Postseason'`.
    - `play_by_play` has NO `game_type` — use `season_type`+`week`, or join to `games`. Full cheatsheet: `get_guide("postseason")`.
-3. **`qbr.game_id` is ESPN's numeric namespace, NOT nflverse's `games.game_id`.** `JOIN games g ON g.game_id = q.game_id` silently returns zero rows. Join qbr directly to players via `player_gsis_id`; if you need game context, join games via `(season, week)`.
-4. **`play_by_play` is large (1.28M rows × 372 cols).** Always filter by `season` / `week` / `team` / player — unfiltered scans time out.
-5. **Defensive stats live on `season_stats` / `game_stats` in a `def_*` block** (`def_sacks`, `def_interceptions`, `def_tackles_solo`, `def_fumbles_forced`, etc.) — use these for season/weekly totals. `pfr_advanced` now also has defensive stats. `play_by_play` is only for play-level detail (who sacked on 3rd down, which INT was returned for a TD).
-6. **Column-name traps on `game_stats` / `season_stats`** — these plain names DO NOT exist; the query will error out:
+4. **`qbr.game_id` is ESPN's numeric namespace, NOT nflverse's `games.game_id`.** `JOIN games g ON g.game_id = q.game_id` silently returns zero rows. Join qbr directly to players via `player_gsis_id`; if you need game context, join games via `(season, week)`.
+5. **`play_by_play` is large (1.28M rows × 372 cols).** Always filter by `season` / `week` / `team` / player — unfiltered scans time out.
+6. **Defensive stats live on `season_stats` / `game_stats` in a `def_*` block** (`def_sacks`, `def_interceptions`, `def_tackles_solo`, `def_fumbles_forced`, etc.) — use these for season/weekly totals. `pfr_advanced` now also has defensive stats. `play_by_play` is only for play-level detail (who sacked on 3rd down, which INT was returned for a TD).
+7. **Column-name traps on `game_stats` / `season_stats`** — these plain names DO NOT exist; the query will error out:
    - `sacks` → `sacks_suffered` (offensive, QB got sacked) or `def_sacks` (defensive)
    - `sack_yards` → `sack_yards_lost` (offensive) or `def_sack_yards` (defensive)
    - `interceptions` → `passing_interceptions` (QB threw) or `def_interceptions` (defender caught)
@@ -98,8 +103,8 @@ These bite every LLM that doesn't read the guides carefully. Burn them in:
    - `tds` → `passing_tds + rushing_tds + receiving_tds` (offensive) or `def_tds` (defensive)
 
    Full column map in `get_guide("player_stats")`.
-7. **`snap_counts` has no season totals and times out on unfiltered joins.** Filter by season; aggregate in a CTE before joining to players. Zero-snap rows are legit data — filter `WHERE defense_snaps > 0` (or `offense_snaps > 0`) for leaderboards. See `get_guide("player_stats")`.
-8. **After any "no such column" or "no such table" error, the next tool call is `get_schema`** — do not retry with a guessed column name.
+8. **`snap_counts` has no season totals and times out on unfiltered joins.** Filter by season; aggregate in a CTE before joining to players. Zero-snap rows are legit data — filter `WHERE defense_snaps > 0` (or `offense_snaps > 0`) for leaderboards. See `get_guide("player_stats")`.
+9. **After any "no such column" or "no such table" error, the next tool call is `get_schema`** — do not retry with a guessed column name.
 
 ## Before writing SQL
 
