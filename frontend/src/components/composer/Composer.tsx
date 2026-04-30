@@ -161,6 +161,101 @@ export function Composer({
 
   const models = currentProvider?.models ?? []
 
+  // Popover-based provider/model/tool picker. Used by the compact variant
+  // at all widths, and by docked/centered variants on mobile so the
+  // bottom row stays a single tap target instead of three pill buttons
+  // wrapping inside the composer card.
+  const settingsPopover = (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="h-7 w-7 shrink-0 text-muted-foreground hover:bg-muted"
+          aria-label="Composer settings"
+          title="Provider / model / tool choice"
+        >
+          <Settings2 className="size-3.5" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" side="top" className="w-64 space-y-3">
+        <div className="space-y-2">
+          <p className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
+            Provider
+          </p>
+          <Select
+            value={provider ?? undefined}
+            onValueChange={setProvider}
+            disabled={providersStatus !== 'ready'}
+          >
+            <SelectTrigger size="sm" className="h-8 w-full text-xs">
+              <SelectValue
+                placeholder={providersStatus === 'loading' ? 'Loading…' : 'Provider'}
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {[...providers]
+                .sort((a, b) => Number(b.available) - Number(a.available))
+                .map((p) => (
+                  <SelectItem
+                    key={p.name}
+                    value={p.name}
+                    className="text-xs"
+                    disabled={!p.available}
+                  >
+                    {p.display_name}
+                    {!p.available ? ' — set key in Settings' : ''}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <p className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
+            Model
+          </p>
+          <Select
+            value={model ?? undefined}
+            onValueChange={setModel}
+            disabled={models.length === 0}
+          >
+            <SelectTrigger size="sm" className="h-8 w-full text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {models.map((m) => (
+                <SelectItem key={m} value={m} className="text-xs">
+                  {m}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <p className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
+            Tool use
+          </p>
+          <Select
+            value={toolChoice}
+            onValueChange={(v) => setToolChoice(v as 'auto' | 'required' | 'none')}
+          >
+            <SelectTrigger size="sm" className="h-8 w-full text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TOOL_CHOICES.map((c) => (
+                <SelectItem key={c.value} value={c.value} className="text-xs">
+                  {c.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+
   return (
     <div
       className={cn(
@@ -200,96 +295,11 @@ export function Composer({
             )}
           >
             {variant === 'compact' ? (
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className="h-7 w-7 shrink-0 text-muted-foreground hover:bg-muted"
-                    aria-label="Composer settings"
-                    title="Provider / model / tool choice"
-                  >
-                    <Settings2 className="size-3.5" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent align="start" side="top" className="w-64 space-y-3">
-                  <div className="space-y-2">
-                    <p className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Provider
-                    </p>
-                    <Select
-                      value={provider ?? undefined}
-                      onValueChange={setProvider}
-                      disabled={providersStatus !== 'ready'}
-                    >
-                      <SelectTrigger size="sm" className="h-8 w-full text-xs">
-                        <SelectValue
-                          placeholder={providersStatus === 'loading' ? 'Loading…' : 'Provider'}
-                        />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {[...providers]
-                          .sort((a, b) => Number(b.available) - Number(a.available))
-                          .map((p) => (
-                            <SelectItem
-                              key={p.name}
-                              value={p.name}
-                              className="text-xs"
-                              disabled={!p.available}
-                            >
-                              {p.display_name}
-                              {!p.available ? ' — set key in Settings' : ''}
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <p className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Model
-                    </p>
-                    <Select
-                      value={model ?? undefined}
-                      onValueChange={setModel}
-                      disabled={models.length === 0}
-                    >
-                      <SelectTrigger size="sm" className="h-8 w-full text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {models.map((m) => (
-                          <SelectItem key={m} value={m} className="text-xs">
-                            {m}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <p className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Tool use
-                    </p>
-                    <Select
-                      value={toolChoice}
-                      onValueChange={(v) => setToolChoice(v as 'auto' | 'required' | 'none')}
-                    >
-                      <SelectTrigger size="sm" className="h-8 w-full text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {TOOL_CHOICES.map((c) => (
-                          <SelectItem key={c.value} value={c.value} className="text-xs">
-                            {c.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </PopoverContent>
-              </Popover>
+              settingsPopover
             ) : (
               <>
+                <div className="contents md:hidden">{settingsPopover}</div>
+                <div className="hidden md:contents">
                 <Select
                   value={provider ?? undefined}
                   onValueChange={setProvider}
@@ -346,6 +356,7 @@ export function Composer({
                     ))}
                   </SelectContent>
                 </Select>
+                </div>
               </>
             )}
 
