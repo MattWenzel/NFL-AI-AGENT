@@ -1,10 +1,11 @@
-import { ChevronRight, AlertCircle, AlertTriangle, CheckCircle2, Loader2, OctagonX } from 'lucide-react'
+import { ArrowRight, ChevronRight, AlertCircle, AlertTriangle, CheckCircle2, Loader2, OctagonX, Table2 } from 'lucide-react'
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Markdown } from '@/components/thread/Markdown'
 import { hasSqlPayload } from '@/lib/transcript'
 import { useLayout } from '@/components/layout/AppShell'
 import { useChatContext } from '@/lib/state/chatContext'
+import { useNavigation } from '@/lib/state/navigation'
 import { cn } from '@/lib/utils'
 import type {
   AssistantPartRecord,
@@ -43,8 +44,17 @@ export function AgentResponse({
 }: AgentResponseProps) {
   const { selectedToolRunId, selectToolRun } = useChatContext()
   const { openDesktopInspector } = useLayout()
+  const { openReport } = useNavigation()
   // Streaming if ANY of the turns is still active.
   const isStreaming = turns.some((t) => t.status === 'pending' || t.status === 'streaming')
+
+  // Pull report-link data out of any successful create_report tool runs.
+  // The chatStore synthesizes the result mid-stream on the report_created
+  // SSE event so the link can render immediately; the post-stream
+  // transcript refetch carries the same fields.
+  const reportLinks = toolRuns
+    .map(parseReportLink)
+    .filter((link): link is ReportLinkData => link !== null)
 
   // Concatenate ordered text content (parts already merged within a turn by
   // the chatStore; here we also concatenate across iterations).
@@ -145,6 +155,18 @@ export function AgentResponse({
       ) : null}
 
       {textContent ? <Markdown source={textContent} /> : null}
+
+      {reportLinks.length > 0 ? (
+        <div className="flex flex-col gap-2 pt-1">
+          {reportLinks.map((link) => (
+            <ReportLinkCard
+              key={link.reportId}
+              data={link}
+              onOpen={() => openReport(link.reportId)}
+            />
+          ))}
+        </div>
+      ) : null}
 
       {isStreaming && !textContent && toolRuns.length === 0 ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -306,4 +328,69 @@ function summarizeInput(toolName: string, input: Record<string, unknown>): strin
   return entries
     .map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
     .join(', ')
+}
+
+interface ReportLinkData {
+  reportId: string
+  title: string
+  rowCount: number
+}
+
+/** Pull a report-link payload out of a tool run if it represents a
+ *  successful `create_report` call. Both the mid-stream synthesized
+ *  result (from chatStore's report-created action) and the post-stream
+ *  authoritative result share the same shape. */
+function parseReportLink(run: ToolRunRecord): ReportLinkData | null {
+  if (run.tool_name !== 'create_report') return null
+  if (run.status !== 'completed') return null
+  if (!run.result) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(run.result)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object') return null
+  const obj = parsed as Record<string, unknown>
+  if (obj.status !== 'success') return null
+  const reportId = obj.report_id
+  if (typeof reportId !== 'string' || !reportId) return null
+  return {
+    reportId,
+    title: typeof obj.title === 'string' ? obj.title : 'Report',
+    rowCount: typeof obj.row_count === 'number' ? obj.row_count : 0,
+  }
+}
+
+function ReportLinkCard({
+  data,
+  onOpen,
+}: {
+  data: ReportLinkData
+  onOpen: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation()
+        onOpen()
+      }}
+      className="group flex w-full items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left transition-colors hover:border-accent/50 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">
+        <Table2 className="size-5" />
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <p className="text-2xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+          Report ready
+        </p>
+        <p className="truncate text-sm font-medium text-foreground">{data.title}</p>
+        <p className="text-2xs text-muted-foreground tabular">
+          {data.rowCount.toLocaleString()} {data.rowCount === 1 ? 'row' : 'rows'}
+        </p>
+      </div>
+      <ArrowRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
+    </button>
+  )
 }

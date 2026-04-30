@@ -33,6 +33,13 @@ type Action =
   | { type: 'text-delta'; text: string }
   | { type: 'tool-call'; toolRunId: string; name: string; input: Record<string, unknown> }
   | { type: 'tool-result'; toolRunId: string; status: 'completed' | 'error'; message?: string }
+  | {
+      type: 'report-created'
+      toolRunId: string
+      reportId: string
+      title: string
+      rowCount: number
+    }
   | { type: 'stream-error'; message: string }
   | { type: 'stream-done' }
 
@@ -236,6 +243,26 @@ function reduce(state: ChatState, action: Action): ChatState {
                 action.status === 'error' ? action.message ?? r.error : r.error,
               updated_at: new Date().toISOString(),
             }
+          : r,
+      )
+      return { ...state, transcript: { ...state.transcript, tool_runs } }
+    }
+    case 'report-created': {
+      // Synthesize the tool_run's `result` payload mid-stream so the
+      // AgentResponse's report-link card can render immediately. The
+      // post-stream transcript refetch will replace this with the
+      // authoritative server-side result (same report_id + title, plus
+      // any extras the tool returned).
+      if (!state.transcript) return state
+      const payload = JSON.stringify({
+        status: 'success',
+        report_id: action.reportId,
+        title: action.title,
+        row_count: action.rowCount,
+      })
+      const tool_runs = state.transcript.tool_runs.map((r) =>
+        r.id === action.toolRunId
+          ? { ...r, result: payload, status: 'completed', updated_at: new Date().toISOString() }
           : r,
       )
       return { ...state, transcript: { ...state.transcript, tool_runs } }
@@ -492,6 +519,18 @@ export function useChat() {
               }
               break
             case 'report_created':
+              if (
+                typeof event.report_id === 'string' &&
+                typeof event.tool_run_id === 'string'
+              ) {
+                dispatch({
+                  type: 'report-created',
+                  toolRunId: event.tool_run_id,
+                  reportId: event.report_id,
+                  title: typeof event.title === 'string' ? event.title : '',
+                  rowCount: typeof event.row_count === 'number' ? event.row_count : 0,
+                })
+              }
               if (
                 options.onReportCreated &&
                 typeof event.report_id === 'string'

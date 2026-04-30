@@ -17,6 +17,7 @@ import { EmptyReportScreen } from '@/components/tables/EmptyReportScreen'
 import { DatabaseView, type DatabaseViewHandle } from '@/components/database/DatabaseView'
 import { useAuth, type AuthUser } from '@/lib/state/auth'
 import { ChatProvider, useChatContext } from '@/lib/state/chatContext'
+import { NavigationProvider } from '@/lib/state/navigation'
 import { TablesProvider, useTablesContext } from '@/lib/state/tablesContext'
 import { useActiveTable } from '@/lib/state/activeTable'
 import { useDbHelperChat } from '@/lib/state/dbHelperChat'
@@ -339,17 +340,11 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
   }, [activeTable.refetch])
 
   // Wired into every send call below — when the agent calls `create_report`,
-  // refresh the sidebar list, navigate into the new report, then refetch the
-  // table state. The trailing refetch mirrors how the edit flow's
-  // `onTableUpdated` calls refetch on every `table_updated` SSE event:
-  // making the SSE event the trigger (rather than relying on the freshly
-  // mounted TableChatView's mount-effect) is the reliable path.
-  const handleReportCreated = ({ report_id }: { report_id: string }) => {
+  // refresh the sidebar list so the new report shows up there. We deliberately
+  // do NOT auto-navigate; instead, the AgentResponse renders an inline link
+  // card the user can click to open the report.
+  const handleReportCreated = (_payload: { report_id: string }) => {
     tables.refresh()
-    openTable(report_id)
-    // setTimeout(0) defers past React's commit so the ref is rebound to the
-    // refetch closure for the new activeTableId before we call it.
-    setTimeout(() => refetchActiveTableRef.current(), 0)
   }
 
   // Single send closure for the Reports chat pane. Mirrors how the Database
@@ -379,7 +374,7 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
   }
 
   return (
-    <>
+    <NavigationProvider openReport={openTable}>
       <AppShell
         surfaceKey={
           databaseOpen
@@ -513,6 +508,6 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
         onOpenSettings={() => setSettingsOpen(true)}
         onSignOut={onLogout}
       />
-    </>
+    </NavigationProvider>
   )
 }

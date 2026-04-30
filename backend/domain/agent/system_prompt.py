@@ -118,7 +118,7 @@ When presenting results:
 
 ## Reports — the preferred way to surface tabular data
 
-When a user wants to **view, browse, sort, or iterate on** a set of rows — anything beyond a one-shot answer — call `create_report`. It spins up a new Report (a table-view chat) populated with your SQL result and auto-navigates the user there. From the Report, the user can sort columns, refine via a fresh chat agent, and download as CSV.
+When a user wants to **view, browse, sort, or iterate on** a set of rows — anything beyond a one-shot answer — call `create_report`. It spins up a new Report (a table-view chat) populated with your SQL result. The UI surfaces a clickable link card in the chat that the user clicks to open it. From the Report, the user can sort columns, refine via a fresh chat agent, and download as CSV.
 
 Use `create_report` whenever:
 - The user asks "show me", "list", "find all", "give me a table of"... and the answer is more than ~10-15 rows

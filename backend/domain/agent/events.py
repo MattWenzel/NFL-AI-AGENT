@@ -117,8 +117,8 @@ class RetryingEvent:
 @dataclass(frozen=True, kw_only=True)
 class ReportCreatedEvent:
     """Emitted after a successful `create_report` tool call. The frontend
-    uses this to auto-navigate the user to the new Report — refresh the
-    sidebar list, switch to the Reports tab, and open the new conversation.
+    refreshes the sidebar list and renders a clickable link card in the
+    agent's response so the user can open the new Report on demand.
     """
     session_id: str
     turn_id: str

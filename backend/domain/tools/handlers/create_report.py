@@ -4,8 +4,9 @@ with the agent's SQL result.
 Runs the SQL through the same sandbox as `set_table` (capped at the
 absolute 500-row ceiling), then asks the runtime to provision a fresh
 table-chat session and persist the rows to its `table_states` row. The
-runtime emits a `ReportCreatedEvent` on completion that the frontend
-uses to auto-navigate the user into the new Report.
+runtime emits a `ReportCreatedEvent` on completion; the frontend
+renders a clickable link card in the agent's response so the user can
+open the new Report from the chat.
 
 The handler returns ONLY a small summary (id + row count + columns) to
 the agent — the rows themselves never re-enter the LLM context.
