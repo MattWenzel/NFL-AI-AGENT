@@ -17,12 +17,6 @@ from backend.domain.agent.events import (
 from backend.domain.providers.base import BaseLLMClient
 from backend.domain.providers.errors import LLMError
 from backend.domain.agent.runtime import ChatRuntime
-from backend.domain.providers import (
-    create_client,
-    get_default_provider,
-    get_provider,
-    provider_is_available,
-)
 from backend.domain.providers.types import ToolChoice
 from backend.domain.tools import TOOLS
 from backend.data import RuntimeStore, SessionRecord
@@ -106,45 +100,28 @@ class ChatService:
         ):
             raise ChatNotFoundError("Conversation not found")
 
-        provider_name = provider or get_default_provider()
         try:
-            info = get_provider(provider_name)
-        except KeyError as exc:
-            raise ChatConfigurationError(str(exc)) from exc
-
-        try:
-            user_key = await self.credentials.get_api_key(
-                user_id=user.id,
-                provider_name=provider_name,
+            resolved = await self.credentials.resolve_provider_client(
+                user_id=user.id, provider=provider, model=model
             )
         except CredentialServiceError as exc:
             raise ChatConfigurationError(str(exc)) from exc
 
-        if not user_key and not provider_is_available(info):
-            if info.credential_shape == "codex_oauth":
-                raise ChatConfigurationError(
-                    f"{info.display_name} not connected — click Connect ChatGPT in Settings."
-                )
-            raise ChatConfigurationError(
-                f"No API key for {info.display_name} — add one in Settings."
-            )
-
-        try:
-            client = create_client(provider=provider_name, model=model, api_key=user_key)
-        except LLMError as exc:
-            raise ChatConfigurationError(str(exc)) from exc
-
         try:
             session = await self.runtime.prepare_session(
-                client,
-                provider_name,
+                resolved.client,
+                resolved.provider_name,
                 conversation_id,
                 user_id=user.id,
             )
         except Exception:
-            await close_client(client)
+            await close_client(resolved.client)
             raise
-        return PreparedChat(client=client, provider_name=provider_name, session=session)
+        return PreparedChat(
+            client=resolved.client,
+            provider_name=resolved.provider_name,
+            session=session,
+        )
 
     def stream_events(
         self,

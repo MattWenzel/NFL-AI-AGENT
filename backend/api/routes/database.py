@@ -6,6 +6,11 @@ ad-hoc SELECT, and convert any result into a new `table_chat` session
 
 Read-only by construction — the SQL goes through the same sandbox the
 agent uses, which only allows SELECT/WITH and rejects multi-statement.
+
+The `/helper-chat/stream` endpoint mirrors `/chat/stream` for the
+ephemeral helper-chat surface in the Database tab: per-user concurrency
+slot, prepared LLM client, producer/consumer SSE loop with heartbeats,
+and identical SSE error/done framing on every failure mode.
 """
 
 from __future__ import annotations
@@ -21,6 +26,7 @@ from backend.api.dependencies import (
     get_current_user,
     get_database_service,
     get_db_helper_chat_service,
+    get_process_state,
 )
 from backend.api.schemas.database import (
     DbHelperChatRequest,
@@ -31,10 +37,11 @@ from backend.api.schemas.database import (
     SaveSqlAsReportRequest,
     TableInfo,
 )
+from backend.application.chat import close_client
 from backend.application.database import DatabaseQueryError, DatabaseService
 from backend.application.db_helper_chat import (
-    DbHelperChatConfigurationError,
     DbHelperChatService,
+    HelperChatConfigurationError,
 )
 from backend.domain.agent.events import (
     RetryingEvent,
@@ -47,6 +54,8 @@ from backend.domain.agent.events import (
 from backend.domain.auth.types import AuthenticatedUser
 from backend.domain.providers.errors import LLMError
 from backend.server.csrf import verify_csrf
+from backend.server.process_state import AppProcessState
+from backend.server.rate_limit import ConcurrencyLimiter
 from backend.server.sse import done_payload, error_to_sse_payload
 
 logger = logging.getLogger(__name__)
@@ -59,6 +68,17 @@ router = APIRouter(prefix="/database", tags=["database"], dependencies=[Depends(
 HELPER_SSE_HEARTBEAT_SECONDS = 15
 
 _PRODUCER_DONE = object()
+
+
+async def _acquire_helper_slot(stream_gate: ConcurrencyLimiter, user_id: int) -> None:
+    await stream_gate.acquire(
+        user_id,
+        detail=(
+            f"Too many concurrent LLM streams (max "
+            f"{stream_gate.max_active} per user). "
+            "Wait for an in-flight reply to finish."
+        ),
+    )
 
 
 def _helper_event_to_sse(event) -> dict | None:
@@ -186,6 +206,7 @@ async def db_helper_chat_stream(
     request: Request,
     body: DbHelperChatRequest,
     service: DbHelperChatService = Depends(get_db_helper_chat_service),
+    process_state: AppProcessState = Depends(get_process_state),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     """Stream a turn of the Database browser's helper chat.
@@ -194,11 +215,15 @@ async def db_helper_chat_stream(
     it). No conversation id, no DB writes — refresh wipes the chat by
     design.
 
-    Acquisition + cleanup pattern mirrors `/chat/stream`: provider/credential
-    failures surface as a structured SSE error frame followed by `done`,
-    and the LLM client is closed in the generator's `finally` block so a
-    client abort between response-start and first body send doesn't leak.
+    Acquisition + cleanup mirrors `/chat/stream`: the per-user
+    concurrency slot, LLM client, and runtime source are all created
+    inside the generator (so an aborted response doesn't leak any of
+    them) and released in the generator's `finally`. The shared
+    `chat_stream_limiter` covers both surfaces — a single user can't
+    exceed the LLM stream cap by mixing chat and helper-chat calls.
     """
+
+    stream_gate = process_state.chat_stream_limiter
 
     def _sse_line(payload: dict) -> str:
         return f"data: {json.dumps(payload)}\n\n"
@@ -206,85 +231,100 @@ async def db_helper_chat_stream(
     raw_messages = [m.model_dump() for m in body.messages]
 
     async def event_generator():
+        slot_acquired = False
+        prepared = None
+        source = None
         try:
-            source = service.stream(
+            try:
+                await _acquire_helper_slot(stream_gate, user.id)
+                slot_acquired = True
+            except HTTPException as exc:
+                yield _sse_line(error_to_sse_payload(
+                    code="rate_limited",
+                    status=exc.status_code,
+                    message=exc.detail,
+                ))
+                yield _sse_line(done_payload())
+                return
+
+            try:
+                prepared = await service.prepare(
+                    provider=body.provider,
+                    model=body.model,
+                    user=user,
+                )
+            except HelperChatConfigurationError as exc:
+                yield _sse_line(error_to_sse_payload(
+                    code="configuration",
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message=str(exc),
+                ))
+                yield _sse_line(done_payload())
+                return
+
+            queue: asyncio.Queue = asyncio.Queue()
+            source = service.stream_events(
+                prepared,
                 messages=raw_messages,
-                provider=body.provider,
-                model=body.model,
                 tool_choice=body.tool_choice,
-                user=user,
             )
-        except DbHelperChatConfigurationError as exc:
-            yield _sse_line(error_to_sse_payload(
-                code="configuration",
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=str(exc),
-            ))
-            yield _sse_line(done_payload())
-            return
 
-        queue: asyncio.Queue = asyncio.Queue()
-
-        async def producer():
-            try:
-                async for event in source:
-                    await queue.put(event)
-            except DbHelperChatConfigurationError as exc:
-                await queue.put(exc)
-            except BaseException as exc:
-                await queue.put(exc)
-            finally:
-                await queue.put(_PRODUCER_DONE)
-
-        producer_task = asyncio.create_task(producer())
-
-        try:
-            while True:
-                if await request.is_disconnected():
-                    logger.info("Client disconnected, stopping helper-chat stream")
-                    break
+            async def producer():
                 try:
-                    item = await asyncio.wait_for(
-                        queue.get(), timeout=HELPER_SSE_HEARTBEAT_SECONDS
-                    )
-                except asyncio.TimeoutError:
-                    yield ": ping\n\n"
-                    continue
-                if item is _PRODUCER_DONE:
-                    break
-                if isinstance(item, DbHelperChatConfigurationError):
-                    yield _sse_line(error_to_sse_payload(
-                        code="configuration",
-                        status=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        message=str(item),
-                    ))
-                    break
-                if isinstance(item, LLMError):
-                    yield _sse_line(error_to_sse_payload(message=str(item)))
-                    break
-                if isinstance(item, BaseException):
-                    raise item
-                payload = _helper_event_to_sse(item)
-                if payload is not None:
-                    yield _sse_line(payload)
-            yield _sse_line(done_payload())
-        except Exception:
-            logger.exception("Unexpected error in helper-chat stream")
-            yield _sse_line(error_to_sse_payload(
-                message="Internal error — check server logs"
-            ))
-            yield _sse_line(done_payload())
-        finally:
-            if not producer_task.done():
-                producer_task.cancel()
+                    async for event in source:
+                        await queue.put(event)
+                except BaseException as exc:
+                    await queue.put(exc)
+                finally:
+                    await queue.put(_PRODUCER_DONE)
+
+            producer_task = asyncio.create_task(producer())
+
             try:
-                await producer_task
-            except (asyncio.CancelledError, Exception):
-                pass
-            try:
-                await source.aclose()
+                while True:
+                    if await request.is_disconnected():
+                        logger.info("Client disconnected, stopping helper-chat stream")
+                        break
+                    try:
+                        item = await asyncio.wait_for(
+                            queue.get(), timeout=HELPER_SSE_HEARTBEAT_SECONDS
+                        )
+                    except asyncio.TimeoutError:
+                        yield ": ping\n\n"
+                        continue
+                    if item is _PRODUCER_DONE:
+                        break
+                    if isinstance(item, LLMError):
+                        yield _sse_line(error_to_sse_payload(message=str(item)))
+                        break
+                    if isinstance(item, BaseException):
+                        raise item
+                    payload = _helper_event_to_sse(item)
+                    if payload is not None:
+                        yield _sse_line(payload)
+                yield _sse_line(done_payload())
             except Exception:
-                logger.exception("Failed to close helper-chat source")
+                logger.exception("Unexpected error in helper-chat stream")
+                yield _sse_line(error_to_sse_payload(
+                    message="Internal error — check server logs"
+                ))
+                yield _sse_line(done_payload())
+            finally:
+                if not producer_task.done():
+                    producer_task.cancel()
+                try:
+                    await producer_task
+                except (asyncio.CancelledError, Exception):
+                    pass
+                try:
+                    await source.aclose()
+                except Exception:
+                    logger.exception("Failed to close helper-chat source")
+        finally:
+            if prepared is not None:
+                await close_client(prepared.client)
+            if slot_acquired:
+                await stream_gate.release(user.id)
 
     return StreamingResponse(
         event_generator(),

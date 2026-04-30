@@ -3,6 +3,12 @@
 Stateless: takes a fresh message list each turn, runs the agent loop in
 `backend/domain/agent/stateless.py`, streams events back. Writes nothing
 to the runtime store — refresh wipes the conversation by design.
+
+Shape mirrors `ChatService`: `prepare(...)` resolves the provider/client
+up front (so credential failures surface to the route before the SSE
+body starts), and `stream_events(prepared, ...)` returns the runtime
+event source. The route layer owns acquiring the concurrency slot and
+closing the client in a `finally` block — same pattern as `/chat/stream`.
 """
 
 from __future__ import annotations
@@ -10,7 +16,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import AsyncGenerator
 
-from backend.application.chat import close_client
 from backend.application.oauth.provider_credentials import (
     CredentialServiceError,
     ProviderCredentialService,
@@ -23,25 +28,28 @@ from backend.domain.agent.stateless import (
 )
 from backend.domain.agent.system_prompt import get_db_helper_prompt
 from backend.domain.auth.types import AuthenticatedUser
-from backend.domain.providers import (
-    create_client,
-    get_default_provider,
-    get_provider,
-    provider_is_available,
-)
-from backend.domain.providers.errors import LLMError
+from backend.domain.providers.base import BaseLLMClient
 from backend.domain.providers.types import ToolChoice
 from backend.domain.tools import TOOLS
 from backend.data import RuntimeStore
 from backend.runtime_state import PerUserLockRegistry
 
 
-class DbHelperChatError(Exception):
-    """Base class for helper-chat preparation failures."""
+class HelperChatServiceError(Exception):
+    """Base class for helper-chat application failures."""
 
 
-class DbHelperChatConfigurationError(DbHelperChatError):
-    """Provider/credential resolution failed."""
+class HelperChatConfigurationError(HelperChatServiceError):
+    """Provider, credential, or model selection failed."""
+
+
+@dataclass
+class PreparedHelperChat:
+    """Return shape for `DbHelperChatService.prepare`. The route owns
+    client cleanup once it gets one back, mirroring `PreparedChat`."""
+
+    client: BaseLLMClient
+    provider_name: str
 
 
 _HELPER_TOOLS = [t for t in TOOLS if t.name in ALLOWED_HELPER_TOOLS]
@@ -55,63 +63,46 @@ class DbHelperChatService:
     refresh_locks: PerUserLockRegistry
 
     def __post_init__(self) -> None:
+        # Composed sub-service — same pattern as ChatService.
         self.credentials = ProviderCredentialService(self.store, self.refresh_locks)
 
-    async def stream(
+    async def prepare(
         self,
         *,
-        messages: list[dict],
         provider: str | None,
         model: str | None,
-        tool_choice: ToolChoice | None,
         user: AuthenticatedUser,
-    ) -> AsyncGenerator[RuntimeEvent, None]:
-        """Stream a helper-chat turn.
-
-        Resolves the provider + API key the same way `ChatService.prepare_chat`
-        does, then runs the stateless loop. The route layer iterates the
-        returned generator and serializes each event as SSE.
-        """
-        provider_name = provider or get_default_provider()
+    ) -> PreparedHelperChat:
         try:
-            info = get_provider(provider_name)
-        except KeyError as exc:
-            raise DbHelperChatConfigurationError(str(exc)) from exc
-
-        try:
-            user_key = await self.credentials.get_api_key(
-                user_id=user.id,
-                provider_name=provider_name,
+            resolved = await self.credentials.resolve_provider_client(
+                user_id=user.id, provider=provider, model=model
             )
         except CredentialServiceError as exc:
-            raise DbHelperChatConfigurationError(str(exc)) from exc
+            raise HelperChatConfigurationError(str(exc)) from exc
+        return PreparedHelperChat(
+            client=resolved.client, provider_name=resolved.provider_name
+        )
 
-        if not user_key and not provider_is_available(info):
-            if info.credential_shape == "codex_oauth":
-                raise DbHelperChatConfigurationError(
-                    f"{info.display_name} not connected — click Connect ChatGPT in Settings."
-                )
-            raise DbHelperChatConfigurationError(
-                f"No API key for {info.display_name} — add one in Settings."
-            )
+    def stream_events(
+        self,
+        prepared: PreparedHelperChat,
+        *,
+        messages: list[dict],
+        tool_choice: ToolChoice | None,
+    ) -> AsyncGenerator[RuntimeEvent, None]:
+        """Return the runtime event source for one helper-chat turn.
 
-        try:
-            client = create_client(
-                provider=provider_name, model=model, api_key=user_key
-            )
-        except LLMError as exc:
-            raise DbHelperChatConfigurationError(str(exc)) from exc
-
+        The caller iterates the generator and is responsible for closing
+        `prepared.client` in its own `finally`. `aclose()`-ing the
+        returned generator is also safe — the inner stateless loop has
+        no resources to release beyond the LLM client itself.
+        """
         wire_messages = build_messages_from_raw(messages)
         system = get_db_helper_prompt()
-        try:
-            async for event in run_stateless_turn(
-                messages=wire_messages,
-                client=client,
-                tools=_HELPER_TOOLS,
-                system=system,
-                tool_choice=tool_choice,
-            ):
-                yield event
-        finally:
-            await close_client(client)
+        return run_stateless_turn(
+            messages=wire_messages,
+            client=prepared.client,
+            tools=_HELPER_TOOLS,
+            system=system,
+            tool_choice=tool_choice,
+        )

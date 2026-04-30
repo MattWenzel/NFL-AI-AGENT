@@ -157,6 +157,14 @@ tests/                            # pytest test suite
 data/                             # Runtime data (runtime.sqlite3 — ignored)
 ```
 
+### Reports + Database surfaces
+
+`TableChatService` has a wider surface than `ConversationService` because a Report carries extra state on top of a normal session: the live `TableStateRecord` (columns + rows + last SQL) and its `locked` flag. So beyond the standard list/get/patch/delete, it owns `create_table_chat`, `set_table_locked`, `run_and_persist_sql` (user-edited SQL from the Reports view's editable panel — counterpart to the agent's `set_table` tool), and `save_to_reports` (snapshot the live table to a CSV in the exports library). Streaming still goes through `/chat/stream` — the request body shape is identical.
+
+`DbHelperChatService` is separate from `ChatService` because the helper chat is **stateless by design** — refresh wipes it, no `sessions` row, no transcript persistence. It mirrors the `prepare(...)` / `stream_events(...)` shape of `ChatService` so the route layout (concurrency-slot acquire → prepare → producer/consumer SSE loop with heartbeat → release in `finally`) is parallel; the shared `chat_stream_limiter` covers both surfaces so a single user can't exceed the LLM stream cap by mixing them. Provider/credential resolution is shared via `ProviderCredentialService.resolve_provider_client` — both services delegate the default-fallback → registry lookup → key fetch → `create_client` dance there.
+
+`DatabaseService` (the schema browser + ad-hoc SELECT runner) is intentionally a thin composition over the existing sandbox and `TableChatService`: `save_query_as_report` calls `TableChatService.create_table_chat`, then seeds the live table state directly. It never hand-rolls session creation.
+
 ## Development
 
 ```bash

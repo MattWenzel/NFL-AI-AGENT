@@ -54,7 +54,7 @@ async def create_table_chat(
         model=body.model,
         title=body.title,
     )
-    entry = await service.store.get_session_list_entry(session.id, user_id=user.id)
+    entry = await service.get_session_list_entry(session.id, user_id=user.id)
     if entry is None:  # pragma: no cover — race-only
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not load created table chat")
     return ConversationInfo.from_row(entry)

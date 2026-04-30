@@ -80,6 +80,19 @@ class TableChatService:
     async def list_table_chats(self, user_id: int) -> list[SessionListEntry]:
         return await self.store.list_sessions(user_id=user_id, kind="table_chat")
 
+    async def get_session_list_entry(
+        self, conversation_id: str, *, user_id: int
+    ) -> SessionListEntry | None:
+        """Fetch the sidebar shape for one table chat.
+
+        A thin wrapper so route code asks the service, not the store.
+        Used by the create endpoint to project a freshly-minted session
+        back into its sidebar entry shape.
+        """
+        return await self.store.get_session_list_entry(
+            conversation_id, user_id=user_id
+        )
+
     async def create_table_chat(
         self,
         *,
@@ -159,10 +172,13 @@ class TableChatService:
     ) -> TableStateRecord:
         """Run user-edited SQL through the sandbox and replace the table state.
 
-        Mirrors what the agent's `set_table` tool does — same sandbox, same
-        persistence call — but is initiated directly by the user from the
-        Reports view's editable SQL panel. Refuses if the table is locked
-        (matching `set_table`'s behavior).
+        Counterpart to the agent's `set_table` tool, but initiated by the
+        user from the Reports view's editable SQL panel. Same persistence
+        call (`upsert_table_state`) and same locked-table refusal, but
+        uses `execute_safe_sql` (fixed 500-row cap) rather than
+        `execute_table_sql` (caller-chosen cap from the composer's
+        table-size dropdown) — there is no row-cap control on the SQL
+        editor, so we use the standard sandbox cap.
         """
         session = await self.store.get_session(conversation_id, user_id=user_id)
         if session is None or session.kind != "table_chat":

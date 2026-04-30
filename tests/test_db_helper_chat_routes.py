@@ -139,7 +139,7 @@ def test_helper_chat_streams_text_response(client, monkeypatch):
 
     stub = _StubLLM(scripts=[[TextEvent(text="Hello "), TextEvent(text="world")]])
     monkeypatch.setattr(
-        "backend.application.db_helper_chat.create_client",
+        "backend.application.oauth.provider_credentials.create_client",
         lambda **_: stub,
     )
 
@@ -169,7 +169,7 @@ def test_helper_chat_inlines_tool_result_content(client, monkeypatch):
         [TextEvent(text="Got it.")],
     ])
     monkeypatch.setattr(
-        "backend.application.db_helper_chat.create_client",
+        "backend.application.oauth.provider_credentials.create_client",
         lambda **_: stub,
     )
 
@@ -203,7 +203,7 @@ def test_helper_chat_writes_no_sessions(client, store, monkeypatch):
 
     stub = _StubLLM(scripts=[[TextEvent(text="hi")]])
     monkeypatch.setattr(
-        "backend.application.db_helper_chat.create_client",
+        "backend.application.oauth.provider_credentials.create_client",
         lambda **_: stub,
     )
 
@@ -228,7 +228,7 @@ def test_helper_chat_writes_no_sessions(client, store, monkeypatch):
 
 
 def test_helper_chat_configuration_error_emits_sse_error(client, monkeypatch):
-    """Unknown provider → service raises DbHelperChatConfigurationError →
+    """Unknown provider → service raises HelperChatConfigurationError →
     SSE frame with code=configuration."""
     csrf = _register_and_get_csrf(client)
 
@@ -255,7 +255,7 @@ def test_helper_chat_assistant_with_tool_calls_round_trips(client, monkeypatch):
 
     stub = _StubLLM(scripts=[[TextEvent(text="ok")]])
     monkeypatch.setattr(
-        "backend.application.db_helper_chat.create_client",
+        "backend.application.oauth.provider_credentials.create_client",
         lambda **_: stub,
     )
 
