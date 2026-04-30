@@ -18,6 +18,8 @@ interface AppShellProps {
    *  When this changes, the inspector force-closes so it never carries
    *  a stale view across pages. */
   surfaceKey?: string
+  /** Wired to the mobile-header brand text — clicking it goes home. */
+  onBrandClick?: () => void
 }
 
 type LayoutCtx = {
@@ -60,6 +62,7 @@ export function AppShell({
   inspectorAvailable = false,
   inspectorLabel,
   surfaceKey,
+  onBrandClick,
 }: AppShellProps) {
   const activeInspectorLabel = inspectorLabel ?? 'Inspector'
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
@@ -172,7 +175,14 @@ export function AppShell({
               >
                 <Menu className="size-5" />
               </Button>
-              <span className="font-display text-base font-semibold tracking-tight">NFL StatSource</span>
+              <button
+                type="button"
+                onClick={onBrandClick}
+                disabled={!onBrandClick}
+                className="rounded font-brand text-base font-semibold tracking-tight transition-colors enabled:hover:text-foreground disabled:cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                NFL StatSource
+              </button>
               {inspectorAvailable ? (
                 <Button
                   variant="ghost"

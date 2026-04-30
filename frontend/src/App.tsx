@@ -169,6 +169,24 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
     navigate({ kind: 'pending-report' }, { replace: true })
   }, [surface, tables.status, tables.tables, navigate])
 
+  // Same bailout for the chat surface. Skip the bail when the chat is
+  // currently loaded (conversationId === surface.id) — that's the
+  // post-send window where the conversations list may not have caught
+  // up yet but the chat is real.
+  useEffect(() => {
+    if (surface.kind !== 'chat') return
+    if (chat.conversationsStatus !== 'ready') return
+    if (chat.conversationId === surface.id) return
+    if (chat.conversations.some((c) => c.id === surface.id)) return
+    navigate({ kind: 'home' }, { replace: true })
+  }, [
+    surface,
+    chat.conversationsStatus,
+    chat.conversations,
+    chat.conversationId,
+    navigate,
+  ])
+
   const openConversation = (id: string) => navigate({ kind: 'chat', id })
   const openTable = (id: string) => navigate({ kind: 'report', id })
   const openDatabase = (table?: string) => navigate({ kind: 'database', table })
@@ -272,6 +290,7 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
   return (
     <NavigationProvider openReport={openTable}>
       <AppShell
+        onBrandClick={newChat}
         surfaceKey={
           databaseOpen
             ? 'database'

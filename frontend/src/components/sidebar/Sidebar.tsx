@@ -171,13 +171,22 @@ export function Sidebar({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center py-3 pl-1 pr-3">
-        <img
-          src={logoUrl}
-          alt=""
-          aria-hidden="true"
-          className="size-20 shrink-0 object-contain"
-        />
-        <span className="ml-1 font-display text-lg font-semibold tracking-tight">NFL StatSource</span>
+        <button
+          type="button"
+          onClick={handleNewChat}
+          aria-label="New chat"
+          className="flex min-w-0 flex-1 items-center rounded-md transition-colors hover:bg-sidebar-accent focus-visible:bg-sidebar-accent focus-visible:outline-none"
+        >
+          <img
+            src={logoUrl}
+            alt=""
+            aria-hidden="true"
+            className="size-20 shrink-0 object-contain"
+          />
+          <span className="ml-1 truncate font-brand text-lg font-semibold tracking-tight">
+            NFL StatSource
+          </span>
+        </button>
         <Button
           variant="ghost"
           size="icon"
