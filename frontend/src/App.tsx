@@ -53,6 +53,7 @@ const VIEW_KEY_PREFIX = 'nfl-stats:last-view:'
 type LastView =
   | { kind: 'chat' | 'report'; id: string }
   | { kind: 'database'; table?: string }
+  | { kind: 'pending-report' }
 
 function readLastView(userId: number): LastView | null {
   try {
@@ -75,6 +76,9 @@ function readLastView(userId: number): LastView | null {
         kind: 'database',
         table: typeof parsed.table === 'string' ? parsed.table : undefined,
       }
+    }
+    if (parsed.kind === 'pending-report') {
+      return { kind: 'pending-report' }
     }
   } catch {
     // localStorage may be unavailable (private mode) or hold corrupted JSON.
@@ -122,7 +126,9 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
   // True between clicking "New report" and the user sending the first
   // message. While true the empty-report screen is shown and no
   // /chat/tables session has been created yet.
-  const [pendingReport, setPendingReport] = useState(false)
+  const [pendingReport, setPendingReport] = useState(
+    initialView.current?.kind === 'pending-report',
+  )
   // The Database browser is a separate top-level view — no sessions, no
   // transcripts. `selectedDatabaseTable` is the table name the user picked
   // from the sidebar, which the view turns into `SELECT * FROM <t> LIMIT 100`
@@ -180,12 +186,14 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
       })
     } else if (activeTableId) {
       writeLastView(user.id, { kind: 'report', id: activeTableId })
+    } else if (pendingReport) {
+      writeLastView(user.id, { kind: 'pending-report' })
     } else if (chat.conversationId) {
       writeLastView(user.id, { kind: 'chat', id: chat.conversationId })
     } else {
       writeLastView(user.id, null)
     }
-  }, [user.id, databaseOpen, selectedDatabaseTable, activeTableId, chat.conversationId])
+  }, [user.id, databaseOpen, selectedDatabaseTable, activeTableId, pendingReport, chat.conversationId])
 
   // If the active report disappears from the tables list (deleted from the
   // sidebar's 3-dot menu, the toolbar Delete, or another tab), bail out of

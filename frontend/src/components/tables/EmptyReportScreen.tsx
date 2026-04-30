@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
-import { Table2 } from 'lucide-react'
 
+import logoUrl from '@/assets/logo.png'
 import { Composer } from '@/components/composer/Composer'
 import { SqlEditorPanel } from '@/components/tables/SqlEditorPanel'
 import { ApiError } from '@/lib/api'
@@ -64,9 +64,12 @@ export function EmptyReportScreen({
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-10 px-6 pb-24">
       <div className="flex max-w-md flex-col items-center gap-5 text-center">
-        <div className="grid size-32 place-items-center rounded-2xl bg-muted/50 text-muted-foreground">
-          <Table2 className="size-16" strokeWidth={1.5} />
-        </div>
+        <img
+          src={logoUrl}
+          alt=""
+          aria-hidden="true"
+          className="size-32 object-contain"
+        />
         <div className="space-y-4">
           <h1 className="font-display text-4xl font-medium tracking-tight">
             Build a report
@@ -78,7 +81,7 @@ export function EmptyReportScreen({
           </p>
         </div>
       </div>
-      <div className="flex w-full max-w-3xl flex-col gap-3">
+      <div className="w-full">
         <Composer
           variant="centered"
           placeholder="Ask the agent to build a table…"
@@ -86,18 +89,20 @@ export function EmptyReportScreen({
           onSend={onSend}
           onStop={onStop}
         />
-        <SqlEditorPanel
-          sql={sql}
-          onSqlChange={setSql}
-          onRun={runSeed}
-          running={running}
-          error={error}
-          defaultOpen={false}
-          runLabel="Create"
-          runningLabel="Creating"
-          collapsedHint="or write SQL directly to seed the report"
-          placeholder="SELECT ..."
-        />
+        <div className="mx-auto mt-3 w-full max-w-6xl px-6 lg:px-10">
+          <SqlEditorPanel
+            sql={sql}
+            onSqlChange={setSql}
+            onRun={runSeed}
+            running={running}
+            error={error}
+            defaultOpen={false}
+            runLabel="Create"
+            runningLabel="Creating"
+            collapsedHint="or write SQL directly to seed the report"
+            placeholder="SELECT ..."
+          />
+        </div>
       </div>
     </div>
   )
