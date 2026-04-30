@@ -125,7 +125,7 @@ export function TableRow({ item, active, onPick }: TableRowProps) {
             className={cn(
               'absolute right-1.5 top-1.5 grid size-6 place-items-center rounded-md text-muted-foreground transition-opacity',
               'hover:bg-sidebar-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none',
-              'opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100',
+              'md:opacity-0 md:group-hover:opacity-100 data-[state=open]:opacity-100',
             )}
             aria-label="Report actions"
             onClick={(e) => e.stopPropagation()}

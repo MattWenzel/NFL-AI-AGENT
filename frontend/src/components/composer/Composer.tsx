@@ -173,7 +173,7 @@ export function Composer({
       <div className={cn('mx-auto w-full', variant !== 'compact' && 'max-w-6xl')}>
         <div
           className={cn(
-            'border border-border bg-card shadow-sm focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-0',
+            'overflow-hidden border border-border bg-card shadow-sm focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-0',
             variant === 'compact' ? 'rounded-xl' : 'rounded-2xl',
           )}
         >
@@ -195,7 +195,7 @@ export function Composer({
           />
           <div
             className={cn(
-              'flex items-center gap-1.5',
+              'flex min-w-0 flex-wrap items-center gap-1.5',
               variant === 'compact' ? 'px-1.5 pb-1.5 pt-0.5' : 'px-2 pb-2 pt-1',
             )}
           >

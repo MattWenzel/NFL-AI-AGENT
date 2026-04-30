@@ -388,6 +388,18 @@
 .dark .aurora-blob {
     opacity: 0.14;
 }
+/* Narrow viewports (mobile): the chat fills nearly the whole width, so
+   the aurora has very little visible margin. Bump opacity so it still
+   reads through the content. */
+@media (max-width: 768px) {
+    .aurora-blob {
+        opacity: 0.4;
+        filter: blur(80px);
+    }
+    .dark .aurora-blob {
+        opacity: 0.3;
+    }
+}
 .aurora-blob-a {
     width: clamp(38rem, 55vw, 70rem);
     height: clamp(38rem, 55vw, 70rem);
