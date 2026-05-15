@@ -21,13 +21,17 @@ import secrets
 from dataclasses import dataclass
 
 from backend.domain.auth import google_oauth
-from backend.domain.auth.errors import AuthConflictError, GoogleOAuthError
+from backend.domain.auth.errors import GoogleOAuthError
+from backend.domain.auth.identity_resolver import (
+    IdentityClaims,
+    SignInOutcome,
+    resolve_oauth_signin,
+)
 from backend.domain.auth.types import (
     GOOGLE,
     OAUTH_ONLY_SENTINEL_HASH,
     PASSWORD,
     GoogleIdentity,
-    IssuedSession,
 )
 from backend.config import (
     GOOGLE_OAUTH_CLIENT_ID,
@@ -36,7 +40,6 @@ from backend.config import (
     google_oauth_redirect_uri,
 )
 from backend.domain.auth.audit import AuditContext, audit_log
-from backend.domain.auth.lifecycle import IdentitySeed, create_user_account, issue_session
 from backend.data import AuditEvent, IdentityConflictError, RuntimeStore
 from backend.runtime_state import PendingGoogleOAuthFlows
 
@@ -72,14 +75,8 @@ class GoogleOAuthLastIdentityError(GoogleOAuthServiceError):
 
 # --- DTOs -------------------------------------------------------------------
 
-
-@dataclass(frozen=True)
-class SignInOutcome:
-    user_id: int
-    user_email: str
-    user_role: str
-    session: IssuedSession
-    is_new_user: bool
+# SignInOutcome moved to backend.domain.auth.identity_resolver — re-exported
+# above so callers (api/routes/oauth_google.py) keep their import paths.
 
 
 @dataclass(frozen=True)
@@ -182,108 +179,27 @@ class GoogleOAuthService:
         identity: GoogleIdentity,
         audit: AuditContext,
     ) -> SignInOutcome:
-        existing_via_identity = await self.store.get_user_by_identity(
-            provider=GOOGLE, provider_subject=identity.sub
-        )
-        if existing_via_identity is not None:
-            session = await issue_session(self.store, existing_via_identity.id)
-            await audit_log(self.store,
-                AuditEvent.OAUTH_SIGNIN_SUCCEEDED,
-                existing_via_identity.id,
-                audit,
-                {"provider": GOOGLE, "via": "existing_identity"},
-            )
-            return SignInOutcome(
-                user_id=existing_via_identity.id,
-                user_email=existing_via_identity.email,
-                user_role=existing_via_identity.role,
-                session=session,
-                is_new_user=False,
-            )
+        """Delegate to the shared OAuth identity resolver.
 
-        # No Google identity → try auto-link on email match (Google already
-        # verified the email for us, so we trust it).
-        existing_via_email = await self.store.get_user_by_email(identity.email)
-        if existing_via_email is not None:
-            try:
-                await self.store.create_identity(
-                    user_id=existing_via_email.id,
-                    provider=GOOGLE,
-                    provider_subject=identity.sub,
-                    email=identity.email,
-                )
-            except IdentityConflictError:
-                # Should be impossible (we just checked by sub above), but
-                # handle it as a generic failure rather than crash.
-                await audit_log(self.store,
-                    AuditEvent.OAUTH_SIGNIN_FAILED,
-                    existing_via_email.id,
-                    audit,
-                    {"reason": "identity_conflict"},
-                )
-                raise GoogleOAuthServiceError("Sign-in failed — try again.")
-            session = await issue_session(self.store, existing_via_email.id)
-            await audit_log(self.store,
-                AuditEvent.OAUTH_LINKED,
-                existing_via_email.id,
-                audit,
-                {"provider": GOOGLE, "via": "auto_link_on_email_match"},
-            )
-            await audit_log(self.store,
-                AuditEvent.OAUTH_SIGNIN_SUCCEEDED,
-                existing_via_email.id,
-                audit,
-                {"provider": GOOGLE, "via": "linked"},
-            )
-            return SignInOutcome(
-                user_id=existing_via_email.id,
-                user_email=existing_via_email.email,
-                user_role=existing_via_email.role,
-                session=session,
-                is_new_user=False,
-            )
-
-        # Brand new user: create with OAuth sentinel password and seed Google identity.
+        Google already verified `identity.email` for us (we checked
+        `email_verified` upstream in `complete_callback`), so the
+        auto-link-on-email branch in the resolver is safe.
+        """
         try:
-            user = await create_user_account(
+            return await resolve_oauth_signin(
                 self.store,
-                email=identity.email,
-                password_hash=OAUTH_ONLY_SENTINEL_HASH,
-                verified=True,
-                identity=IdentitySeed(
+                IdentityClaims(
                     provider=GOOGLE,
-                    provider_subject=identity.sub,
+                    subject=identity.sub,
                     email=identity.email,
                 ),
+                audit=audit,
             )
-        except (AuthConflictError, IdentityConflictError) as exc:
-            await audit_log(self.store,
-                AuditEvent.OAUTH_SIGNIN_FAILED,
-                None,
-                audit,
-                {"reason": "identity_conflict"},
-            )
+        except Exception as exc:
+            # The resolver already audits OAUTH_SIGNIN_FAILED on the
+            # paths that need it. Translate to the service's exception
+            # type for the route layer.
             raise GoogleOAuthServiceError("Sign-in failed — try again.") from exc
-        session = await issue_session(self.store, user.id)
-        await audit_log(self.store,
-            AuditEvent.OAUTH_LINKED,
-            user.id,
-            audit,
-            {"provider": GOOGLE, "via": "signup"},
-        )
-        await audit_log(self.store,
-            AuditEvent.OAUTH_SIGNIN_SUCCEEDED,
-            user.id,
-            audit,
-            {"provider": GOOGLE, "via": "signup"},
-        )
-        return SignInOutcome(
-            user_id=user.id,
-            user_email=user.email,
-            user_role=user.role,
-            session=session,
-            is_new_user=True,
-        )
 
     async def _complete_link(
         self,
