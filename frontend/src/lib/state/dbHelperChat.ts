@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react'
 
 import { ApiError } from '@/lib/api'
-import { openSseStream } from '@/lib/api/sse'
+import { streamAndDispatch } from '@/lib/api/streamDispatch'
 
 export interface UseDbHelperChatOptions {
   /** Fired when the agent calls the `run_in_editor` tool — the helper is
@@ -240,7 +240,7 @@ export function useDbHelperChat(options: UseDbHelperChatOptions = {}) {
       abortRef.current = controller
 
       try {
-        for await (const event of openSseStream(
+        await streamAndDispatch(
           '/database/helper-chat/stream',
           {
             messages: wire,
@@ -248,40 +248,29 @@ export function useDbHelperChat(options: UseDbHelperChatOptions = {}) {
             model: opts.model,
             tool_choice: opts.toolChoice,
           },
-          { signal: controller.signal },
-        )) {
-          switch (event.type) {
-            case 'text':
-              if (typeof event.text === 'string') {
-                dispatch({ type: 'text', text: event.text })
-              }
-              break
-            case 'tool_call':
+          {
+            onText: (text) => dispatch({ type: 'text', text }),
+            onToolCall: (call) =>
               dispatch({
                 type: 'tool-call',
                 call: {
-                  id: String(event.tool_run_id),
-                  name: String(event.name),
-                  input: (event.input as Record<string, unknown>) ?? {},
+                  id: call.tool_run_id,
+                  name: call.name,
+                  input: call.input,
                 },
-              })
-              break
-            case 'tool_result':
+              }),
+            onToolResult: (r) => {
               dispatch({
                 type: 'tool-result',
-                tool_run_id: String(event.tool_run_id),
-                content: typeof event.content === 'string' ? event.content : '',
+                tool_run_id: r.tool_run_id,
+                content: r.content,
               })
               // `run_in_editor` is a remote-control tool — when it
               // succeeds, hand the SQL off to the Database view so it
               // populates the editor and runs the query.
-              if (
-                event.name === 'run_in_editor' &&
-                typeof event.content === 'string' &&
-                onRunInEditorRef.current
-              ) {
+              if (r.name === 'run_in_editor' && r.content && onRunInEditorRef.current) {
                 try {
-                  const parsed = JSON.parse(event.content) as { sql?: unknown }
+                  const parsed = JSON.parse(r.content) as { sql?: unknown }
                   if (typeof parsed.sql === 'string' && parsed.sql.trim()) {
                     onRunInEditorRef.current(parsed.sql)
                   }
@@ -289,26 +278,19 @@ export function useDbHelperChat(options: UseDbHelperChatOptions = {}) {
                   // Malformed payload — drop silently.
                 }
               }
-              break
-            case 'tool_failed':
+            },
+            onToolFailed: (f) =>
               dispatch({
                 type: 'tool-failed',
-                tool_run_id: String(event.tool_run_id),
-                content: typeof event.content === 'string' ? event.content : '',
-                message: typeof event.message === 'string' ? event.message : 'Tool failed',
-              })
-              break
-            case 'error':
-              dispatch({
-                type: 'error',
-                message: typeof event.message === 'string' ? event.message : 'Stream error',
-              })
-              break
-            case 'done':
-              dispatch({ type: 'done' })
-              break
-          }
-        }
+                tool_run_id: f.tool_run_id,
+                content: f.content,
+                message: f.message,
+              }),
+            onError: (message) => dispatch({ type: 'error', message }),
+            onDone: () => dispatch({ type: 'done' }),
+          },
+          { signal: controller.signal },
+        )
       } catch (err) {
         if ((err as Error)?.name === 'AbortError') {
           dispatch({ type: 'rollback-last' })

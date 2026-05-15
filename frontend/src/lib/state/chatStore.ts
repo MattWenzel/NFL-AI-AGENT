@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 
 import { apiDelete, apiGet, apiPatch, ApiError } from '@/lib/api'
-import { openSseStream } from '@/lib/api/sse'
+import { streamAndDispatch } from '@/lib/api/streamDispatch'
 import type {
   AssistantPartRecord,
   ConversationInfo,
@@ -461,100 +461,51 @@ export function useChat() {
       let streamErrored = false
 
       try {
-        for await (const event of openSseStream('/chat/stream', body, { signal: controller.signal })) {
-          switch (event.type) {
-            case 'conversation_id':
-              if (typeof event.id === 'string') {
-                dispatch({ type: 'set-conversation-id', id: event.id })
-              }
-              break
-            case 'assistant_started':
-              if (typeof event.turn_id === 'string') {
-                dispatch({ type: 'assistant-started', turnId: event.turn_id })
-              }
-              break
-            case 'text':
-              if (typeof event.text === 'string') {
-                dispatch({ type: 'text-delta', text: event.text })
-              }
-              break
-            case 'tool_call':
-              if (typeof event.tool_run_id === 'string' && typeof event.name === 'string') {
-                dispatch({
-                  type: 'tool-call',
-                  toolRunId: event.tool_run_id,
-                  name: event.name,
-                  input: (event.input as Record<string, unknown>) ?? {},
-                })
-              }
-              break
-            case 'tool_result':
-              if (typeof event.tool_run_id === 'string') {
-                dispatch({ type: 'tool-result', toolRunId: event.tool_run_id, status: 'completed' })
-              }
-              break
-            case 'tool_failed':
-              if (typeof event.tool_run_id === 'string') {
-                dispatch({
-                  type: 'tool-result',
-                  toolRunId: event.tool_run_id,
-                  status: 'error',
-                  message: typeof event.message === 'string' ? event.message : undefined,
-                })
-              }
-              break
-            case 'table_updated':
-              if (
-                options.onTableUpdated &&
-                typeof event.tool_run_id === 'string' &&
-                typeof event.row_count === 'number' &&
-                Array.isArray(event.columns)
-              ) {
-                options.onTableUpdated({
-                  tool_run_id: event.tool_run_id,
-                  row_count: event.row_count,
-                  truncated: Boolean(event.truncated),
-                  columns: (event.columns as unknown[]).map(String),
-                })
-              }
-              break
-            case 'report_created':
-              if (
-                typeof event.report_id === 'string' &&
-                typeof event.tool_run_id === 'string'
-              ) {
-                dispatch({
-                  type: 'report-created',
-                  toolRunId: event.tool_run_id,
-                  reportId: event.report_id,
-                  title: typeof event.title === 'string' ? event.title : '',
-                  rowCount: typeof event.row_count === 'number' ? event.row_count : 0,
-                })
-              }
-              if (
-                options.onReportCreated &&
-                typeof event.report_id === 'string'
-              ) {
-                options.onReportCreated({
-                  report_id: event.report_id,
-                  title: typeof event.title === 'string' ? event.title : '',
-                  row_count: typeof event.row_count === 'number' ? event.row_count : 0,
-                })
-              }
-              break
-            case 'error':
-              streamErrored = true
+        await streamAndDispatch(
+          '/chat/stream',
+          body,
+          {
+            onConversationId: (id) => dispatch({ type: 'set-conversation-id', id }),
+            onAssistantStarted: (turnId) => dispatch({ type: 'assistant-started', turnId }),
+            onText: (text) => dispatch({ type: 'text-delta', text }),
+            onToolCall: (call) =>
               dispatch({
-                type: 'stream-error',
-                message: typeof event.message === 'string' ? event.message : 'Stream error',
+                type: 'tool-call',
+                toolRunId: call.tool_run_id,
+                name: call.name,
+                input: call.input,
+              }),
+            onToolResult: (r) =>
+              dispatch({ type: 'tool-result', toolRunId: r.tool_run_id, status: 'completed' }),
+            onToolFailed: (f) =>
+              dispatch({
+                type: 'tool-result',
+                toolRunId: f.tool_run_id,
+                status: 'error',
+                message: f.message,
+              }),
+            onTableUpdated: (payload) => options.onTableUpdated?.(payload),
+            onReportCreated: (payload) => {
+              dispatch({
+                type: 'report-created',
+                toolRunId: payload.tool_run_id,
+                reportId: payload.report_id,
+                title: payload.title,
+                rowCount: payload.row_count,
               })
-              break
-            case 'done':
-              break
-            default:
-              break
-          }
-        }
+              options.onReportCreated?.({
+                report_id: payload.report_id,
+                title: payload.title,
+                row_count: payload.row_count,
+              })
+            },
+            onError: (message) => {
+              streamErrored = true
+              dispatch({ type: 'stream-error', message })
+            },
+          },
+          { signal: controller.signal },
+        )
 
         // Stream finished cleanly — pull authoritative transcript so tool
         // results, token counts, and stable IDs replace the optimistic shape.
