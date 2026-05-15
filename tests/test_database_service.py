@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from backend.application.database import DatabaseQueryError, DatabaseService
+from backend.application.database import DatabaseService
+from backend.application.sql_execution import SQLExecutionError, SQLExecutionService
 from backend.application.tables import TableChatService
 from backend.data import RuntimeStore
 from backend.domain.tools.sandbox.runner import SQLResult, SQLValidationError
@@ -18,8 +19,15 @@ from backend.domain.tools.sandbox.runner import SQLResult, SQLValidationError
 @pytest.fixture
 def service(tmp_path):
     store = RuntimeStore(tmp_path / "r.sqlite3")
-    table_chat_service = TableChatService(store, exports_dir=tmp_path / "exports")
-    return DatabaseService(store=store, table_chat_service=table_chat_service)
+    sql_execution = SQLExecutionService()
+    table_chat_service = TableChatService(
+        store=store, sql_execution=sql_execution, exports_dir=tmp_path / "exports"
+    )
+    return DatabaseService(
+        store=store,
+        table_chat_service=table_chat_service,
+        sql_execution=sql_execution,
+    )
 
 
 @pytest.mark.asyncio
@@ -31,7 +39,7 @@ async def test_run_query_passes_sql_through_sandbox(service, monkeypatch):
         return SQLResult(columns=["a"], rows=[{"a": 1}], row_count=1, truncated=False)
 
     monkeypatch.setattr(
-        "backend.application.database.execute_safe_sql", fake_run
+        "backend.application.sql_execution.execute_safe_sql", fake_run
     )
 
     result = await service.run_query("SELECT 1 AS a")
@@ -47,10 +55,10 @@ async def test_run_query_translates_validation_error(service, monkeypatch):
         raise SQLValidationError("Only SELECT and WITH (CTE) statements are allowed")
 
     monkeypatch.setattr(
-        "backend.application.database.execute_safe_sql", fake_run
+        "backend.application.sql_execution.execute_safe_sql", fake_run
     )
 
-    with pytest.raises(DatabaseQueryError) as exc:
+    with pytest.raises(SQLExecutionError) as exc:
         await service.run_query("DELETE FROM x")
     assert "SELECT and WITH" in str(exc.value)
 

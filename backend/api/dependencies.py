@@ -20,6 +20,7 @@ from backend.application.exports import ExportService
 from backend.application.oauth.codex import CodexOAuthService
 from backend.application.oauth.google import GoogleOAuthService
 from backend.application.settings import SettingsService
+from backend.application.sql_execution import SQLExecutionService
 from backend.application.tables import TableChatService
 from backend.data import RuntimeStore
 
@@ -125,17 +126,27 @@ def get_export_service(
     return ExportService(store)
 
 
+def get_sql_execution_service() -> SQLExecutionService:
+    return SQLExecutionService()
+
+
 def get_table_chat_service(
     store: RuntimeStore = Depends(get_store),
+    sql_execution: SQLExecutionService = Depends(get_sql_execution_service),
 ) -> TableChatService:
-    return TableChatService(store)
+    return TableChatService(store=store, sql_execution=sql_execution)
 
 
 def get_database_service(
     store: RuntimeStore = Depends(get_store),
     table_chat_service: TableChatService = Depends(get_table_chat_service),
+    sql_execution: SQLExecutionService = Depends(get_sql_execution_service),
 ) -> DatabaseService:
-    return DatabaseService(store=store, table_chat_service=table_chat_service)
+    return DatabaseService(
+        store=store,
+        table_chat_service=table_chat_service,
+        sql_execution=sql_execution,
+    )
 
 
 def get_db_helper_chat_service(

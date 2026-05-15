@@ -1,45 +1,34 @@
 """Database browser: ad-hoc SQL execution + save-as-Report.
 
-The browser tab runs SELECT/WITH queries through the same sandbox the
-agent uses (`execute_safe_sql`) and can convert any result into a new
-`kind=table_chat` session so the user can keep working with it through
-the agent.
+The browser tab runs SELECT/WITH queries through `SQLExecutionService`
+(async wrapper over the same sandbox the agent uses) and can convert
+any result into a new `kind=table_chat` session so the user can keep
+working with it through the agent.
 
 Both methods are thin compositions over existing infrastructure — see
-`backend/domain/tools/sandbox/runner.py` for the sandbox and
+`backend/application/sql_execution.py` for the SQL execution seam and
 `backend/application/tables.py` for the table-chat session lifecycle.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass
 
+from backend.application.sql_execution import SQLExecutionService
 from backend.application.tables import TableChatService
 from backend.data import RuntimeStore, SessionRecord
-from backend.domain.tools.handlers.get_schema import build_schema_response
-from backend.domain.tools.sandbox.runner import (
-    SQLResult,
-    SQLValidationError,
-    execute_safe_sql,
-)
+from backend.domain.tools.sandbox.runner import SQLResult
+from backend.domain.tools.sandbox.schema import build_schema_response
 
 logger = logging.getLogger(__name__)
-
-
-class DatabaseQueryError(Exception):
-    """Sandbox refused or failed to run the query.
-
-    The message is the validation/error string the sandbox produced, suitable
-    for showing to the user verbatim.
-    """
 
 
 @dataclass
 class DatabaseService:
     store: RuntimeStore
     table_chat_service: TableChatService
+    sql_execution: SQLExecutionService
 
     def list_browseable_tables(self) -> list[dict]:
         """Project the agent's schema response down to what the picker needs.
@@ -59,15 +48,8 @@ class DatabaseService:
         return tables
 
     async def run_query(self, sql: str) -> SQLResult:
-        """Run `sql` through the read-only sandbox.
-
-        The sandbox is sync; thread-offloaded so the FastAPI event loop
-        isn't blocked while DuckDB pages through results.
-        """
-        try:
-            return await asyncio.to_thread(execute_safe_sql, sql)
-        except SQLValidationError as exc:
-            raise DatabaseQueryError(str(exc)) from exc
+        """Run `sql` through the read-only sandbox via `SQLExecutionService`."""
+        return await self.sql_execution.run(sql)
 
     async def save_sql_as_report(
         self,

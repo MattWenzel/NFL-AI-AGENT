@@ -10,15 +10,15 @@ library.
 
 from __future__ import annotations
 
-import asyncio
 import csv
 import io
 import logging
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
+from backend.application.sql_execution import SQLExecutionService
 from backend.config import EXPORTS_DIR, format_file_size
 from backend.data import (
     ExportRecord,
@@ -29,10 +29,6 @@ from backend.data import (
     TableStateRecord,
 )
 from backend.domain.providers import get_default_provider, get_provider
-from backend.domain.tools.sandbox.runner import (
-    SQLValidationError,
-    execute_safe_sql,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -53,10 +49,6 @@ class TableLockedError(TableChatServiceError):
     """Direct SQL edit attempted while the table is locked."""
 
 
-class TableSqlError(TableChatServiceError):
-    """SQL failed validation or execution in the read-only sandbox."""
-
-
 def _sanitize_filename(name: str) -> str:
     sanitized = re.sub(r"[^a-zA-Z0-9_\-]", "_", name.strip())
     sanitized = re.sub(r"_+", "_", sanitized).strip("_")
@@ -75,6 +67,7 @@ class TableChatTranscript:
 @dataclass
 class TableChatService:
     store: RuntimeStore
+    sql_execution: SQLExecutionService = field(default_factory=SQLExecutionService)
     exports_dir: Path = EXPORTS_DIR
 
     async def list_table_chats(self, user_id: int) -> list[SessionListEntry]:
@@ -175,10 +168,10 @@ class TableChatService:
         Counterpart to the agent's `set_table` tool, but initiated by the
         user from the Reports view's editable SQL panel. Same persistence
         call (`upsert_table_state`) and same locked-table refusal, but
-        uses `execute_safe_sql` (fixed 500-row cap) rather than
-        `execute_table_sql` (caller-chosen cap from the composer's
-        table-size dropdown) — there is no row-cap control on the SQL
-        editor, so we use the standard sandbox cap.
+        uses the standard 500-row sandbox cap (no row-cap control on the
+        SQL editor) rather than the agent's `execute_table_sql` with
+        caller-chosen cap. Sandbox errors surface as `SQLExecutionError`
+        — routes catch and return HTTP 400.
         """
         session = await self.store.get_session(conversation_id, user_id=user_id)
         if session is None or session.kind != "table_chat":
@@ -188,10 +181,7 @@ class TableChatService:
             raise TableLockedError(
                 "Table is locked — unlock it before editing the SQL."
             )
-        try:
-            result = await asyncio.to_thread(execute_safe_sql, sql)
-        except SQLValidationError as exc:
-            raise TableSqlError(str(exc)) from exc
+        result = await self.sql_execution.run(sql)
         record = await self.store.upsert_table_state(
             conversation_id,
             columns=list(result.columns),

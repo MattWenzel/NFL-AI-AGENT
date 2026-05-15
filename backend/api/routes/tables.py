@@ -27,12 +27,12 @@ from backend.api.schemas.tables import (
     TableRunSqlRequest,
     TableState,
 )
+from backend.application.sql_execution import SQLExecutionError
 from backend.application.tables import (
     TableChatNotFoundError,
     TableChatService,
     TableLockedError,
     TableNotReadyError,
-    TableSqlError,
 )
 from backend.domain.auth.types import AuthenticatedUser
 from backend.server.csrf import verify_csrf
@@ -137,7 +137,7 @@ async def run_table_sql(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except TableLockedError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
-    except TableSqlError as exc:
+    except SQLExecutionError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     return TableState.from_record(record)
 

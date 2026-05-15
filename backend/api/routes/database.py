@@ -38,7 +38,8 @@ from backend.api.schemas.database import (
     TableInfo,
 )
 from backend.application.chat import close_client
-from backend.application.database import DatabaseQueryError, DatabaseService
+from backend.application.database import DatabaseService
+from backend.application.sql_execution import SQLExecutionError
 from backend.application.db_helper_chat import (
     DbHelperChatService,
     HelperChatConfigurationError,
@@ -142,7 +143,7 @@ async def run_database_query(
 ) -> QueryResponse:
     try:
         result = await service.run_query(body.sql)
-    except DatabaseQueryError as exc:
+    except SQLExecutionError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     return QueryResponse(
         columns=result.columns,
@@ -196,7 +197,7 @@ async def save_sql_as_report(
             title=body.title,
             user_id=user.id,
         )
-    except DatabaseQueryError as exc:
+    except SQLExecutionError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     return SaveAsReportResponse(conversation_id=session.id)
 

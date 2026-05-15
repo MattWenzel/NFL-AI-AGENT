@@ -86,7 +86,7 @@ def test_query_returns_columns_and_rows(client, monkeypatch):
         )
 
     monkeypatch.setattr(
-        "backend.application.database.execute_safe_sql", fake_run
+        "backend.application.sql_execution.execute_safe_sql", fake_run
     )
 
     r = client.post(
@@ -109,7 +109,7 @@ def test_query_400_on_validation_error(client, monkeypatch):
         raise SQLValidationError("Only SELECT and WITH (CTE) statements are allowed")
 
     monkeypatch.setattr(
-        "backend.application.database.execute_safe_sql", fake_run
+        "backend.application.sql_execution.execute_safe_sql", fake_run
     )
 
     r = client.post(

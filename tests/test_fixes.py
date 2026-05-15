@@ -716,7 +716,7 @@ class TestChatResponseTruncated:
 # ---------------------------------------------------------------------------
 # 10. _get_joins helper returns consistent data (Fix 9)
 # ---------------------------------------------------------------------------
-from backend.domain.tools.handlers.get_schema import _get_joins
+from backend.domain.tools.sandbox.schema import _get_joins
 from backend.domain.tools.sandbox.schema_metadata import JOIN_EDGES
 
 
