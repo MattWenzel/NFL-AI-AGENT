@@ -26,6 +26,15 @@ class StubClient(BaseLLMClient):
     def _translate_error(self, exc: Exception):
         return exc
 
+    def _classify_stream_error(self, exc: Exception):
+        return None  # never retry in tests
+
+    async def _stream_once(self, messages, tools=None, system=None, tool_choice=None):
+        # Stub overrides stream_message directly; _stream_once is unreachable.
+        if False:
+            yield
+        raise NotImplementedError
+
     async def create_message(self, messages, tools=None, system=None) -> MessageResponse:
         raise AssertionError("runtime is streaming-only; create_message should not be called")
 
@@ -48,6 +57,14 @@ class StreamingStubClient(BaseLLMClient):
 
     def _translate_error(self, exc: Exception):
         return exc
+
+    def _classify_stream_error(self, exc: Exception):
+        return None
+
+    async def _stream_once(self, messages, tools=None, system=None, tool_choice=None):
+        if False:
+            yield
+        raise NotImplementedError
 
     async def create_message(self, messages, tools=None, system=None) -> MessageResponse:
         raise AssertionError("runtime is streaming-only; create_message should not be called")

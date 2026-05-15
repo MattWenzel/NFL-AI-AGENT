@@ -1,6 +1,5 @@
 """OpenAI provider implementation."""
 
-import asyncio
 import json
 import logging
 import os
@@ -11,11 +10,12 @@ from backend.domain.providers.base import BaseLLMClient
 from backend.domain.providers.errors import ContextOverflowError, LLMError, RetryableError
 from backend.domain.providers.overflow import is_context_overflow
 from backend.domain.providers.retry import (
-    MAX_ATTEMPTS, compute_delay, parse_retry_after,
-    parse_retry_after_ms, with_retries,
+    parse_retry_after,
+    parse_retry_after_ms,
+    with_retries,
 )
 from backend.domain.providers.types import (
-    OPENAI, Message, MessageResponse, ProviderRetryingEvent, StopReason, TextEvent,
+    OPENAI, Message, MessageResponse, StopReason, TextEvent,
     ToolChoice, ToolDefinition, ToolUseEvent, Usage,
 )
 from backend.domain.providers.tool_calls import build_tool_use_event, emit_accumulated_tool_calls
@@ -44,24 +44,6 @@ def _retry_after_from_response(exc: Exception) -> float | None:
     )
 
 
-def classify_openai_error(exc: Exception) -> RetryableError | None:
-    """Decide whether an OpenAI SDK exception is safe to retry.
-
-    Same shape as the Anthropic classifier: rate-limit, 5xx, connection
-    errors, and timeouts retry; auth and 4xx propagate immediately.
-    """
-    if isinstance(exc, openai.RateLimitError):
-        return RetryableError(exc, retry_after_seconds=_retry_after_from_response(exc))
-    if isinstance(exc, openai.APIStatusError):
-        status = getattr(exc, "status_code", None)
-        if status is not None and 500 <= status < 600:
-            return RetryableError(exc, retry_after_seconds=_retry_after_from_response(exc))
-        return None
-    if isinstance(exc, (openai.APIConnectionError, openai.APITimeoutError)):
-        return RetryableError(exc)
-    return None
-
-
 class OpenAIClient(BaseLLMClient):
     """OpenAI client with streaming and tool support."""
 
@@ -74,6 +56,20 @@ class OpenAIClient(BaseLLMClient):
     @property
     def provider_name(self) -> str:
         return OPENAI
+
+    def _classify_stream_error(self, exc: Exception) -> RetryableError | None:
+        """Retry rate-limit, 5xx, connection errors, and timeouts. Auth and
+        other 4xx propagate immediately."""
+        if isinstance(exc, openai.RateLimitError):
+            return RetryableError(exc, retry_after_seconds=_retry_after_from_response(exc))
+        if isinstance(exc, openai.APIStatusError):
+            status = getattr(exc, "status_code", None)
+            if status is not None and 500 <= status < 600:
+                return RetryableError(exc, retry_after_seconds=_retry_after_from_response(exc))
+            return None
+        if isinstance(exc, (openai.APIConnectionError, openai.APITimeoutError)):
+            return RetryableError(exc)
+        return None
 
     def _translate_error(self, exc: Exception) -> LLMError:
         if isinstance(exc, openai.AuthenticationError):
@@ -121,7 +117,7 @@ class OpenAIClient(BaseLLMClient):
         async with self._wrap_api_errors():
             response = await with_retries(
                 lambda: self._client.chat.completions.create(**kwargs),
-                classify=classify_openai_error,
+                classify=self._classify_stream_error,
             )
         duration = time.monotonic() - t0
         parsed = self._parse_response(response)
@@ -134,13 +130,18 @@ class OpenAIClient(BaseLLMClient):
         )
         return parsed
 
-    async def stream_message(
+    async def _stream_once(
         self,
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
         system: str | None = None,
         tool_choice: ToolChoice | None = None,
-    ) -> AsyncIterator[TextEvent | ToolUseEvent | ProviderRetryingEvent]:
+    ) -> AsyncIterator[TextEvent | ToolUseEvent]:
+        """Open the OpenAI chat completion stream and yield translated events.
+
+        The SDK returns the stream object from `create(stream=True)` —
+        transient overload errors surface there, before any chunk is
+        read. The base template catches those and decides on retry."""
         kwargs = self._build_kwargs(
             self._convert_messages(messages),
             self._convert_tools(tools),
@@ -150,33 +151,7 @@ class OpenAIClient(BaseLLMClient):
         kwargs["stream"] = True
         kwargs["stream_options"] = {"include_usage": True}
         t0 = time.monotonic()
-        # Retry the stream-OPEN phase only. The OpenAI SDK returns the
-        # stream object from `create(..., stream=True)` — that's where
-        # transient overload errors surface. Once we're iterating, partial
-        # text has been yielded and retries would double-emit.
-        stream = None
-        for attempt in range(1, MAX_ATTEMPTS + 1):
-            try:
-                stream = await self._client.chat.completions.create(**kwargs)
-                break
-            except Exception as exc:
-                classification = classify_openai_error(exc)
-                if classification is None or attempt >= MAX_ATTEMPTS:
-                    raise self._translate_error(exc)
-                delay = compute_delay(attempt, classification.retry_after_seconds)
-                logger.info(
-                    "openai stream open failed (attempt %d/%d, sleep %.1fs): %s",
-                    attempt, MAX_ATTEMPTS, delay, exc,
-                )
-                yield ProviderRetryingEvent(
-                    attempt=attempt,
-                    delay_seconds=delay,
-                    error_message=str(exc),
-                )
-                await asyncio.sleep(delay)
-        # Defensive — see the matching note in anthropic.py.
-        if stream is None:
-            raise LLMError("OpenAI stream open exhausted retries without raising")
+        stream = await self._client.chat.completions.create(**kwargs)
 
         # Track tool call accumulation across chunks
         tool_calls_acc: dict[int, dict] = {}  # index -> {id, name, arguments}
@@ -232,10 +207,6 @@ class OpenAIClient(BaseLLMClient):
                     for event in self._emit_accumulated_tools(tool_calls_acc):
                         yield event
             iteration_complete = True
-        except LLMError:
-            raise
-        except Exception as exc:
-            raise self._translate_error(exc)
         finally:
             if not iteration_complete:
                 try:

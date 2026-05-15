@@ -42,6 +42,15 @@ class RecordingStubClient(BaseLLMClient):
     def _translate_error(self, exc: Exception):
         return LLMError(str(exc))
 
+    def _classify_stream_error(self, exc: Exception):
+        return None
+
+    async def _stream_once(self, messages, tools=None, system=None, tool_choice=None):
+        # Stub overrides stream_message directly; _stream_once is unreachable.
+        if False:
+            yield
+        raise NotImplementedError
+
     async def create_message(self, messages, tools=None, system=None, model=None) -> MessageResponse:
         self.seen_messages = messages
         self.seen_system = system

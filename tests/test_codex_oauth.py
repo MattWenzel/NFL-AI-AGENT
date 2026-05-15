@@ -440,7 +440,7 @@ async def test_run_stream_derives_tool_use_when_done_precedes_response_done():
     try:
         client._http.stream = lambda *a, **kw: _StreamContextManager(resp)
         collected = [
-            ev async for ev in client._run_stream(messages=[], tools=None, system=None)
+            ev async for ev in client._stream_once(messages=[], tools=None, system=None)
         ]
     finally:
         await client.aclose()
@@ -469,7 +469,7 @@ async def test_run_stream_reports_end_turn_when_no_tools_emitted():
     try:
         client._http.stream = lambda *a, **kw: _StreamContextManager(resp)
         text_chunks = []
-        async for ev in client._run_stream(messages=[], tools=None, system=None):
+        async for ev in client._stream_once(messages=[], tools=None, system=None):
             if hasattr(ev, "text"):
                 text_chunks.append(ev.text)
     finally:

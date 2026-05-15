@@ -59,6 +59,15 @@ class _StubClient(BaseLLMClient):
     def _translate_error(self, exc: Exception) -> LLMError:
         return LLMError(str(exc))
 
+    def _classify_stream_error(self, exc: Exception):
+        return None  # never retry in tests
+
+    async def _stream_once(self, messages, tools=None, system=None, tool_choice=None):
+        # Stub overrides stream_message directly; _stream_once is unreachable.
+        if False:
+            yield
+        raise NotImplementedError
+
     async def create_message(self, *_args, **_kwargs) -> MessageResponse:
         raise NotImplementedError
 

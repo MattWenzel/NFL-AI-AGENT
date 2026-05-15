@@ -1,7 +1,5 @@
 """Anthropic Claude provider implementation."""
 
-import asyncio
-import json
 import logging
 import os
 import sys
@@ -15,11 +13,12 @@ from backend.domain.providers.base import BaseLLMClient
 from backend.domain.providers.errors import ContextOverflowError, LLMError, RetryableError
 from backend.domain.providers.overflow import is_context_overflow
 from backend.domain.providers.retry import (
-    MAX_ATTEMPTS, compute_delay, parse_retry_after,
-    parse_retry_after_ms, with_retries,
+    parse_retry_after,
+    parse_retry_after_ms,
+    with_retries,
 )
 from backend.domain.providers.types import (
-    ANTHROPIC, Message, MessageResponse, ProviderRetryingEvent, StopReason, TextEvent,
+    ANTHROPIC, Message, MessageResponse, StopReason, TextEvent,
     ToolChoice, ToolDefinition, ToolUseEvent, Usage,
 )
 from backend.domain.providers.tool_calls import build_tool_use_event
@@ -55,25 +54,6 @@ def _retry_after_from_response(exc: Exception) -> float | None:
     )
 
 
-def classify_anthropic_error(exc: Exception) -> RetryableError | None:
-    """Decide whether an Anthropic SDK exception is safe to retry.
-
-    Retry on rate limits, 5xx (incl. 529 overloaded), connection
-    errors, and request timeouts. Auth, bad-request, and other 4xx
-    are not retryable — they'll fail again on retry.
-    """
-    if isinstance(exc, anthropic.RateLimitError):
-        return RetryableError(exc, retry_after_seconds=_retry_after_from_response(exc))
-    if isinstance(exc, anthropic.APIStatusError):
-        status = getattr(exc, "status_code", None)
-        if status is not None and (status == 529 or 500 <= status < 600):
-            return RetryableError(exc, retry_after_seconds=_retry_after_from_response(exc))
-        return None
-    if isinstance(exc, (anthropic.APIConnectionError, anthropic.APITimeoutError)):
-        return RetryableError(exc)
-    return None
-
-
 class AnthropicClient(BaseLLMClient):
     """Anthropic Claude client with streaming support."""
 
@@ -93,6 +73,21 @@ class AnthropicClient(BaseLLMClient):
     @property
     def provider_name(self) -> str:
         return ANTHROPIC
+
+    def _classify_stream_error(self, exc: Exception) -> RetryableError | None:
+        """Retry rate limits, 5xx (incl. 529 overloaded), connection errors,
+        and request timeouts. Auth, bad-request, and other 4xx propagate
+        immediately — they'd fail again on retry."""
+        if isinstance(exc, anthropic.RateLimitError):
+            return RetryableError(exc, retry_after_seconds=_retry_after_from_response(exc))
+        if isinstance(exc, anthropic.APIStatusError):
+            status = getattr(exc, "status_code", None)
+            if status is not None and (status == 529 or 500 <= status < 600):
+                return RetryableError(exc, retry_after_seconds=_retry_after_from_response(exc))
+            return None
+        if isinstance(exc, (anthropic.APIConnectionError, anthropic.APITimeoutError)):
+            return RetryableError(exc)
+        return None
 
     def _translate_error(self, exc: Exception) -> LLMError:
         if isinstance(exc, anthropic.AuthenticationError):
@@ -140,7 +135,7 @@ class AnthropicClient(BaseLLMClient):
         async with self._wrap_api_errors():
             response = await with_retries(
                 lambda: self._client.messages.create(**kwargs),
-                classify=classify_anthropic_error,
+                classify=self._classify_stream_error,
             )
         duration = time.monotonic() - t0
         parsed = self._parse_response(response)
@@ -154,50 +149,27 @@ class AnthropicClient(BaseLLMClient):
         )
         return parsed
 
-    async def stream_message(
+    async def _stream_once(
         self,
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
         system: str | None = None,
         tool_choice: ToolChoice | None = None,
-    ) -> AsyncIterator[TextEvent | ToolUseEvent | ProviderRetryingEvent]:
+    ) -> AsyncIterator[TextEvent | ToolUseEvent]:
+        """Open the Anthropic stream and yield translated events.
+
+        The SDK opens the HTTP connection inside `__aenter__`, so transient
+        overload errors surface there. The base template catches them
+        before any event is yielded and decides on retry. Mid-stream
+        exceptions are translated by the base template (because
+        `events_yielded` will be True) and re-raised.
+        """
         kwargs = self._build_kwargs(
             self._convert_messages(messages), tools, system, tool_choice,
         )
         t0 = time.monotonic()
-        # Retry the stream-OPEN phase only. Once the stream is established
-        # and we've started yielding events, retrying would double-emit
-        # text — fail the turn instead. The Anthropic SDK opens the HTTP
-        # connection inside `__aenter__`, so transient overload errors
-        # surface there.
-        stream_ctx = None
-        stream = None
-        for attempt in range(1, MAX_ATTEMPTS + 1):
-            try:
-                stream_ctx = self._client.messages.stream(**kwargs)
-                stream = await stream_ctx.__aenter__()
-                break
-            except Exception as exc:
-                classification = classify_anthropic_error(exc)
-                if classification is None or attempt >= MAX_ATTEMPTS:
-                    raise self._translate_error(exc)
-                delay = compute_delay(attempt, classification.retry_after_seconds)
-                logger.info(
-                    "anthropic stream open failed (attempt %d/%d, sleep %.1fs): %s",
-                    attempt, MAX_ATTEMPTS, delay, exc,
-                )
-                yield ProviderRetryingEvent(
-                    attempt=attempt,
-                    delay_seconds=delay,
-                    error_message=str(exc),
-                )
-                await asyncio.sleep(delay)
-        # Defensive — the loop above always exits via `break` (after a
-        # successful __aenter__) or by raising. Use a real check instead
-        # of `assert` so `python -O` can't strip it and silently NPE in
-        # the iteration below.
-        if stream is None or stream_ctx is None:
-            raise LLMError("Anthropic stream open exhausted retries without raising")
+        stream_ctx = self._client.messages.stream(**kwargs)
+        stream = await stream_ctx.__aenter__()
 
         input_tokens = 0
         output_tokens = 0
@@ -245,10 +217,6 @@ class AnthropicClient(BaseLLMClient):
                     raw_stop = getattr(delta, "stop_reason", None) if delta else None
                     if raw_stop:
                         stop_reason = _STOP_MAP.get(raw_stop, StopReason.END_TURN)
-        except LLMError:
-            raise
-        except Exception as exc:
-            raise self._translate_error(exc)
         finally:
             # Forward the live exception (incl. CancelledError on disconnect)
             # to the SDK's context manager so it can clean up appropriately
