@@ -35,7 +35,6 @@ from backend.domain.agent.events import (
 from backend.domain.providers.base import BaseLLMClient
 from backend.domain.providers.errors import ContextOverflowError
 from backend.domain.providers.types import (
-    ProviderRetryingEvent,
     TextEvent,
     ToolChoice,
     ToolDefinition,
@@ -43,6 +42,7 @@ from backend.domain.providers.types import (
     Usage,
 )
 from backend.domain.agent.message_builder import build_model_messages
+from backend.domain.agent.stream_phase import iterate_agent_stream
 from backend.domain.agent.system_prompt import get_base_prompt
 from backend.domain.agent.turn import RuntimeLoopError, TITLE_PREVIEW_CHARS, Turn
 from backend.domain.providers import get_provider
@@ -148,7 +148,8 @@ class ChatRuntime:
                             extra_tool_ctx is not None
                             and bool(extra_tool_ctx.get("_initial_table_locked", False))
                         ) if is_table_chat else False
-                        async for event in client.stream_message(
+                        async for event in iterate_agent_stream(
+                            client,
                             messages=build_model_messages(transcript),
                             tools=tools,
                             system=get_base_prompt(
@@ -156,19 +157,12 @@ class ChatRuntime:
                                 table_locked=table_locked,
                             ),
                             tool_choice=iter_tool_choice,
+                            session_id=session.id,
+                            turn_id=turn.active_assistant_turn_id,
+                            iterations=iterations,
                         ):
-                            if isinstance(event, ProviderRetryingEvent):
-                                # Provider hit a transient error before any
-                                # content streamed; surface it so the UI
-                                # shows progress instead of a silent stall.
-                                yield RetryingEvent(
-                                    session_id=session.id,
-                                    turn_id=turn.active_assistant_turn_id,
-                                    error=event.error_message,
-                                    attempt=event.attempt,
-                                    delay_seconds=event.delay_seconds,
-                                    iterations=iterations,
-                                )
+                            if isinstance(event, RetryingEvent):
+                                yield event
                             elif isinstance(event, TextEvent):
                                 yield await turn.record_text_delta(event.text)
                             elif isinstance(event, ToolUseEvent):

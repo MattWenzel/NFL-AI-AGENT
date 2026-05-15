@@ -33,11 +33,11 @@ from backend.domain.agent.events import (
     ToolFailedEvent,
     ToolPendingEvent,
 )
+from backend.domain.agent.stream_phase import iterate_agent_stream
 from backend.domain.providers.base import BaseLLMClient
 from backend.domain.providers.errors import LLMError
 from backend.domain.providers.types import (
     Message,
-    ProviderRetryingEvent,
     TextEvent,
     ToolChoice,
     ToolDefinition,
@@ -102,21 +102,18 @@ async def run_stateless_turn(
         text_buffer: list[str] = []
 
         try:
-            async for event in client.stream_message(
+            async for event in iterate_agent_stream(
+                client,
                 messages=history,
                 tools=tools,
                 system=system,
                 tool_choice=tool_choice,
+                session_id=_HELPER_SESSION_ID,
+                turn_id=_HELPER_TURN_ID,
+                iterations=iterations,
             ):
-                if isinstance(event, ProviderRetryingEvent):
-                    yield RetryingEvent(
-                        session_id=_HELPER_SESSION_ID,
-                        turn_id=_HELPER_TURN_ID,
-                        error=event.error_message,
-                        attempt=event.attempt,
-                        delay_seconds=event.delay_seconds,
-                        iterations=iterations,
-                    )
+                if isinstance(event, RetryingEvent):
+                    yield event
                 elif isinstance(event, TextEvent):
                     text_buffer.append(event.text)
                     yield TextDeltaEvent(
