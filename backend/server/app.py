@@ -166,22 +166,31 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     async def health_check():
-        """Health check endpoint — verifies both databases respond."""
+        """Health check endpoint — verifies both databases respond.
+
+        Failure details stay generic on the wire (which DB, not which
+        exception) — the full error goes to the log instead.
+        """
         now = time.monotonic()
         if now - health_cache["checked_at"] >= HEALTH_CACHE_SECONDS:
             ok, detail = True, "ok"
-            try:
-                await app.state.store.healthcheck()
-            except Exception as exc:
-                ok, detail = False, f"runtime db unreachable: {exc.__class__.__name__}"
+            store = getattr(app.state, "store", None)
+            if store is None:
+                ok, detail = False, "runtime db not initialized"
+                logger.error("Health check failed: store missing from app.state (lifespan not run?)")
+            else:
+                try:
+                    await store.healthcheck()
+                except Exception:
+                    ok, detail = False, "runtime db unreachable"
+                    logger.exception("Health check failed: runtime db")
             if ok:
                 try:
                     await asyncio.to_thread(_check_duckdb)
-                except Exception as exc:
-                    ok, detail = False, f"stats db unreachable: {exc.__class__.__name__}"
+                except Exception:
+                    ok, detail = False, "stats db unreachable"
+                    logger.exception("Health check failed: stats db")
             health_cache.update(checked_at=now, ok=ok, detail=detail)
-            if not ok:
-                logger.error("Health check failed: %s", detail)
         status_code = 200 if health_cache["ok"] else 503
         return JSONResponse(
             {"status": "ok" if health_cache["ok"] else "degraded", "detail": health_cache["detail"]},

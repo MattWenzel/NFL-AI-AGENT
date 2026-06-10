@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { toast } from 'sonner'
 
 import { AppShell } from '@/components/layout/AppShell'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
@@ -47,6 +48,17 @@ export default function App() {
     ) {
       window.history.replaceState(null, '', '/')
     }
+  }, [auth.state.status])
+
+  // A password-reset link (`/#/reset?token=…`) clicked while already
+  // signed in never reaches the AuthWall, which owns the reset form.
+  // Don't leave it a silent no-op: point at Settings and scrub the hash
+  // (token included) from the URL and history.
+  useEffect(() => {
+    if (auth.state.status !== 'authenticated') return
+    if (!window.location.hash.startsWith('#/reset')) return
+    window.history.replaceState(null, '', window.location.pathname + window.location.search)
+    toast.info("You're already signed in — change your password from Settings → Account.")
   }, [auth.state.status])
 
   return (
@@ -330,7 +342,15 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
           // shows an inline error card instead of white-screening the app.
           // Keyed by surface so navigating away resets the boundary.
           <ErrorBoundary
-            key={databaseOpen ? 'database' : activeTableId || pendingReport ? 'report' : 'chat'}
+            key={
+              databaseOpen
+                ? 'database'
+                : activeTableId
+                  ? `report:${activeTableId}`
+                  : pendingReport
+                    ? 'pending-report'
+                    : 'chat'
+            }
             label={
               databaseOpen
                 ? 'The Database view'

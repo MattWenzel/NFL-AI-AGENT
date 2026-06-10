@@ -76,6 +76,28 @@ def _to_auth_user(user: AuthenticatedUser | object) -> dict:
     return {"id": user.id, "email": user.email, "role": user.role}
 
 
+def _send_email_in_background(send, **kwargs) -> None:
+    """Run a blocking email send on the default executor, fire-and-forget.
+
+    Two reasons this is not awaited inline:
+    - Resend's sync API call (~100-500ms) would otherwise block the event
+      loop inside an async route.
+    - For account-existence-neutral endpoints (password reset request),
+      responding before the send removes the timing oracle where known
+      emails answer measurably slower than unknown ones.
+
+    Failures are logged, never raised — the user-facing response already
+    committed to "ok".
+    """
+    def _run():
+        try:
+            send(**kwargs)
+        except Exception:
+            logger.exception("Background email send failed (to=%s)", kwargs.get("to"))
+
+    asyncio.get_running_loop().run_in_executor(None, _run)
+
+
 @dataclass
 class AuthService:
     store: RuntimeStore
@@ -124,10 +146,9 @@ class AuthService:
         )
         if EMAIL_VERIFICATION_REQUIRED:
             record = await self.store.create_verification(user_id=user.id, purpose="signup")
-            try:
-                email_sender.send_verification_email(to=normalized, token=record.token)
-            except email_sender.EmailError:
-                logger.exception("Verification email send failed for %s", normalized)
+            _send_email_in_background(
+                email_sender.send_verification_email, to=normalized, token=record.token
+            )
             await audit_log(self.store, AuditEvent.REGISTRATION_PENDING, user.id, audit, {"email": normalized})
             return RegistrationResult(user=user, verification_token=record.token)
 
@@ -254,10 +275,9 @@ class AuthService:
             )
             return
         record = await self.store.create_verification(user_id=user.id, purpose="signup")
-        try:
-            email_sender.send_verification_email(to=normalized, token=record.token)
-        except email_sender.EmailError:
-            logger.exception("Resend verification failed for %s", normalized)
+        _send_email_in_background(
+            email_sender.send_verification_email, to=normalized, token=record.token
+        )
         await audit_log(self.store, AuditEvent.VERIFICATION_RESENT, user.id, audit, {})
 
     async def request_password_reset(
@@ -285,10 +305,9 @@ class AuthService:
             )
             return
         record = await self.store.create_verification(user_id=user.id, purpose="password_reset")
-        try:
-            email_sender.send_password_reset_email(to=normalized, token=record.token)
-        except email_sender.EmailError:
-            logger.exception("Password reset email send failed for %s", normalized)
+        _send_email_in_background(
+            email_sender.send_password_reset_email, to=normalized, token=record.token
+        )
         await audit_log(self.store, AuditEvent.PASSWORD_RESET_REQUESTED, user.id, audit, {})
 
     async def reset_password(

@@ -367,6 +367,7 @@ export function AuthWall({ onLogin, onRegister, errorMessage }: AuthWallProps) {
                 className="underline-offset-4 hover:text-foreground hover:underline"
                 onClick={() => {
                   setMode('signup')
+                  setPassword('')
                   setError(null)
                   setNotice(null)
                 }}
@@ -378,6 +379,7 @@ export function AuthWall({ onLogin, onRegister, errorMessage }: AuthWallProps) {
                 className="underline-offset-4 hover:text-foreground hover:underline"
                 onClick={() => {
                   setMode('forgot')
+                  setPassword('')
                   setError(null)
                   setNotice(null)
                 }}
@@ -391,6 +393,7 @@ export function AuthWall({ onLogin, onRegister, errorMessage }: AuthWallProps) {
               className="underline-offset-4 hover:text-foreground hover:underline"
               onClick={() => {
                 setMode('signin')
+                setPassword('')
                 setError(null)
                 setNotice(null)
               }}
@@ -403,6 +406,7 @@ export function AuthWall({ onLogin, onRegister, errorMessage }: AuthWallProps) {
               className="underline-offset-4 hover:text-foreground hover:underline"
               onClick={() => {
                 setMode('signin')
+                setPassword('')
                 setError(null)
                 setNotice(null)
               }}

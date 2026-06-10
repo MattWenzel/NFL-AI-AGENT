@@ -400,3 +400,22 @@ class TestPasswordReset:
             user_id=user.id, purpose="password_reset"
         )
         assert record is None
+
+    async def test_request_survives_email_send_failure(self, client, store, monkeypatch):
+        """The send runs in the background and must never break the
+        neutral 200 — a Resend outage shouldn't error the endpoint or
+        skip the token write."""
+        from backend.domain.auth import email as email_sender
+
+        def boom(**kwargs):
+            raise email_sender.EmailError("resend down")
+
+        monkeypatch.setattr(email_sender, "send_password_reset_email", boom)
+        body = self._register(client, email="flaky@e.com")
+        r = client.post("/auth/request-password-reset", json={"email": "flaky@e.com"})
+        assert r.status_code == 200
+        assert r.json() == {"ok": True}
+        record = await store.get_latest_verification(
+            user_id=body["user"]["id"], purpose="password_reset"
+        )
+        assert record is not None

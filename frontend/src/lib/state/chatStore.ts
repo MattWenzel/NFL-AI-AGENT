@@ -318,6 +318,12 @@ export function useChat() {
   const stateRef = useRef(state)
   stateRef.current = state
   const abortRef = useRef<AbortController | null>(null)
+  // Conversation id of the in-flight stream, set synchronously from the
+  // `conversation_id` SSE event. `stop()` reads this instead of reducer
+  // state: on a brand-new chat the id only reaches `stateRef` after a
+  // re-render, so a fast Stop would otherwise miss the cancel POST and
+  // let the turn finish (and spend tokens) in the background.
+  const activeStreamConversationIdRef = useRef<string | null>(null)
 
   // Selections should not survive a conversation switch.
   useEffect(() => {
@@ -373,6 +379,10 @@ export function useChat() {
   }, [])
 
   const newConversation = useCallback(() => {
+    // Deliberately a bare abort (no /chat/cancel): switching away mid-stream
+    // reads as a disconnect, so the old turn finishes on the server's
+    // background drain and its answer is waiting in that conversation.
+    // Stop is the explicit "spend no more tokens" action; this isn't.
     abortRef.current?.abort()
     abortRef.current = null
     setSelectedExchangeId(null)
@@ -418,7 +428,8 @@ export function useChat() {
     // Tell the server to stop generating BEFORE dropping the connection.
     // A bare abort now reads as a tab close, which lets the turn finish in
     // the background (finish-on-disconnect) — and keeps spending tokens.
-    const conversationId = stateRef.current.conversationId
+    const conversationId =
+      activeStreamConversationIdRef.current ?? stateRef.current.conversationId
     if (conversationId) {
       apiPost('/chat/cancel', { conversation_id: conversationId }).catch(() => {
         // Best effort — the abort below still drops the stream.
@@ -458,6 +469,7 @@ export function useChat() {
       dispatch({ type: 'optimistic-user-turn', turn: optimisticTurn })
 
       const conversationId = options.overrideConversationId ?? stateRef.current.conversationId
+      activeStreamConversationIdRef.current = conversationId
       const body: Record<string, unknown> = { message }
       if (conversationId) body.conversation_id = conversationId
       if (options.provider) body.provider = options.provider
@@ -475,7 +487,10 @@ export function useChat() {
           '/chat/stream',
           body,
           {
-            onConversationId: (id) => dispatch({ type: 'set-conversation-id', id }),
+            onConversationId: (id) => {
+              activeStreamConversationIdRef.current = id
+              dispatch({ type: 'set-conversation-id', id })
+            },
             onAssistantStarted: (turnId) => dispatch({ type: 'assistant-started', turnId }),
             onText: (text) => dispatch({ type: 'text-delta', text }),
             onToolCall: (call) =>
@@ -558,6 +573,7 @@ export function useChat() {
         dispatch({ type: 'stream-error', message: msg })
       } finally {
         if (abortRef.current === controller) abortRef.current = null
+        activeStreamConversationIdRef.current = null
       }
     },
     [refreshConversations],

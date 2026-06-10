@@ -79,12 +79,42 @@ const initialState: HelperState = {
 
 const STORAGE_KEY = 'dbHelperChat.messages'
 
+// Exported for unit tests — hydration must reject any shape that could
+// crash the renderer.
+export function isHelperToolRun(value: unknown): value is HelperToolRun {
+  if (typeof value !== 'object' || value === null) return false
+  const r = value as Record<string, unknown>
+  return (
+    typeof r.id === 'string' &&
+    typeof r.name === 'string' &&
+    typeof r.input === 'object' &&
+    r.input !== null &&
+    (r.content === null || typeof r.content === 'string') &&
+    (r.status === 'pending' || r.status === 'completed' || r.status === 'failed')
+  )
+}
+
+export function isHelperMessage(value: unknown): value is HelperMessage {
+  if (typeof value !== 'object' || value === null) return false
+  const m = value as Record<string, unknown>
+  if ((m.role !== 'user' && m.role !== 'assistant') || typeof m.text !== 'string') {
+    return false
+  }
+  if (m.toolRuns !== undefined) {
+    if (!Array.isArray(m.toolRuns)) return false
+    if (!m.toolRuns.every(isHelperToolRun)) return false
+  }
+  return true
+}
+
 function loadPersistedMessages(): HelperMessage[] {
   try {
     const raw = window.sessionStorage.getItem(STORAGE_KEY)
     if (!raw) return []
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? (parsed as HelperMessage[]) : []
+    const parsed: unknown = JSON.parse(raw)
+    // Shape-validate each entry — a corrupt or hand-edited blob must not
+    // crash the renderer on hydration. Invalid entries are dropped.
+    return Array.isArray(parsed) ? parsed.filter(isHelperMessage) : []
   } catch {
     return []
   }
