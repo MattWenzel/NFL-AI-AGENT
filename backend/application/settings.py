@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from backend.data import AuditEvent, RuntimeStore
 from backend.domain.providers import (
     ProviderInfo,
+    env_fallback_allowed,
     get_provider,
     list_providers,
     provider_is_available,
@@ -68,18 +69,20 @@ class SettingsService:
         existing = {rec.provider: rec for rec in await self.store.list_api_keys(user_id)}
         return [self._build_status(info, existing.get(info.name)) for info in list_providers()]
 
-    async def list_provider_status(self, user_id: int) -> list[dict]:
+    async def list_provider_status(self, user_id: int, role: str = "user") -> list[dict]:
         """Return one row per registered LLM provider, marked `available` when
-        the user has stored a key OR the server has the provider's env-var
-        fallback set."""
+        the user has stored a key OR this user may use the server's env-var
+        fallback key (admins only, unless SHARED_PROVIDER_KEYS overrides)."""
         existing_keys = {rec.provider for rec in await self.store.list_api_keys(user_id)}
+        env_key_usable = env_fallback_allowed(role)
         return [
             {
                 "name": info.name,
                 "display_name": info.display_name,
                 "models": info.models,
                 "default_model": info.default_model,
-                "available": provider_is_available(info) or info.name in existing_keys,
+                "available": (env_key_usable and provider_is_available(info))
+                or info.name in existing_keys,
                 "context_window": info.context_window,
                 "supports_streaming": info.supports_streaming,
                 "supports_tools": info.supports_tools,

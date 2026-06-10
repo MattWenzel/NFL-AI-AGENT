@@ -13,6 +13,7 @@ from backend.domain.providers import (
     BaseLLMClient,
     ProviderInfo,
     create_client,
+    env_fallback_allowed,
     get_default_provider,
     get_provider,
     provider_is_available,
@@ -77,6 +78,7 @@ class ProviderCredentialService:
         self,
         *,
         user_id: int,
+        role: str,
         provider: str | None,
         model: str | None,
     ) -> ResolvedProviderClient:
@@ -87,6 +89,11 @@ class ProviderCredentialService:
         `DbHelperChatService` — keep it here so a change to credential
         rules (codex_oauth, env-var fallbacks, etc.) only updates one
         path. Any failure surfaces as `CredentialServiceError`.
+
+        The server's env-var keys are only used for users allowed by
+        `SHARED_PROVIDER_KEYS` (default: admins). Everyone else must have
+        stored their own key — `create_client` below would otherwise
+        silently fall back to the env key and bill the operator.
         """
         provider_name = provider or get_default_provider()
         try:
@@ -98,7 +105,8 @@ class ProviderCredentialService:
             user_id=user_id, provider_name=provider_name
         )
 
-        if not user_key and not provider_is_available(info):
+        env_key_usable = env_fallback_allowed(role) and provider_is_available(info)
+        if not user_key and not env_key_usable:
             if info.credential_shape == "codex_oauth":
                 raise CredentialServiceError(
                     f"{info.display_name} not connected — click Connect ChatGPT in Settings."

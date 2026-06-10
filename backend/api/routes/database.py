@@ -139,8 +139,10 @@ async def list_database_tables(
 async def run_database_query(
     body: QueryRequest,
     service: DatabaseService = Depends(get_database_service),
-    _user: AuthenticatedUser = Depends(get_current_user),
+    process_state: AppProcessState = Depends(get_process_state),
+    user: AuthenticatedUser = Depends(get_current_user),
 ) -> QueryResponse:
+    process_state.sql_query_limiter.check_key(f"user:{user.id}")
     try:
         result = await service.run_query(body.sql)
     except SQLExecutionError as exc:
@@ -188,9 +190,11 @@ async def save_query_as_report(
 async def save_sql_as_report(
     body: SaveSqlAsReportRequest,
     service: DatabaseService = Depends(get_database_service),
+    process_state: AppProcessState = Depends(get_process_state),
     user: AuthenticatedUser = Depends(get_current_user),
 ) -> SaveAsReportResponse:
     """Run user-provided SQL and seed a brand-new Report with the result."""
+    process_state.sql_query_limiter.check_key(f"user:{user.id}")
     try:
         session = await service.save_sql_as_report(
             sql=body.sql,
@@ -237,6 +241,9 @@ async def db_helper_chat_stream(
         source = None
         try:
             try:
+                # Shared with /chat/stream: same per-user volume cap, since
+                # both surfaces spend LLM tokens.
+                process_state.chat_request_limiter.check_key(f"user:{user.id}")
                 await _acquire_helper_slot(stream_gate, user.id)
                 slot_acquired = True
             except HTTPException as exc:

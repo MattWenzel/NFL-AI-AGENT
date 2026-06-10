@@ -41,8 +41,12 @@ class RateLimiter:
         self._last_global_prune = now
 
     def check(self, request: Request) -> None:
-        """Record this attempt and raise 429 if the caller is over quota."""
-        key = client_ip_key(request)
+        """Record this attempt and raise 429 if the caller's IP is over quota."""
+        self.check_key(client_ip_key(request))
+
+    def check_key(self, key: str) -> None:
+        """Record this attempt and raise 429 if `key` (an IP, a user id, an
+        email — whatever identity the endpoint meters) is over quota."""
         now = time.monotonic()
         cutoff = now - self.window_seconds
         self._prune_empty_buckets(now=now, cutoff=cutoff)

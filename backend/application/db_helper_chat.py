@@ -75,7 +75,7 @@ class DbHelperChatService:
     ) -> PreparedHelperChat:
         try:
             resolved = await self.credentials.resolve_provider_client(
-                user_id=user.id, provider=provider, model=model
+                user_id=user.id, role=user.role, provider=provider, model=model
             )
         except CredentialServiceError as exc:
             raise HelperChatConfigurationError(str(exc)) from exc

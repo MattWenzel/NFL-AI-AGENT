@@ -5,6 +5,7 @@ from backend.domain.providers.errors import ContextOverflowError, LLMError
 from backend.domain.providers.registry import (
     ProviderInfo,
     create_client,
+    env_fallback_allowed,
     get_default_provider,
     get_provider,
     list_providers,
@@ -40,6 +41,7 @@ __all__ = [
     "ToolUseEvent",
     "Usage",
     "create_client",
+    "env_fallback_allowed",
     "get_default_provider",
     "get_provider",
     "list_providers",

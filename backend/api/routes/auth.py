@@ -171,6 +171,9 @@ async def resend_verification(
     process_state: AppProcessState = Depends(get_process_state),
 ) -> OkResponse:
     process_state.register_limiter.check(request)
+    # Per-email cap on top of the per-IP one — without it an IP-rotating
+    # bot can burn the Resend sending quota.
+    process_state.email_resend_limiter.check_key(payload.email.strip().lower())
     # Always return ok=True to avoid leaking which emails are registered.
     await service.resend_verification(payload.email, audit=audit_from_request(request))
     return OkResponse(ok=True)

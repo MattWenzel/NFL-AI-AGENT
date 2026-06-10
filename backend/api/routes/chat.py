@@ -62,9 +62,11 @@ async def _release_stream_slot(stream_gate: ConcurrencyLimiter, user_id: int) ->
 async def chat_message(
     body: ChatRequest,
     service: ChatService = Depends(get_chat_service),
+    process_state: AppProcessState = Depends(get_process_state),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     """Send a message and get a complete response."""
+    process_state.chat_request_limiter.check_key(f"user:{user.id}")
     try:
         response = await service.run_message(
             message=body.message,
@@ -131,6 +133,9 @@ async def chat_stream(
         prepared = None
         try:
             try:
+                # Volume cap first (records the attempt), then the
+                # concurrency slot. Both surface as the same SSE error.
+                process_state.chat_request_limiter.check_key(f"user:{user.id}")
                 await _acquire_stream_slot(stream_gate, user.id)
                 slot_acquired = True
             except HTTPException as exc:

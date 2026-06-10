@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from backend.api.dependencies import (
     get_current_user,
+    get_process_state,
     get_table_chat_service,
 )
 from backend.api.schemas.common import OkResponse
@@ -28,6 +29,7 @@ from backend.api.schemas.tables import (
     TableState,
 )
 from backend.application.sql_execution import SQLExecutionError
+from backend.data import ExportLimitExceededError
 from backend.application.tables import (
     TableChatNotFoundError,
     TableChatService,
@@ -36,6 +38,7 @@ from backend.application.tables import (
 )
 from backend.domain.auth.types import AuthenticatedUser
 from backend.server.csrf import verify_csrf
+from backend.server.process_state import AppProcessState
 
 logger = logging.getLogger(__name__)
 
@@ -126,9 +129,11 @@ async def run_table_sql(
     conversation_id: str,
     body: TableRunSqlRequest,
     service: TableChatService = Depends(get_table_chat_service),
+    process_state: AppProcessState = Depends(get_process_state),
     user: AuthenticatedUser = Depends(get_current_user),
 ) -> TableState:
     """Run user-edited SQL and replace the live table state."""
+    process_state.sql_query_limiter.check_key(f"user:{user.id}")
     try:
         record = await service.run_and_persist_sql(
             conversation_id, user_id=user.id, sql=body.sql
@@ -175,5 +180,7 @@ async def save_table_chat_to_reports(
     except TableChatNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except TableNotReadyError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except ExportLimitExceededError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     return ExportInfo.from_record(record)

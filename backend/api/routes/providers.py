@@ -1,8 +1,8 @@
 """GET /chat/providers — enumerate configured LLM providers.
 
-`available` is true when either (a) the server has the provider's env-var
-key set (server-configured fallback) or (b) the authenticated user has stored
-their own key via /settings/api-keys.
+`available` is true when either (a) this user may use the server's env-var
+fallback key (admins only by default — see SHARED_PROVIDER_KEYS) or (b) the
+authenticated user has stored their own key via /settings/api-keys.
 """
 
 from fastapi import APIRouter, Depends
@@ -21,4 +21,4 @@ async def get_providers(
     service: SettingsService = Depends(get_settings_service),
 ) -> list[ProviderResponse]:
     """List available LLM providers and their configuration for the current user."""
-    return await service.list_provider_status(user.id)
+    return await service.list_provider_status(user.id, user.role)

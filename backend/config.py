@@ -60,6 +60,25 @@ LOGIN_LOCKOUT_DURATION_SECONDS = int(os.environ.get("LOGIN_LOCKOUT_DURATION_SECO
 # hogging the server with parallel streams.
 CHAT_STREAM_MAX_PER_USER = int(os.environ.get("CHAT_STREAM_MAX_PER_USER", "3"))
 
+# Who may fall back to the server's env-var LLM keys (ANTHROPIC_API_KEY /
+# OPENAI_API_KEY) when they haven't stored their own key in Settings:
+#   "admin" (default) — only role='admin' users (the first registrant);
+#   "all"             — every signed-in user spends on the server's keys;
+#   "none"            — nobody; every user must bring their own key.
+SHARED_PROVIDER_KEYS = os.environ.get("SHARED_PROVIDER_KEYS", "admin").strip().lower()
+
+# Per-user request-rate caps (sliding 15-minute window). Users bring their
+# own LLM keys, so these don't meter their token spend — they keep a
+# scripted client from pegging this machine's CPU (each chat turn can run
+# up to 10 sandbox SQL queries) and bandwidth. Generous on purpose; layered
+# under the concurrency cap above, which bounds parallelism.
+CHAT_REQUESTS_PER_QUARTER_HOUR = int(os.environ.get("CHAT_REQUESTS_PER_QUARTER_HOUR", "150"))
+SQL_REQUESTS_PER_QUARTER_HOUR = int(os.environ.get("SQL_REQUESTS_PER_QUARTER_HOUR", "300"))
+
+# Cap on rows in the CSV export library per user — bounds disk growth from
+# create_csv_export / save-to-reports. Delete old exports to free slots.
+MAX_EXPORTS_PER_USER = int(os.environ.get("MAX_EXPORTS_PER_USER", "200"))
+
 # Email verification (Resend).
 RESEND_API_KEY: str | None = os.environ.get("RESEND_API_KEY") or None
 EMAIL_FROM_ADDRESS: str | None = os.environ.get("EMAIL_FROM_ADDRESS") or None

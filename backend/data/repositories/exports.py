@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 
+from backend.config import MAX_EXPORTS_PER_USER
 from backend.data.models import ExportRecord, SessionRecord, new_id, utcnow
+from backend.data.types.errors import ExportLimitExceededError
 
 
 class ExportsMixin:
@@ -28,6 +30,18 @@ class ExportsMixin:
             sess = await self.get_session(source_session_id)
             if sess is not None:
                 owning_user_id = sess.user_id
+        if owning_user_id is not None:
+            async with self._async_session() as session:
+                count = await session.scalar(
+                    select(func.count())
+                    .select_from(ExportRecord)
+                    .where(ExportRecord.user_id == owning_user_id)
+                )
+            if (count or 0) >= MAX_EXPORTS_PER_USER:
+                raise ExportLimitExceededError(
+                    f"Export library is full ({MAX_EXPORTS_PER_USER} files) — "
+                    "delete old exports to make room."
+                )
         record = ExportRecord(
             id=new_id(),
             filename=filename,

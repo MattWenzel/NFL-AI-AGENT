@@ -27,7 +27,7 @@ from backend.data.models import (
     UserRecord,
 )
 from backend.data.types.audit_events import AuditEvent
-from backend.data.types.errors import IdentityConflictError
+from backend.data.types.errors import ExportLimitExceededError, IdentityConflictError
 
 __all__ = [
     "RuntimeStore",
@@ -36,6 +36,7 @@ __all__ = [
     "AuthSessionRecord",
     "CompactionSummaryRecord",
     "EmailVerificationRecord",
+    "ExportLimitExceededError",
     "ExportRecord",
     "IdentityConflictError",
     "LoginFailureRecord",

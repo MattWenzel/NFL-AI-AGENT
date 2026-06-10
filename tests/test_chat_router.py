@@ -56,6 +56,7 @@ async def test_chat_message_returns_error_for_runtime_failure_and_closes_client(
         await chat_router.chat_message(
             chat_router.ChatRequest(message="hi"),
             service=service,
+            process_state=AppProcessState(),
             user=user,
         )
 
@@ -170,6 +171,7 @@ async def test_chat_message_forwards_tool_choice_to_service(monkeypatch):
     await chat_router.chat_message(
         chat_router.ChatRequest(message="hi", tool_choice="required"),
         service=service,
+        process_state=AppProcessState(),
         user=user,
     )
 

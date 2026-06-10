@@ -6,6 +6,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 
+from backend.config import SHARED_PROVIDER_KEYS
 from backend.domain.providers.base import BaseLLMClient
 from backend.domain.providers.errors import LLMError
 from backend.domain.providers.types import ANTHROPIC, CODEX, OPENAI, CredentialShape
@@ -111,6 +112,17 @@ def provider_is_available(info: ProviderInfo) -> bool:
     if info.credential_shape == "codex_oauth":
         return False
     return bool(info.env_key and os.environ.get(info.env_key))
+
+
+def env_fallback_allowed(role: str) -> bool:
+    """Whether a user with this role may spend on the server's env-var API
+    keys when they haven't stored their own. Defaults to admin-only so a
+    public deployment can't run up the operator's LLM bill."""
+    if SHARED_PROVIDER_KEYS == "all":
+        return True
+    if SHARED_PROVIDER_KEYS == "none":
+        return False
+    return role == "admin"
 
 
 def ensure_builtin_providers_registered() -> None:

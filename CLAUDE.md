@@ -54,6 +54,8 @@ Natural language interface to the database. Supports Anthropic Claude and OpenAI
 
 Select via `CHAT_PROVIDER` env var (default: `anthropic`) or the UI dropdown.
 
+The env-var keys are a fallback for users who haven't stored their own key in Settings — gated by `SHARED_PROVIDER_KEYS` (`admin` default: only `role='admin'` users spend on the server's keys; `all` / `none` to widen or close). Everyone else gets "No API key — add one in Settings."
+
 The chat runtime is transcript-backed: sessions, turns, assistant parts, tool runs, and compaction summaries are persisted in `data/runtime.sqlite3`. Long conversations are compacted by summarizing older turns and excluding older raw tool output from active prompt context while keeping the full transcript in storage.
 
 ### Architecture
@@ -217,6 +219,9 @@ Env vars:
 - `RESEND_API_KEY`, `EMAIL_FROM_ADDRESS`, `APP_BASE_URL` — required when `EMAIL_VERIFICATION_REQUIRED=1`. `APP_BASE_URL` is used to build the verification link (e.g. `https://nflverse.fly.dev`).
 - `EMAIL_VERIFICATION_REQUIRED` — `1` to gate login on verified email. Default `0`.
 - `LOGIN_LOCKOUT_MAX_FAILURES`, `LOGIN_LOCKOUT_WINDOW_SECONDS`, `LOGIN_LOCKOUT_DURATION_SECONDS` — per-email lockout tuning, defaults 10/900/900.
+- `SHARED_PROVIDER_KEYS` — who may spend on the server's env-var LLM keys: `admin` (default), `all`, or `none`.
+- `CHAT_REQUESTS_PER_QUARTER_HOUR` (default 150), `SQL_REQUESTS_PER_QUARTER_HOUR` (default 300) — per-user volume caps (sliding 15-min window), layered under `CHAT_STREAM_MAX_PER_USER`. Users bring their own LLM keys, so these protect server CPU/bandwidth from scripted clients, not token spend — keep them generous.
+- `MAX_EXPORTS_PER_USER` — CSV library size cap per user, default 200.
 
 ### Google OAuth sign-in
 
@@ -225,7 +230,7 @@ Shipped 2026-04-23. Users can sign up / sign in with Google, and existing passwo
 **How it works:**
 - `user_identities` table stores one row per linked auth method per user. A user who signs up with a password has a single `('password', email)` row; adding Google adds a second `('google', <sub>)` row. Deleting the user cascades.
 - OAuth-only users get `users.password_hash = "!"` — a sentinel that bcrypt treats as malformed, so `verify_password` returns False for any attempt. Avoids a NOT-NULL schema rebuild. Such users have no `password` identity row, which the unlink guard uses to refuse removing their last sign-in method.
-- New Google sign-in against an email that already has a password account auto-links (trusts Google's verified email). Same-`sub` sign-ins after that reuse the identity without creating a new row.
+- New Google sign-in against an email that already has a password account auto-links **only if that account's email is verified** (`email_verified_at` set). Unverified accounts are refused (`UnverifiedAccountAutoLinkError` → `/?oauth_error=account_unverified`) — otherwise whoever pre-registered the email could capture the OAuth user's session (pre-hijack). The account owner can still sign in with their password and link from Settings. Same-`sub` sign-ins after linking reuse the identity without creating a new row.
 - Flow: `/auth/oauth/google/start` generates PKCE + state + nonce, stashes in an in-memory pending-flow registry, 302s to Google. `/auth/oauth/google/callback` verifies state, exchanges the code, verifies the ID token against Google's JWKS (cached 1h), and either issues a session (sign-in flow) or attaches the identity (link flow, started from Settings).
 - Both routes are GETs (browser navigation) and CSRF-exempt by the usual safe-method rule — the `state` parameter is the anti-CSRF for the callback. Session cookies from the rest of the app still travel (SameSite=Lax), which is how the callback can tell a link flow (user_id in pending row) from a sign-in flow.
 - `security_events` gains `oauth_signin_started`, `oauth_signin_succeeded`, `oauth_signin_failed`, `oauth_link_started`, `oauth_linked`, `oauth_unlinked`, `oauth_link_rejected`.
