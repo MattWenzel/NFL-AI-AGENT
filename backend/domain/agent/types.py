@@ -31,7 +31,6 @@ class ToolExecutionResult:
     status: Literal["completed", "error"]
     content: str
     error: str | None = None
-    hint: str | None = None
     duration_ms: int | None = None
 
     @property

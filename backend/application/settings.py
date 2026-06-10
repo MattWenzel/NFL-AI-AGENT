@@ -84,8 +84,6 @@ class SettingsService:
                 "available": (env_key_usable and provider_is_available(info))
                 or info.name in existing_keys,
                 "context_window": info.context_window,
-                "supports_streaming": info.supports_streaming,
-                "supports_tools": info.supports_tools,
             }
             for info in list_providers()
         ]

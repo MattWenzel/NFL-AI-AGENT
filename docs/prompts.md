@@ -6,7 +6,7 @@ The agent has a deliberately slim system prompt and a set of on-demand markdown 
 
 - `backend/domain/agent/system_prompt.py` — base system prompt template + `get_base_prompt(table_chat, table_locked)`; the table-chat addendum + locked/unlocked clauses; the focused `get_db_helper_prompt()` used by the Database tab's helper chat.
 - `backend/domain/tools/guides/*.md` — seven topic-specific reference docs.
-- `backend/domain/tools/handlers/get_guide.py` — guide loader tool.
+- `backend/domain/tools/get_guide.py` — guide loader tool.
 
 ## The split: prompt vs. guide
 
@@ -58,7 +58,7 @@ Two surfaces beyond regular Chat call into different system prompts:
 
 ## Guide system
 
-Seven markdown files in `backend/domain/tools/guides/` (`backend/domain/tools/handlers/get_guide.py`):
+Seven markdown files in `backend/domain/tools/guides/` (`backend/domain/tools/get_guide.py`):
 
 | Topic | When to load |
 |-------|--------------|
@@ -74,7 +74,7 @@ Guides are plain markdown: column reference tables, gotchas, and copy-pasteable 
 
 ### Loading
 
-`backend/domain/tools/handlers/get_guide.py:16`. All seven files are read into a module-level dict **at import time**:
+`backend/domain/tools/get_guide.py`. All seven files are read into a module-level dict **at import time**:
 
 ```python
 _GUIDES = _load_all()   # dict[topic] -> file contents
@@ -88,9 +88,9 @@ This means:
 
 ### Serving
 
-`backend/domain/tools/handlers/get_guide.py`. Topic validation against `GUIDE_TOPICS`, then return `{"topic": ..., "content": ...}` as a JSON string. Same pattern as every other tool handler — JSON in, JSON out.
+`backend/domain/tools/get_guide.py`. Topic validation against `GUIDE_TOPICS`, then return `{"topic": ..., "content": ...}` as a JSON string. Same pattern as every other tool handler — JSON in, JSON out.
 
-The **topic enum** is owned by `GUIDE_TOPICS` in `backend/domain/tools/guide_registry.py`, and `definitions.py` derives the `get_guide` schema enum from that shared source. Adding a topic is now a one-source change instead of a manual sync across files.
+The **topic enum** is owned by `GUIDE_TOPICS` in `backend/domain/tools/guide_registry.py`, and `get_guide.py` derives its schema enum from that shared source. Adding a topic is now a one-source change instead of a manual sync across files.
 
 ## How guides reach the model
 

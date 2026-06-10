@@ -35,7 +35,7 @@ from backend.domain.providers.types import (
     StopReason,
     TextEvent,
     ToolChoice,
-    ToolDefinition,
+    Tool,
     ToolUseEvent,
 )
 
@@ -95,8 +95,8 @@ class _StubClient(BaseLLMClient):
         self.last_stop_reason = StopReason.END_TURN
 
 
-def _tool_def(name: str) -> ToolDefinition:
-    return ToolDefinition(name=name, description="", input_schema={})
+def _tool_def(name: str) -> Tool:
+    return Tool(name=name, description="", input_schema={})
 
 
 @pytest.mark.asyncio

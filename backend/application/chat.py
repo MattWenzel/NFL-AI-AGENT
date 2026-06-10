@@ -1,4 +1,4 @@
-"""Chat application service: request preparation + response aggregation."""
+"""Chat application service: request preparation + streaming orchestration."""
 
 from __future__ import annotations
 
@@ -6,14 +6,7 @@ from dataclasses import dataclass
 from typing import AsyncGenerator
 
 from backend.domain.auth.types import AuthenticatedUser
-from backend.domain.agent.events import (
-    RuntimeErrorEvent,
-    RuntimeEvent,
-    TextDeltaEvent,
-    ToolCompletedEvent,
-    ToolFailedEvent,
-    ToolPendingEvent,
-)
+from backend.domain.agent.events import RuntimeEvent
 from backend.domain.providers.base import BaseLLMClient
 from backend.domain.providers.errors import LLMError
 from backend.domain.agent.runtime import ChatRuntime
@@ -54,16 +47,6 @@ class PreparedChat:
     session: SessionRecord
 
 
-@dataclass
-class _ToolCallLogEntry:
-    """Internal — accumulates tool-call previews while aggregating a turn's
-    response in `ChatService.run_message`. Not part of the public surface."""
-    tool_run_id: str
-    tool: str
-    input: dict
-    result_preview: str = ""
-
-
 async def close_client(client: BaseLLMClient) -> None:
     try:
         await client.aclose()
@@ -74,7 +57,7 @@ async def close_client(client: BaseLLMClient) -> None:
 
 @dataclass
 class ChatService:
-    """Owns chat request preparation and non-streaming response aggregation."""
+    """Owns chat request preparation and the runtime event-stream wiring."""
 
     runtime: ChatRuntime
     store: RuntimeStore
@@ -167,71 +150,3 @@ class ChatService:
                 if t.name in _TABLE_RESEARCH_TOOLS or t.name == "set_table"
             ]
         return [t for t in TOOLS if t.name != "set_table"]
-
-    async def run_message(
-        self,
-        *,
-        message: str,
-        conversation_id: str | None,
-        provider: str | None,
-        model: str | None,
-        tool_choice: ToolChoice | None,
-        user: AuthenticatedUser,
-    ) -> dict:
-        prepared = await self.prepare_chat(
-            conversation_id=conversation_id,
-            provider=provider,
-            model=model,
-            user=user,
-        )
-        response_text = ""
-        tool_calls_log: list[_ToolCallLogEntry] = []
-        hit_limit = False
-        runtime_error = None
-
-        try:
-            async for event in self.stream_events(
-                prepared,
-                message=message,
-                tool_choice=tool_choice,
-            ):
-                if isinstance(event, TextDeltaEvent) and event.text:
-                    response_text += event.text
-                elif isinstance(event, ToolPendingEvent):
-                    tool_calls_log.append(
-                        _ToolCallLogEntry(
-                            tool_run_id=event.tool_run_id,
-                            tool=event.name,
-                            input=event.input,
-                        )
-                    )
-                elif isinstance(event, (ToolCompletedEvent, ToolFailedEvent)) and tool_calls_log:
-                    preview = (
-                        event.result[:500]
-                        if event.result and len(event.result) > 500
-                        else event.result or event.error or ""
-                    )
-                    for item in reversed(tool_calls_log):
-                        if item.tool_run_id == event.tool_run_id and not item.result_preview:
-                            item.result_preview = preview
-                            break
-                elif isinstance(event, RuntimeErrorEvent):
-                    runtime_error = event.error or "Runtime error"
-                    hit_limit = bool(runtime_error.startswith("Reached maximum tool iterations"))
-            if runtime_error and not hit_limit:
-                raise ChatServiceError(runtime_error)
-            return {
-                "conversation_id": prepared.session.id,
-                "response": response_text,
-                "tool_calls": [
-                    {
-                        "tool": item.tool,
-                        "input": item.input,
-                        "result_preview": item.result_preview,
-                    }
-                    for item in tool_calls_log
-                ],
-                "truncated": hit_limit,
-            }
-        finally:
-            await close_client(prepared.client)

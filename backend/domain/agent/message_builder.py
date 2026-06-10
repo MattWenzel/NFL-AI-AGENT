@@ -91,7 +91,6 @@ def build_model_messages(transcript: SessionTranscript) -> list[Message]:
                 {
                     "status": tool_run.status,
                     "error": tool_run.error or "Tool run incomplete",
-                    "hint": tool_run.hint,
                 },
                 separators=(",", ":"),
             )

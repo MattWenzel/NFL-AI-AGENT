@@ -52,7 +52,7 @@ Routes in `backend/api/routes/` are thin shells — parse the request, call one 
 
 | Service | File | What it does |
 |---------|------|--------------|
-| `ChatService` | `backend/application/chat.py` | `prepare_chat` (IDOR, decrypt credential, build client, prepare session), `run_message` (buffered response), `stream_events` (SSE event source). |
+| `ChatService` | `backend/application/chat.py` | `prepare_chat` (IDOR, decrypt credential, build client, prepare session), `stream_events` (SSE event source). |
 | `ConversationService` | `backend/application/conversations.py` | List / get-transcript / update-title-or-pin / delete for the authenticated user's conversations. |
 | `AuthService` | `backend/application/auth.py` | Register, login, logout, password change, delete account. Password hashing + token issuance live here; routes only translate exceptions. |
 | `ProviderCredentialService` | `backend/application/oauth/provider_credentials.py` | Resolves the per-user API key for one provider. Dispatches Codex OAuth to the Codex credential helper; plain API keys are decrypted directly. |
@@ -91,21 +91,9 @@ Routes that need rate limits or process-local coordination depend on
 
 Routes live in `backend/api/routes/chat.py` and delegate to `ChatService` in `backend/application/chat.py`.
 
-### `POST /chat/message` — buffered response
+### `POST /chat/stream` — SSE
 
-`chat.py:64`. Dev/test path for clients that can't consume SSE. `await service.run_message(body, user, tools=TOOLS)` streams internally and aggregates:
-
-- Concatenated response text from every `text_delta`.
-- One `ToolCallPreview` per `tool_pending`, updated by `tool_run_id` on `tool_completed`/`tool_failed`. Result preview truncated to 500 chars (full result stays in the transcript).
-- `truncated=True` when a `runtime_error` starts with "Reached maximum tool iterations".
-
-Exception translation: `ChatNotFoundError → 404`, `ChatConfigurationError → 503`, `ChatServiceError → 500`, `LLMError → 502`, everything else → 500.
-
-Returns `ChatResponse(conversation_id, response, tool_calls, truncated)`.
-
-### `POST /chat/stream` — SSE (production path)
-
-`chat.py:95`. Streaming response for the browser.
+The streaming response for the browser, and the only way to run a chat turn. Non-SSE clients (curl, scripts) consume the same endpoint — the wire format is plain `data: {json}` lines.
 
 Standard SSE wire format: `data: {json}\n\n` per event, with `: ping\n\n` comments for keepalives. Response headers (`chat.py:216`):
 
@@ -127,7 +115,7 @@ generator. A fourth concurrent `/chat/stream` from the same user yields a
 
 This is the subtle part. A naive `async for event in runtime.run_session(...)` works until a tool call takes 15–100s — reverse proxies (nginx 60s, Cloudflare 100s) drop idle SSE connections. A naive `asyncio.wait_for(source, timeout=15)` cancels the runtime generator, which cancels the in-flight tool with it.
 
-Correct shape (`chat.py:150`):
+Correct shape (`backend/server/sse.py::stream_sse_events` — shared by `/chat/stream` and `/database/helper-chat/stream`; routes own acquisition/release around it):
 
 ```
 ┌──────────────┐   put()   ┌──────────────┐
@@ -144,7 +132,14 @@ Correct shape (`chat.py:150`):
 - A `_PRODUCER_DONE` sentinel on the queue signals completion.
 - Exceptions from the producer (`LLMError`, runtime errors, disconnects) are put on the queue and re-raised on the consumer side so the outer handler can log them.
 
-Client disconnect: `request.is_disconnected()` is checked at the top of every loop iteration. On disconnect, the cleanup block cancels the producer task and calls `source.aclose()` — this runs the runtime's `finally` block *now*, releasing the session lock and flipping in-flight tool runs to `interrupted` (see [runtime.md](runtime.md#cleanup-on-early-exit)) rather than waiting on GC.
+#### Disconnect, Stop, and deploy drain
+
+What a dropped client means differs per surface:
+
+- **`/chat/stream` — finish-on-disconnect.** A dropped tab/network blip does NOT abort the turn. The transport detaches: a background drain task lets the producer run to completion so the answer persists, then closes the runtime source, the LLM client, and releases the stream slot (`DetachHandoff` in `backend/server/sse.py`). The user reloads and finds the full reply. Bounded by `MAX_TOOL_ITERATIONS`; the stream slot stays held during the drain so concurrency caps still bind.
+- **`/database/helper-chat/stream` — abort-on-disconnect.** Stateless surface; an unread answer is worthless, so the producer is cancelled and the source closed immediately.
+- **Stop button** — `POST /chat/cancel` (body: `conversation_id`, IDOR-scoped) sets the session's event in `StreamCancelRegistry` (`backend/runtime_state.py`), which cancels the producer; the source's `aclose()` marks the turn interrupted. The frontend calls cancel *before* aborting its fetch — a bare abort would now read as a tab close and keep generating in the background.
+- **Deploys** — a chained SIGTERM handler (`backend/server/startup.py::_install_drain_signal_handler`) flips `process_state.draining`; both SSE loops poll it every ~2s and end with a structured `server_restarting` error + `done` instead of a dead socket. `--timeout-graceful-shutdown 10` (Dockerfile) and `kill_timeout = 15` (fly.toml) give that window teeth.
 
 ## SSE event catalog
 

@@ -10,5 +10,3 @@ class ProviderResponse(BaseModel):
     default_model: str
     available: bool
     context_window: int
-    supports_streaming: bool
-    supports_tools: bool

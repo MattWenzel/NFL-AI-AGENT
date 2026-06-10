@@ -1,16 +1,19 @@
 """FastAPI application factory for nflverse database."""
 
+import asyncio
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from backend.config import ALLOW_NULL_ORIGIN, ALLOWED_ORIGINS
+from backend.config import ALLOW_NULL_ORIGIN, ALLOWED_ORIGINS, DB_PATH
 from backend.server.middleware import RequestIDMiddleware, SecurityHeadersMiddleware
 from backend.server.startup import configure_runtime_state, log_environment_state, run_housekeeping, validate_encryption
 from backend.api.routes import auth
@@ -31,6 +34,45 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
 
 logger = logging.getLogger(__name__)
+
+
+def _init_sentry() -> None:
+    """Initialize Sentry when SENTRY_DSN is set; silent no-op otherwise.
+
+    Every string in the outgoing event runs through the same secret
+    patterns as the log redactor, so a key pasted into a chat message
+    that ends up in an exception never reaches Sentry in the clear.
+    """
+    dsn = os.environ.get("SENTRY_DSN")
+    if not dsn:
+        return
+    try:
+        import sentry_sdk
+    except ImportError:
+        logger.warning("SENTRY_DSN set but sentry-sdk not installed — skipping")
+        return
+
+    from backend.server.logging import redact_secrets
+
+    def _scrub(obj):
+        if isinstance(obj, str):
+            return redact_secrets(obj)
+        if isinstance(obj, dict):
+            return {k: _scrub(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [_scrub(v) for v in obj]
+        return obj
+
+    def _before_send(event, hint):
+        return _scrub(event)
+
+    sentry_sdk.init(
+        dsn=dsn,
+        send_default_pii=False,
+        traces_sample_rate=0.0,  # errors only — no perf tracing at this scale
+        before_send=_before_send,
+    )
+    logger.info("Sentry initialized")
 
 
 @asynccontextmanager
@@ -55,6 +97,7 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
+    _init_sentry()
     app = FastAPI(
         title="nflverse API",
         description="NFL stats API with AI chat agent, schema discovery, and CSV export (1999-2025)",
@@ -105,10 +148,45 @@ def create_app() -> FastAPI:
     app.include_router(exports.download_router)
     app.include_router(exports.router)
 
+    # Deep health: SELECT 1 against both databases, cached so the 30s
+    # probe interval (and any curious humans) can't thrash the DBs. A
+    # detached volume or corrupted file flips this to 503, which makes
+    # Fly's checks fail instead of routing traffic to a zombie.
+    health_cache = {"checked_at": 0.0, "ok": True, "detail": "ok"}
+    HEALTH_CACHE_SECONDS = 10
+
+    def _check_duckdb() -> None:
+        import duckdb
+
+        conn = duckdb.connect(str(DB_PATH), read_only=True)
+        try:
+            conn.execute("SELECT 1")
+        finally:
+            conn.close()
+
     @app.get("/health")
-    def health_check():
-        """Health check endpoint."""
-        return {"status": "ok"}
+    async def health_check():
+        """Health check endpoint — verifies both databases respond."""
+        now = time.monotonic()
+        if now - health_cache["checked_at"] >= HEALTH_CACHE_SECONDS:
+            ok, detail = True, "ok"
+            try:
+                await app.state.store.healthcheck()
+            except Exception as exc:
+                ok, detail = False, f"runtime db unreachable: {exc.__class__.__name__}"
+            if ok:
+                try:
+                    await asyncio.to_thread(_check_duckdb)
+                except Exception as exc:
+                    ok, detail = False, f"stats db unreachable: {exc.__class__.__name__}"
+            health_cache.update(checked_at=now, ok=ok, detail=detail)
+            if not ok:
+                logger.error("Health check failed: %s", detail)
+        status_code = 200 if health_cache["ok"] else 503
+        return JSONResponse(
+            {"status": "ok" if health_cache["ok"] else "degraded", "detail": health_cache["detail"]},
+            status_code=status_code,
+        )
 
     # Serve the UI from the same origin as the API. Specific API routes above
     # take precedence; the mounts below only catch asset requests, the bare

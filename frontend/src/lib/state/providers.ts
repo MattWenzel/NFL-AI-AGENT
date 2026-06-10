@@ -18,8 +18,6 @@ export interface ProviderInfo {
   default_model: string
   available: boolean
   context_window: number
-  supports_streaming: boolean
-  supports_tools: boolean
 }
 
 export type ProvidersStatus = 'idle' | 'loading' | 'ready' | 'error'

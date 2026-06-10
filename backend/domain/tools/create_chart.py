@@ -12,6 +12,7 @@ aggregate upstream (GROUP BY / LIMIT) before calling this.
 import json
 import logging
 
+from backend.domain.providers.types import Tool
 from backend.domain.tools.sandbox import execute_safe_sql
 
 logger = logging.getLogger(__name__)
@@ -68,3 +69,47 @@ def _create_chart(input_data: dict, ctx: dict | None = None) -> str:
     if truncated:
         envelope["note"] = f"Rendered first {_ROW_CAP} of {result.row_count} rows — aggregate further if more detail is needed."
     return json.dumps(envelope)
+
+
+TOOL = Tool(
+    name="create_chart",
+    description=(
+        "Generate a chart from a SQL query. Use when a visual comparison answers the question "
+        "better than prose — side-by-side player stats, yearly trends, category breakdowns. "
+        "The chart renders inline in your response. Prefer execute_sql for tabular answers; "
+        "use create_chart when the user would benefit from seeing the shape of the data. "
+        "Keep rows aggregated (GROUP BY, LIMIT 10-50) so the chart stays readable."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "sql": {
+                "type": "string",
+                "description": "SQL SELECT or WITH returning the rows to plot. Same rules as execute_sql (read-only).",
+            },
+            "chart_type": {
+                "type": "string",
+                "enum": ["bar", "line", "scatter", "pie"],
+                "description": "bar=category comparison, line=trend, scatter=correlation, pie=composition",
+            },
+            "x": {
+                "type": "string",
+                "description": "Column name for the X axis / category labels (must exist in the SELECT)",
+            },
+            "y": {
+                "type": "string",
+                "description": "Column name for the Y axis / values (must exist in the SELECT, should be numeric)",
+            },
+            "group_by": {
+                "type": "string",
+                "description": "Optional: column to split into multiple series (bar/line only)",
+            },
+            "title": {
+                "type": "string",
+                "description": "Short chart title shown above the rendered chart",
+            },
+        },
+        "required": ["sql", "chart_type", "x", "y"],
+    },
+    handler=_create_chart,
+)

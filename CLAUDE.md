@@ -38,7 +38,8 @@ Base URL: `http://localhost:8001` | Interactive docs: `/docs` (OpenAPI) | Read-o
 
 Key access patterns:
 
-- **`POST /chat/stream`** — AI chat with streaming
+- **`POST /chat/stream`** — AI chat with streaming. A dropped connection no longer aborts the turn — it finishes on a background drain so the answer is there on reload.
+- **`POST /chat/cancel`** — stop the in-flight stream for a conversation (the Stop button calls this before aborting its fetch)
 - **`GET /exports/{filename}`** — CSV export download
 
 ## AI Chat Agent
@@ -71,8 +72,8 @@ backend/
 │   ├── schemas/                  #   Pydantic request/response models
 │   └── dependencies.py           #   FastAPI Depends factories (get_store, get_runtime, ...)
 ├── application/                  # Use-case services (one module per HTTP feature)
-│   ├── auth.py                   #   register / login / logout / password / delete / verify / resend
-│   ├── chat.py                   #   chat orchestration and response aggregation
+│   ├── auth.py                   #   register / login / logout / password / delete / verify / resend / password reset
+│   ├── chat.py                   #   chat orchestration (prepare + stream wiring)
 │   ├── conversations.py          #   list / transcript / patch / delete orchestration
 │   ├── tables.py                 #   Reports (table_chat) CRUD + live-table state
 │   ├── database.py               #   read-only DuckDB schema/preview browser
@@ -88,7 +89,8 @@ backend/
 │   │                             #   plus stateless.py — the helper-chat agent loop (no persistence)
 │   ├── auth/                     #   auth primitives, encryption, OAuth protocol helpers, audit log, lifecycle
 │   ├── providers/                #   LLM provider registry, types, errors, clients
-│   └── tools/                    #   tool definitions, registry, handlers, DuckDB SQL sandbox, guides
+│   └── tools/                    #   one module per tool (schema + handler on one Tool object),
+│                             #   registry/dispatch, DuckDB SQL sandbox, guides
 ├── data/                         # Persistence layer — the SQL boundary
 │   ├── models.py                 #   SQLModel table classes
 │   ├── projections.py            #   composite read shapes (SessionListEntry, SessionTranscript)
@@ -107,7 +109,8 @@ backend/
 │   ├── session.py                #   session token parsing + browser auth cookie behavior
 │   ├── request_context.py        #   request → audit/client context helpers + request_id contextvar
 │   ├── middleware.py             #   RequestIDMiddleware + SecurityHeadersMiddleware (CSP / HSTS / etc.)
-│   ├── sse.py                    #   RuntimeEvent → SSE dict serialization
+│   ├── sse.py                    #   shared SSE transport (producer/consumer + heartbeat +
+│   │                             #   finish-on-disconnect drain) + RuntimeEvent serialization
 │   ├── startup.py                #   DB validation, runtime wiring, housekeeping
 │   ├── logging.py                #   setup_logging + request-id filter + secret-redacting filter
 │   ├── process_state.py          #   AppProcessState + API-facing limiters
@@ -152,7 +155,6 @@ frontend/                         # Browser UI — React + Vite + Tailwind + sha
         │   ├── auth.ts           #     useAuth() + /auth/* calls
         │   └── providers.ts      #     useProviders() — LLM provider registry mirror
         ├── transcript.ts         #   pure transcript helpers (sliceForExchange, hasSqlPayload, ...)
-        ├── normalizedMessage.ts  #   common message shape + adapters from each store
         ├── useScrollToBottom.ts  #   smooth-on-send / instant-on-switch scroll hook
         ├── csv.ts                #   CSV download helpers
         ├── theme.ts              #   theme storage
@@ -184,6 +186,8 @@ python3 -m pytest tests/          # Run backend tests
 cd frontend && npm install && npm run dev    # Vite dev server with HMR (separate port)
 cd frontend && npm run build                 # Production build → frontend/dist/
                                              #   (then `python3 run.py` serves it at /)
+cd frontend && npm test                      # Frontend unit tests (vitest — SSE parser,
+                                             #   stream dispatch, chatStore reducer, transcript helpers)
 
 # Build scripts for the NFL data live in the sibling NFLVERSE repo (../NFLVERSE/).
 # Run them from that directory — they write to ../NFLVERSE/data/nflverse.duckdb,
@@ -200,13 +204,15 @@ Multi-user password auth with open signup. First registrant becomes `role='admin
 
 **Password handling**: bcrypt cost 12. Failed logins tracked per-email with progressive delay (0s → 0.25s → 0.5s → 1s → 2s → 4s cap) and hard lockout after `LOGIN_LOCKOUT_MAX_FAILURES` (default 10) attempts for `LOGIN_LOCKOUT_DURATION_SECONDS` (default 900s). Layered on top of the per-IP rate limiter.
 
+**Password reset**: `POST /auth/request-password-reset` (always-200, neutral for unknown/OAuth-only emails) mails a one-shot token (reuses the email-verification table with `purpose='password_reset'`); `POST /auth/reset-password` consumes it, sets the new password, revokes every existing session, marks the email verified (clicking the link proves the mailbox), and signs the user in. The frontend's AuthWall has a "Forgot password?" mode and parses the `#/reset?token=…` link.
+
 **Email verification**: optional (`EMAIL_VERIFICATION_REQUIRED=1`). When on, `/auth/register` returns 202 `{status: "verification_pending"}` instead of a session, a verification link is mailed via Resend, and `/auth/login` rejects unverified accounts until `/auth/verify-email` consumes the token. OAuth-verified identities skip this gate via `create_user_account(..., verified=True)` in `backend/domain/auth/lifecycle.py`.
 
 **API keys**: Per-user, Fernet-encrypted at rest with the master key in `SETTINGS_ENCRYPTION_KEY`. Plaintext is never returned by any endpoint; ciphertext is decrypted only server-side when invoking the LLM.
 
 **Security headers**: `SecurityHeadersMiddleware` attaches CSP, X-Content-Type-Options, Referrer-Policy, Permissions-Policy to every response; HSTS added when the request is over HTTPS.
 
-**Audit log**: `security_events` table records login success/failure/locked, logout, password change, account delete, api_key_set/cleared, oauth_linked/unlinked, csrf_rejected. Each event also logged as structured JSON to stderr.
+**Audit log**: `security_events` table records login success/failure/locked, logout, password change, password reset requested/completed, account delete, api_key_set/cleared, oauth_linked/unlinked, csrf_rejected. Each event also logged as structured JSON to stderr.
 
 **Log redaction**: `SecretRedactingFilter` masks `sk-ant-*`, `sk-proj-*`, `Bearer *`, and JWT-shaped substrings in every log record so keys pasted into chat messages don't reach stdout or aggregators.
 
@@ -222,6 +228,8 @@ Env vars:
 - `SHARED_PROVIDER_KEYS` — who may spend on the server's env-var LLM keys: `admin` (default), `all`, or `none`.
 - `CHAT_REQUESTS_PER_QUARTER_HOUR` (default 150), `SQL_REQUESTS_PER_QUARTER_HOUR` (default 300) — per-user volume caps (sliding 15-min window), layered under `CHAT_STREAM_MAX_PER_USER`. Users bring their own LLM keys, so these protect server CPU/bandwidth from scripted clients, not token spend — keep them generous.
 - `MAX_EXPORTS_PER_USER` — CSV library size cap per user, default 200.
+- `SENTRY_DSN` — enables backend Sentry (no-op unset); events are scrubbed with the same secret patterns as the log redactor. Frontend Sentry takes `VITE_SENTRY_DSN` as a Docker build arg.
+- `LITESTREAM_BUCKET`, `LITESTREAM_ENDPOINT`, `LITESTREAM_ACCESS_KEY_ID`, `LITESTREAM_SECRET_ACCESS_KEY` — enable continuous replication of `runtime.sqlite3` to S3-compatible storage (Tigris on Fly). The container CMD runs uvicorn under `litestream replicate` only when the bucket var is set, and auto-restores onto a fresh volume.
 
 ### Google OAuth sign-in
 

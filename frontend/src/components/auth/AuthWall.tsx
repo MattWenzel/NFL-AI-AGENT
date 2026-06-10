@@ -42,12 +42,14 @@ const OAUTH_ERROR_MESSAGES: Record<string, string> = {
 const OAUTH_ERROR_FALLBACK = 'Google sign-in failed — try again.'
 
 export function AuthWall({ onLogin, onRegister, errorMessage }: AuthWallProps) {
-  const [mode, setMode] = useState<'signin' | 'signup'>('signin')
+  const [mode, setMode] = useState<'signin' | 'signup' | 'forgot' | 'reset'>('signin')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [invite, setInvite] = useState('')
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [resetToken, setResetToken] = useState<string | null>(null)
 
   // ChatGPT sign-in (device-code) state.
   const [chatgptStarting, setChatgptStarting] = useState(false)
@@ -78,6 +80,19 @@ export function AuthWall({ onLogin, onRegister, errorMessage }: AuthWallProps) {
       '',
       qs ? `${window.location.pathname}?${qs}` : window.location.pathname,
     )
+  }, [])
+
+  // Password-reset deep link: the email points at /#/reset?token=…
+  // (backend/domain/auth/email.py). Capture the token, switch to the
+  // reset form, and scrub the hash so a refresh doesn't re-trigger.
+  useEffect(() => {
+    const hash = window.location.hash
+    if (!hash.startsWith('#/reset')) return
+    const token = new URLSearchParams(hash.split('?')[1] ?? '').get('token')
+    if (!token) return
+    setResetToken(token)
+    setMode('reset')
+    window.history.replaceState(null, '', window.location.pathname + window.location.search)
   }, [])
 
   const copyCode = async (code: string) => {
@@ -149,19 +164,34 @@ export function AuthWall({ onLogin, onRegister, errorMessage }: AuthWallProps) {
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     setError(null)
+    setNotice(null)
     setPending(true)
     try {
       if (mode === 'signin') {
         await onLogin(email, password)
-      } else {
+      } else if (mode === 'signup') {
         await onRegister(email, password, invite || undefined)
+      } else if (mode === 'forgot') {
+        await apiPost('/auth/request-password-reset', { email })
+        setNotice('If an account exists for that address, a reset link is on its way.')
+      } else if (mode === 'reset') {
+        await apiPost('/auth/reset-password', { token: resetToken, new_password: password })
+        // Cookies are set by the response; reload so the auth bootstrap
+        // picks up the fresh session.
+        window.location.replace('/')
       }
     } catch (e) {
-      setError((e as Error).message ?? 'Something went wrong')
+      setError(e instanceof ApiError ? e.detail : (e as Error).message ?? 'Something went wrong')
     } finally {
       setPending(false)
     }
   }
+
+  const headline =
+    mode === 'signin' ? 'Welcome back.'
+    : mode === 'signup' ? 'Create an account.'
+    : mode === 'forgot' ? 'Reset your password.'
+    : 'Choose a new password.'
 
   return (
     <div className="grid min-h-dvh place-items-center bg-background px-6">
@@ -179,7 +209,7 @@ export function AuthWall({ onLogin, onRegister, errorMessage }: AuthWallProps) {
             </p>
           </div>
           <h1 className="font-display text-3xl font-medium tracking-tight">
-            {mode === 'signin' ? 'Welcome back.' : 'Create an account.'}
+            {headline}
           </h1>
           <p className="text-sm text-muted-foreground">
             Ask the agent in plain English. Get answers, reasoning, and the underlying data.
@@ -187,30 +217,36 @@ export function AuthWall({ onLogin, onRegister, errorMessage }: AuthWallProps) {
         </div>
 
         <form onSubmit={submit} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="email" className="text-xs">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              autoComplete="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="password" className="text-xs">Password</Label>
-            <Input
-              id="password"
-              type="password"
-              autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
-              minLength={mode === 'signup' ? 8 : 1}
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
+          {mode !== 'reset' ? (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="email" className="text-xs">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                autoComplete="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+              />
+            </div>
+          ) : null}
+          {mode !== 'forgot' ? (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="password" className="text-xs">
+                {mode === 'reset' ? 'New password' : 'Password'}
+              </Label>
+              <Input
+                id="password"
+                type="password"
+                autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
+                minLength={mode === 'signup' || mode === 'reset' ? 8 : 1}
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+          ) : null}
           {mode === 'signup' ? (
             <div className="flex flex-col gap-2">
               <Label htmlFor="invite" className="text-xs">
@@ -231,12 +267,24 @@ export function AuthWall({ onLogin, onRegister, errorMessage }: AuthWallProps) {
               {error ?? errorMessage}
             </p>
           ) : null}
+          {notice ? (
+            <p className="text-xs text-muted-foreground" role="status">
+              {notice}
+            </p>
+          ) : null}
 
           <Button type="submit" disabled={pending} className="w-full">
-            {pending ? 'Working…' : mode === 'signin' ? 'Sign in' : 'Create account'}
+            {pending
+              ? 'Working…'
+              : mode === 'signin' ? 'Sign in'
+              : mode === 'signup' ? 'Create account'
+              : mode === 'forgot' ? 'Send reset link'
+              : 'Set new password'}
           </Button>
         </form>
 
+        {mode === 'signin' || mode === 'signup' ? (
+        <>
         <div className="relative">
           <div className="absolute inset-0 flex items-center" aria-hidden>
             <span className="w-full border-t border-border" />
@@ -308,18 +356,46 @@ export function AuthWall({ onLogin, onRegister, errorMessage }: AuthWallProps) {
             <p className="text-xs text-muted-foreground" role="status">{chatgptMsg}</p>
           ) : null}
         </div>
+        </>
+        ) : null}
 
-        <div className="text-center text-xs text-muted-foreground">
+        <div className="flex flex-col items-center gap-2 text-center text-xs text-muted-foreground">
           {mode === 'signin' ? (
+            <>
+              <button
+                type="button"
+                className="underline-offset-4 hover:text-foreground hover:underline"
+                onClick={() => {
+                  setMode('signup')
+                  setError(null)
+                  setNotice(null)
+                }}
+              >
+                Don't have an account? Sign up.
+              </button>
+              <button
+                type="button"
+                className="underline-offset-4 hover:text-foreground hover:underline"
+                onClick={() => {
+                  setMode('forgot')
+                  setError(null)
+                  setNotice(null)
+                }}
+              >
+                Forgot password?
+              </button>
+            </>
+          ) : mode === 'signup' ? (
             <button
               type="button"
               className="underline-offset-4 hover:text-foreground hover:underline"
               onClick={() => {
-                setMode('signup')
+                setMode('signin')
                 setError(null)
+                setNotice(null)
               }}
             >
-              Don't have an account? Sign up.
+              Already have an account? Sign in.
             </button>
           ) : (
             <button
@@ -328,9 +404,10 @@ export function AuthWall({ onLogin, onRegister, errorMessage }: AuthWallProps) {
               onClick={() => {
                 setMode('signin')
                 setError(null)
+                setNotice(null)
               }}
             >
-              Already have an account? Sign in.
+              Back to sign in.
             </button>
           )}
         </div>

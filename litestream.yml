@@ -1,0 +1,27 @@
+# Litestream replication config for the runtime SQLite database.
+#
+# Only runtime.sqlite3 is replicated — it holds users, transcripts, and
+# encrypted API keys, and lives on a single Fly volume that is otherwise a
+# single point of loss. The nflverse DuckDB is reproducible from the
+# sibling NFLVERSE repo's build scripts and is deliberately NOT replicated.
+#
+# Credentials come from the environment (`fly secrets set`):
+#   LITESTREAM_BUCKET             — e.g. "nfl-stats-agent-backups"
+#   LITESTREAM_ENDPOINT           — e.g. "https://fly.storage.tigris.dev"
+#   LITESTREAM_ACCESS_KEY_ID
+#   LITESTREAM_SECRET_ACCESS_KEY
+#
+# The Dockerfile CMD only runs litestream when LITESTREAM_BUCKET is set,
+# so local docker runs and deployments without backups configured behave
+# exactly as before.
+dbs:
+  - path: /data/runtime/runtime.sqlite3
+    replicas:
+      - type: s3
+        bucket: ${LITESTREAM_BUCKET}
+        path: runtime.sqlite3
+        endpoint: ${LITESTREAM_ENDPOINT}
+        access-key-id: ${LITESTREAM_ACCESS_KEY_ID}
+        secret-access-key: ${LITESTREAM_SECRET_ACCESS_KEY}
+        # Tigris ignores region but the S3 client requires one.
+        region: auto

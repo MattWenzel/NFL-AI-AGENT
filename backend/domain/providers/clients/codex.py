@@ -36,7 +36,7 @@ from backend.domain.providers.types import (
     StopReason,
     TextEvent,
     ToolChoice,
-    ToolDefinition,
+    Tool,
     ToolUseEvent,
     Usage,
 )
@@ -114,7 +114,7 @@ class OpenAICodexClient(BaseLLMClient):
     async def create_message(
         self,
         messages: list[Message],
-        tools: list[ToolDefinition] | None = None,
+        tools: list[Tool] | None = None,
         system: str | None = None,
         model: str | None = None,
     ) -> MessageResponse:
@@ -157,7 +157,7 @@ class OpenAICodexClient(BaseLLMClient):
     async def _stream_once(
         self,
         messages: list[Message],
-        tools: list[ToolDefinition] | None = None,
+        tools: list[Tool] | None = None,
         system: str | None = None,
         tool_choice: ToolChoice | None = None,
     ) -> AsyncIterator[TextEvent | ToolUseEvent]:
@@ -283,15 +283,39 @@ class OpenAICodexClient(BaseLLMClient):
         # Fall back to using item_id as the call_id (some events may omit the mapping).
         return item_id
 
-    @staticmethod
-    def _assemble_tool_event(call_id: str, slot: dict) -> ToolUseEvent:
-        return build_tool_use_event(
+    @classmethod
+    def _assemble_tool_event(cls, call_id: str, slot: dict) -> ToolUseEvent:
+        event = build_tool_use_event(
             tool_id=call_id,
             tool_name=slot.get("name", ""),
             arguments=slot.get("arguments") or "",
             logger=logger,
             context=f"Codex tool {slot.get('name') or '<unknown>'}",
         )
+        # Strict-mode schemas (`_make_strict_schema`) force every property
+        # into `required` and make optionals nullable, so the model sends
+        # `{"group_by": null}` for unused optionals. Handlers treat absent
+        # and explicit-null identically (`.get()` + falsy checks), so strip
+        # the nulls here — at the client that created the quirk — instead
+        # of making the provider-agnostic tool path schema-aware.
+        return ToolUseEvent(
+            id=event.id,
+            name=event.name,
+            input=cls._strip_null_values(event.input),
+        )
+
+    @classmethod
+    def _strip_null_values(cls, value):
+        """Recursively drop dict entries whose value is None."""
+        if isinstance(value, dict):
+            return {
+                k: cls._strip_null_values(v)
+                for k, v in value.items()
+                if v is not None
+            }
+        if isinstance(value, list):
+            return [cls._strip_null_values(item) for item in value]
+        return value
 
     @staticmethod
     def _parse_usage(usage: dict | None) -> Usage:
@@ -345,7 +369,7 @@ class OpenAICodexClient(BaseLLMClient):
     def _build_body(
         self,
         messages: list[Message],
-        tools: list[ToolDefinition] | None,
+        tools: list[Tool] | None,
         system: str | None,
         *,
         model: str | None = None,
@@ -408,7 +432,7 @@ class OpenAICodexClient(BaseLLMClient):
     # ---------------- tool schema ----------------
 
     @classmethod
-    def _convert_tool(cls, tool: ToolDefinition) -> dict:
+    def _convert_tool(cls, tool: Tool) -> dict:
         return {
             "type": "function",
             "name": tool.name,

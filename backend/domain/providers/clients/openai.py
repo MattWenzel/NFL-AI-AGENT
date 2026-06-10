@@ -16,7 +16,7 @@ from backend.domain.providers.retry import (
 )
 from backend.domain.providers.types import (
     OPENAI, Message, MessageResponse, StopReason, TextEvent,
-    ToolChoice, ToolDefinition, ToolUseEvent, Usage,
+    ToolChoice, Tool, ToolUseEvent, Usage,
 )
 from backend.domain.providers.tool_calls import build_tool_use_event, emit_accumulated_tool_calls
 
@@ -102,7 +102,7 @@ class OpenAIClient(BaseLLMClient):
     async def create_message(
         self,
         messages: list[Message],
-        tools: list[ToolDefinition] | None = None,
+        tools: list[Tool] | None = None,
         system: str | None = None,
         model: str | None = None,
     ) -> MessageResponse:
@@ -133,7 +133,7 @@ class OpenAIClient(BaseLLMClient):
     async def _stream_once(
         self,
         messages: list[Message],
-        tools: list[ToolDefinition] | None = None,
+        tools: list[Tool] | None = None,
         system: str | None = None,
         tool_choice: ToolChoice | None = None,
     ) -> AsyncIterator[TextEvent | ToolUseEvent]:
@@ -280,8 +280,8 @@ class OpenAIClient(BaseLLMClient):
         return result
 
     @staticmethod
-    def _convert_tools(tools: list[ToolDefinition] | None) -> list[dict] | None:
-        """Convert ToolDefinition list to OpenAI function format."""
+    def _convert_tools(tools: list[Tool] | None) -> list[dict] | None:
+        """Convert Tool list to OpenAI function format."""
         if not tools:
             return None
         return [

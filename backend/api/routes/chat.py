@@ -1,47 +1,52 @@
-"""POST /chat/message + POST /chat/stream — drive a single chat turn.
+"""POST /chat/stream — drive a single chat turn over SSE.
 
-Both endpoints delegate orchestration to `ChatService`, which
-owns provider selection, session creation, and runtime invocation. The
-route's job is purely transport: `/message` buffers the service's event
-stream into one JSON response; `/stream` emits each event as SSE and
-uses a heartbeat ping so reverse proxies don't drop long-running
+The endpoint delegates orchestration to `ChatService`, which owns
+provider selection, session creation, and runtime invocation. The
+route's job is purely transport: it emits each runtime event as SSE
+and uses a heartbeat ping so reverse proxies don't drop long-running
 connections.
 
 The service is resolved via `backend.api.dependencies`. Event-to-wire
 translation lives in the API package, alongside its Pydantic wire schemas.
 """
 
-import asyncio
-import json
 import logging
+from contextlib import aclosing
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import StreamingResponse
 
 from backend.domain.auth.types import AuthenticatedUser
 from backend.server.csrf import verify_csrf
-from backend.api.dependencies import get_chat_service, get_current_user, get_process_state
+from backend.api.dependencies import (
+    get_chat_service,
+    get_current_user,
+    get_process_state,
+    get_store,
+)
+from backend.data import RuntimeStore
 from backend.server.process_state import AppProcessState
 from backend.server.rate_limit import ConcurrencyLimiter
-from backend.api.schemas.chat import ChatRequest, ChatResponse
+from backend.api.schemas.chat import CancelChatRequest, ChatRequest
 from backend.application.chat import (
     ChatConfigurationError,
     ChatNotFoundError,
     ChatService,
-    ChatServiceError,
     close_client,
 )
-from backend.server.sse import done_payload, error_to_sse_payload, event_to_sse_payload
-from backend.domain.providers.errors import LLMError
+from backend.server.sse import (
+    DetachHandoff,
+    done_payload,
+    error_to_sse_payload,
+    event_to_sse_payload,
+    sse_line,
+    sse_response,
+    stream_sse_events,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chat", tags=["chat"], dependencies=[Depends(verify_csrf)])
 
-# Idle interval after which /chat/stream emits an SSE comment keepalive so
-# reverse proxies (nginx 60s default, Cloudflare 100s) don't drop the
-# connection while a long-running tool call is in flight.
-SSE_HEARTBEAT_SECONDS = 15
 
 async def _acquire_stream_slot(stream_gate: ConcurrencyLimiter, user_id: int) -> None:
     await stream_gate.acquire(
@@ -52,50 +57,6 @@ async def _acquire_stream_slot(stream_gate: ConcurrencyLimiter, user_id: int) ->
             "Wait for an in-flight reply to finish."
         ),
     )
-
-
-async def _release_stream_slot(stream_gate: ConcurrencyLimiter, user_id: int) -> None:
-    await stream_gate.release(user_id)
-
-
-@router.post("/message", response_model=ChatResponse)
-async def chat_message(
-    body: ChatRequest,
-    service: ChatService = Depends(get_chat_service),
-    process_state: AppProcessState = Depends(get_process_state),
-    user: AuthenticatedUser = Depends(get_current_user),
-):
-    """Send a message and get a complete response."""
-    process_state.chat_request_limiter.check_key(f"user:{user.id}")
-    try:
-        response = await service.run_message(
-            message=body.message,
-            conversation_id=body.conversation_id,
-            provider=body.provider,
-            model=body.model,
-            tool_choice=body.tool_choice,
-            user=user,
-        )
-    except ChatNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-    except ChatConfigurationError as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
-    except ChatServiceError as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
-    except LLMError as e:
-        logger.warning("LLM error in chat/message: %s", e)
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Unexpected runtime error in chat/message")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
-
-    logger.debug("chat/message done  session=%s", response.get("conversation_id"))
-    return response
-
-
-_PRODUCER_DONE = object()  # sentinel put on the queue when the producer finishes
 
 
 @router.post("/stream")
@@ -124,13 +85,23 @@ async def chat_stream(
     """
 
     stream_gate = process_state.chat_stream_limiter
-
-    def _sse_line(payload: dict) -> str:
-        return f"data: {json.dumps(payload)}\n\n"
+    cancel_registry = process_state.chat_cancel_events
 
     async def event_generator():
         slot_acquired = False
         prepared = None
+        cancel_event = None
+        session_id = None
+        handoff = None
+
+        async def release_resources():
+            if cancel_event is not None and session_id is not None:
+                cancel_registry.close(session_id, cancel_event)
+            if prepared is not None:
+                await close_client(prepared.client)
+            if slot_acquired:
+                await stream_gate.release(user.id)
+
         try:
             try:
                 # Volume cap first (records the attempt), then the
@@ -139,10 +110,10 @@ async def chat_stream(
                 await _acquire_stream_slot(stream_gate, user.id)
                 slot_acquired = True
             except HTTPException as exc:
-                yield _sse_line(error_to_sse_payload(
+                yield sse_line(error_to_sse_payload(
                     code="rate_limited", status=exc.status_code, message=exc.detail,
                 ))
-                yield _sse_line(done_payload())
+                yield sse_line(done_payload())
                 return
 
             try:
@@ -153,101 +124,79 @@ async def chat_stream(
                     user=user,
                 )
             except ChatNotFoundError as exc:
-                yield _sse_line(error_to_sse_payload(
+                yield sse_line(error_to_sse_payload(
                     code="not_found", status=status.HTTP_404_NOT_FOUND, message=str(exc),
                 ))
-                yield _sse_line(done_payload())
+                yield sse_line(done_payload())
                 return
             except ChatConfigurationError as exc:
-                yield _sse_line(error_to_sse_payload(
+                yield sse_line(error_to_sse_payload(
                     code="configuration", status=status.HTTP_503_SERVICE_UNAVAILABLE, message=str(exc),
                 ))
-                yield _sse_line(done_payload())
+                yield sse_line(done_payload())
                 return
 
             session = prepared.session
+            session_id = session.id
             logger.debug("chat/stream  session=%s  msg=%s", session.id, body.message[:100])
 
-            # Producer/consumer split. The runtime drains into a queue on its
-            # own task; the SSE loop reads from the queue with a heartbeat
-            # timeout. This keeps `wait_for` from cancelling the producer (and
-            # any in-flight tool call it is awaiting) every heartbeat tick.
-            queue: asyncio.Queue = asyncio.Queue()
+            # Cancellation handle for POST /chat/cancel (the Stop button).
+            # Registered before streaming starts so a cancel can't race the
+            # first event.
+            cancel_event = cancel_registry.open(session.id)
+            # Finish-on-disconnect: a dropped tab hands the turn to a
+            # background drain so the answer persists; the drain runs
+            # release_resources() when it finishes.
+            handoff = DetachHandoff(release_resources)
+
             source = service.stream_events(
                 prepared,
                 message=body.message,
                 tool_choice=body.tool_choice,
             )
-
-            async def producer():
-                try:
-                    async for event in source:
-                        await queue.put(event)
-                except BaseException as exc:  # incl. CancelledError for disconnects
-                    await queue.put(exc)
-                finally:
-                    await queue.put(_PRODUCER_DONE)
-
-            producer_task = asyncio.create_task(producer())
-
-            try:
-                yield _sse_line({"type": "conversation_id", "id": session.id})
-                while True:
-                    if await request.is_disconnected():
-                        logger.info("Client disconnected, stopping stream  session=%s", session.id)
-                        break
-                    try:
-                        item = await asyncio.wait_for(queue.get(), timeout=SSE_HEARTBEAT_SECONDS)
-                    except asyncio.TimeoutError:
-                        # Keepalive comment — proxies reset their idle timer.
-                        # The producer keeps running; only the queue-read was cancelled.
-                        yield ": ping\n\n"
-                        continue
-                    if item is _PRODUCER_DONE:
-                        break
-                    if isinstance(item, LLMError):
-                        raise item
-                    if isinstance(item, BaseException):
-                        # Re-raise non-LLM errors so the outer handler can log them.
-                        raise item
-                    payload = event_to_sse_payload(item)
-                    if payload is not None:
-                        yield _sse_line(payload)
-                yield _sse_line(done_payload())
-            except LLMError as e:
-                logger.warning("LLM error in chat/stream: %s", e)
-                yield _sse_line(error_to_sse_payload(message=str(e)))
-                yield _sse_line(done_payload())
-            except Exception:
-                logger.exception("Unexpected error in chat/stream")
-                yield _sse_line(error_to_sse_payload(message="Internal error — check server logs"))
-                yield _sse_line(done_payload())
-            finally:
-                # Stop the producer and close the runtime generator so its
-                # `finally` block runs now (releases the session lock,
-                # reconciles pending tool runs) rather than waiting on GC.
-                if not producer_task.done():
-                    producer_task.cancel()
-                try:
-                    await producer_task
-                except (asyncio.CancelledError, Exception):
-                    pass
-                try:
-                    await source.aclose()
-                except Exception:
-                    logger.exception("Failed to close runtime source  session=%s", session.id)
+            # aclosing: if the client closes this response generator early,
+            # the inner transport generator's `finally` (detach or cleanup)
+            # must run *now*, not at GC time.
+            async with aclosing(stream_sse_events(
+                request,
+                source,
+                event_to_sse_payload,
+                first_payloads=[{"type": "conversation_id", "id": session.id}],
+                log_label=f"chat/stream session={session.id}",
+                detach=handoff,
+                cancel_event=cancel_event,
+                draining=lambda: process_state.draining,
+            )) as lines:
+                async for line in lines:
+                    yield line
         finally:
-            if prepared is not None:
-                await close_client(prepared.client)
-            if slot_acquired:
-                await _release_stream_slot(stream_gate, user.id)
+            if handoff is not None and handoff.detached:
+                # The background drain owns cleanup now (client close, slot
+                # release, cancel-event unregistration).
+                pass
+            else:
+                await release_resources()
 
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    return sse_response(event_generator())
+
+
+@router.post("/cancel")
+async def chat_cancel(
+    body: CancelChatRequest,
+    store: RuntimeStore = Depends(get_store),
+    process_state: AppProcessState = Depends(get_process_state),
+    user: AuthenticatedUser = Depends(get_current_user),
+):
+    """Stop the in-flight stream for a conversation.
+
+    The Stop button calls this *before* aborting its fetch — without it,
+    finish-on-disconnect would keep the turn running in the background
+    and keep spending the user's tokens. Idempotent: cancelling a
+    conversation with no active stream returns `{"cancelled": false}`.
+    """
+    if await store.get_session(body.conversation_id, user_id=user.id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found"
+        )
+    cancelled = process_state.chat_cancel_events.cancel(body.conversation_id)
+    return {"cancelled": cancelled}

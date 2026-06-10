@@ -40,7 +40,7 @@ from backend.domain.providers.types import (
     Message,
     TextEvent,
     ToolChoice,
-    ToolDefinition,
+    Tool,
     ToolUseEvent,
 )
 from backend.domain.tools import execute_tool
@@ -81,7 +81,7 @@ async def run_stateless_turn(
     *,
     messages: list[Message],
     client: BaseLLMClient,
-    tools: list[ToolDefinition],
+    tools: list[Tool],
     system: str,
     tool_choice: ToolChoice | None = None,
     max_iterations: int = MAX_HELPER_ITERATIONS,

@@ -11,7 +11,8 @@ Concerns that used to live here are now in sibling modules:
 - Token estimation + compaction                  → `compaction.py`
 - Turn lifecycle + doom-loop policy + tool exec  → `turn.py`
 
-Tool schemas + the pre-built TOOLS list live in `tools.definitions`.
+Tool schemas + handlers live one-per-file in `backend.domain.tools`; the
+registry there assembles the TOOLS catalog.
 """
 
 from __future__ import annotations
@@ -37,7 +38,7 @@ from backend.domain.providers.errors import ContextOverflowError
 from backend.domain.providers.types import (
     TextEvent,
     ToolChoice,
-    ToolDefinition,
+    Tool,
     ToolUseEvent,
     Usage,
 )
@@ -85,17 +86,16 @@ class ChatRuntime:
         user_text: str,
         client: BaseLLMClient,
         *,
-        tools: list[ToolDefinition],
+        tools: list[Tool],
         provider_name: str,
         tool_choice: ToolChoice | None = None,
     ) -> AsyncGenerator[RuntimeEvent, None]:
         """Drive one user turn through the model, tool loop, and persistence.
 
         Always consumes `client.stream_message` — the streamed events are
-        accumulated here, and non-streaming consumers (like `/chat/message`)
-        buffer them at the boundary. This is the same pattern opencode uses
-        with Vercel's `streamText` and keeps a single code path through the
-        runtime.
+        accumulated here, and any non-streaming consumer can buffer them at
+        the boundary. This is the same pattern opencode uses with Vercel's
+        `streamText` and keeps a single code path through the runtime.
         """
         lock = self.store.lock(session.id)
         async with lock:

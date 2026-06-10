@@ -24,7 +24,7 @@ from backend.application.tables import (
     TableNotReadyError,
 )
 from backend.data import RuntimeStore, SessionRecord
-from backend.domain.tools.handlers.set_table import _set_table
+from backend.domain.tools.set_table import _set_table
 
 
 # --------------------------------------------------------------------------
@@ -40,7 +40,7 @@ def test_migration_0007_adds_kind_and_creates_table_states(tmp_path):
             "SELECT name FROM sqlite_master WHERE type='table' AND name='table_states'"
         )).first() is not None
     # Bump in lockstep with `MIGRATIONS` length in backend/data/migrations.py.
-    assert version == 9
+    assert version == 10
     assert "kind" in sessions_cols
     assert "source_session_id" in sessions_cols
     assert ts_exists
@@ -66,7 +66,7 @@ def test_set_table_runs_sql_through_sandbox(monkeypatch):
         return _FakeSqlResult(["a"], [{"a": 1}])
 
     monkeypatch.setattr(
-        "backend.domain.tools.handlers.set_table.execute_table_sql", fake_run
+        "backend.domain.tools.set_table.execute_table_sql", fake_run
     )
 
     persisted = {}
@@ -109,7 +109,7 @@ def test_set_table_rejects_when_table_is_locked(monkeypatch):
         raise AssertionError("execute_table_sql should not run on a locked table")
 
     monkeypatch.setattr(
-        "backend.domain.tools.handlers.set_table.execute_table_sql", fake_run
+        "backend.domain.tools.set_table.execute_table_sql", fake_run
     )
 
     persist_called = []

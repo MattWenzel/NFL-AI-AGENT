@@ -436,7 +436,6 @@ class Turn:
             status="completed" if raw_result["status"] == "completed" else "error",
             content=raw_result["content"],
             error=raw_result.get("error"),
-            hint=raw_result.get("hint"),
             duration_ms=raw_result.get("duration_ms"),
         )
         await self._store.update_tool_run(
@@ -444,7 +443,6 @@ class Turn:
             status=result.status,
             result=result.content,
             error=result.error,
-            hint=result.hint,
             duration_ms=result.duration_ms,
         )
         await self._store.add_part(

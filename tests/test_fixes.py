@@ -140,7 +140,7 @@ class TestSandboxIntegration:
     def test_search_players_tool_works(self):
         """Regression: _search_players must not produce duplicate LIMIT."""
         _skip_if_stats_db_locked()
-        from backend.domain.tools.handlers.player_lookup import _search_players
+        from backend.domain.tools.search_players import _search_players
         out = _search_players({"position": "QB", "limit": 3})
         # Result is a JSON string; must not contain a syntax error marker.
         assert "syntax error" not in out.lower()
@@ -389,14 +389,14 @@ class TestAnthropicMergeToolResults:
 
 
 class TestSSEDisconnectDetection:
-    """Verify the disconnect check is wired into event_generator."""
+    """Verify the disconnect check is wired into the shared SSE transport."""
 
     def test_disconnect_check_in_source(self):
-        """The event_generator should check request.is_disconnected()."""
+        """The shared stream loop should check request.is_disconnected()."""
         import inspect
-        from backend.api.routes.chat import chat_stream
+        from backend.server.sse import stream_sse_events
 
-        source = inspect.getsource(chat_stream)
+        source = inspect.getsource(stream_sse_events)
         assert "is_disconnected" in source
         assert "Client disconnected" in source
 
@@ -405,7 +405,6 @@ class TestSSEDisconnectDetection:
 # 4. Runtime transcript replaces conversation windowing
 # ---------------------------------------------------------------------------
 from backend.data import RuntimeStore
-from backend.domain.agent.events import ToolCompletedEvent, ToolPendingEvent
 
 
 class TestRuntimeTranscript:
@@ -454,7 +453,7 @@ class TestRuntimeTranscript:
 
 
 # ---------------------------------------------------------------------------
-# 5. Tool result pairing in /chat/message now uses tool_run_id
+# 5. CSV export registration bridges sync→async correctly
 # ---------------------------------------------------------------------------
 class TestCsvExportRegistration:
     """Regression guard: the `register_export` ctx callback bridges sync→async correctly.
@@ -475,7 +474,7 @@ class TestCsvExportRegistration:
 
         # Point exports at a tmp dir so we don't pollute the repo.
         tmp_exports = tmp_path / "exports"
-        monkeypatch.setattr("backend.domain.tools.handlers.create_csv_export.EXPORTS_DIR", tmp_exports)
+        monkeypatch.setattr("backend.domain.tools.create_csv_export.EXPORTS_DIR", tmp_exports)
 
         # Mock the DuckDB-reading SQL path so this test doesn't depend on
         # the stats DB being available or unlocked. The test is about the
@@ -487,7 +486,7 @@ class TestCsvExportRegistration:
                 row_count=2,
                 truncated=False,
             )
-        monkeypatch.setattr("backend.domain.tools.handlers.create_csv_export.execute_export_sql", fake_execute_export_sql)
+        monkeypatch.setattr("backend.domain.tools.create_csv_export.execute_export_sql", fake_execute_export_sql)
 
         async def _run():
             store = RuntimeStore(tmp_path / "runtime.sqlite3")
@@ -500,14 +499,13 @@ class TestCsvExportRegistration:
                 # Run the real handler via the real to_thread bridge — that's
                 # the code path we need to exercise to catch the sync→async
                 # register_export bug.
-                from backend.domain.tools.handlers.create_csv_export import _create_csv_export
+                from backend.domain.tools.create_csv_export import _create_csv_export
                 result_str = await asyncio.to_thread(_create_csv_export, input_data, ctx)
                 result = json.loads(result_str)
                 return {
                     "status": "error" if "error" in result else "completed",
                     "content": result_str,
                     "error": result.get("error"),
-                    "hint": None,
                     "duration_ms": 0,
                 }
 
@@ -541,66 +539,6 @@ class TestCsvExportRegistration:
             assert exports[0].row_count == 2
 
         asyncio.run(_run())
-
-
-class TestToolResultPairing:
-    """Test that tool results are paired with the matching tool_run_id."""
-
-    def test_two_parallel_tool_calls_paired_correctly(self):
-        """Results should attach to the corresponding pending tool record."""
-        tool_calls_log = []
-        events = [
-            ToolPendingEvent(session_id="s", turn_id="t", tool_run_id="a", name="sql_query", input={"sql": "SELECT 1"}, iterations=1),
-            ToolPendingEvent(session_id="s", turn_id="t", tool_run_id="b", name="get_schema", input={"table": "players"}, iterations=1),
-            ToolCompletedEvent(session_id="s", turn_id="t", tool_run_id="a", name="sql_query", result="result_A", iterations=1),
-            ToolCompletedEvent(session_id="s", turn_id="t", tool_run_id="b", name="get_schema", result="result_B", iterations=1),
-        ]
-
-        for event in events:
-            if isinstance(event, ToolPendingEvent):
-                tool_calls_log.append({
-                    "tool_run_id": event.tool_run_id,
-                    "tool": event.name,
-                    "input": event.input,
-                    "result_preview": "",
-                })
-            elif isinstance(event, ToolCompletedEvent):
-                for item in reversed(tool_calls_log):
-                    if item["tool_run_id"] == event.tool_run_id and not item["result_preview"]:
-                        item["result_preview"] = event.result
-                        break
-
-        assert len(tool_calls_log) == 2
-        assert tool_calls_log[0]["tool"] == "sql_query"
-        assert tool_calls_log[0]["result_preview"] == "result_A"
-        assert tool_calls_log[1]["tool"] == "get_schema"
-        assert tool_calls_log[1]["result_preview"] == "result_B"
-
-    def test_out_of_order_results_still_pair_correctly(self):
-        tool_calls_log = []
-        events = [
-            ToolPendingEvent(session_id="s", turn_id="t", tool_run_id="x", name="A", input={}, iterations=1),
-            ToolPendingEvent(session_id="s", turn_id="t", tool_run_id="y", name="A", input={"k": 2}, iterations=1),
-            ToolCompletedEvent(session_id="s", turn_id="t", tool_run_id="y", name="A", result="second", iterations=1),
-            ToolCompletedEvent(session_id="s", turn_id="t", tool_run_id="x", name="A", result="first", iterations=1),
-        ]
-
-        for event in events:
-            if isinstance(event, ToolPendingEvent):
-                tool_calls_log.append({
-                    "tool_run_id": event.tool_run_id,
-                    "tool": event.name,
-                    "input": event.input,
-                    "result_preview": "",
-                })
-            elif isinstance(event, ToolCompletedEvent):
-                for item in reversed(tool_calls_log):
-                    if item["tool_run_id"] == event.tool_run_id and not item["result_preview"]:
-                        item["result_preview"] = event.result
-                        break
-
-        assert tool_calls_log[0]["result_preview"] == "first"
-        assert tool_calls_log[1]["result_preview"] == "second"
 
 
 # ---------------------------------------------------------------------------
@@ -638,7 +576,7 @@ class TestRuntimeStoreValidation:
 # ---------------------------------------------------------------------------
 # 8. Negative limit clamped to 1 in _search_players (Fix 1)
 # ---------------------------------------------------------------------------
-from backend.domain.tools.handlers.player_lookup import _search_players
+from backend.domain.tools.search_players import _search_players
 
 
 class TestSearchPlayersLimit:
@@ -652,7 +590,7 @@ class TestSearchPlayersLimit:
         from backend.domain.tools.sandbox.runner import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("backend.domain.tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("backend.domain.tools.search_players.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": -5})
             # Last positional arg in the params tuple is the limit
             call_params = m.call_args[0][1]
@@ -663,7 +601,7 @@ class TestSearchPlayersLimit:
         from backend.domain.tools.sandbox.runner import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("backend.domain.tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("backend.domain.tools.search_players.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": 0})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 1
@@ -673,7 +611,7 @@ class TestSearchPlayersLimit:
         from backend.domain.tools.sandbox.runner import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("backend.domain.tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("backend.domain.tools.search_players.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": 25})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 25
@@ -683,34 +621,10 @@ class TestSearchPlayersLimit:
         from backend.domain.tools.sandbox.runner import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("backend.domain.tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("backend.domain.tools.search_players.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": 999})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 50
-
-
-# ---------------------------------------------------------------------------
-# 9. ChatResponse.truncated field (Fix 4)
-# ---------------------------------------------------------------------------
-from backend.api.routes.chat import ChatResponse
-
-
-class TestChatResponseTruncated:
-    """Tests for ChatResponse.truncated field."""
-
-    def test_truncated_defaults_to_false(self):
-        resp = ChatResponse(conversation_id="x", response="hi")
-        assert resp.truncated is False
-
-    def test_truncated_can_be_set_true(self):
-        resp = ChatResponse(conversation_id="x", response="hi", truncated=True)
-        assert resp.truncated is True
-
-    def test_truncated_in_serialized_output(self):
-        resp = ChatResponse(conversation_id="x", response="hi")
-        data = resp.model_dump()
-        assert "truncated" in data
-        assert data["truncated"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -777,7 +691,7 @@ class TestSearchPlayersNonIntegerLimit:
         from backend.domain.tools.sandbox.runner import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("backend.domain.tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("backend.domain.tools.search_players.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": "ten"})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 10
@@ -788,7 +702,7 @@ class TestSearchPlayersNonIntegerLimit:
         from backend.domain.tools.sandbox.runner import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("backend.domain.tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("backend.domain.tools.search_players.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": None})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 10
@@ -799,7 +713,7 @@ class TestSearchPlayersNonIntegerLimit:
         from backend.domain.tools.sandbox.runner import SQLResult
 
         dummy = SQLResult(rows=[], columns=[], row_count=0, truncated=False)
-        with mock.patch("backend.domain.tools.handlers.player_lookup.execute_safe_sql", return_value=dummy) as m:
+        with mock.patch("backend.domain.tools.search_players.execute_safe_sql", return_value=dummy) as m:
             _search_players({"name": "Test", "limit": "10.5"})
             call_params = m.call_args[0][1]
             assert call_params[-1] == 10

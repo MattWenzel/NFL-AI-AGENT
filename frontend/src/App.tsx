@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { AppShell } from '@/components/layout/AppShell'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { Sidebar } from '@/components/sidebar/Sidebar'
 import { Inspector } from '@/components/inspector/Inspector'
 import { Composer } from '@/components/composer/Composer'
@@ -325,7 +326,20 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
         }
         inspector={<Inspector />}
         main={
-          databaseOpen ? (
+          // Per-surface failure containment: a render crash in one surface
+          // shows an inline error card instead of white-screening the app.
+          // Keyed by surface so navigating away resets the boundary.
+          <ErrorBoundary
+            key={databaseOpen ? 'database' : activeTableId || pendingReport ? 'report' : 'chat'}
+            label={
+              databaseOpen
+                ? 'The Database view'
+                : activeTableId || pendingReport
+                  ? 'This report'
+                  : 'This chat'
+            }
+          >
+          {databaseOpen ? (
             <DatabaseView
               ref={databaseViewRef}
               selectedTable={selectedDatabaseTable}
@@ -395,7 +409,8 @@ function ChatWorkspace({ user, onLogout }: { user: AuthUser; onLogout: () => voi
                 onStop={chat.stop}
               />
             </EmptyThread>
-          )
+          )}
+          </ErrorBoundary>
         }
       />
       <SettingsModal

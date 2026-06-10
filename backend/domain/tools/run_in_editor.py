@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 
+from backend.domain.providers.types import Tool
 from backend.domain.tools.sandbox.runner import SQLValidationError, validate_sql
 
 
@@ -32,3 +33,30 @@ def _run_in_editor(input_data: dict, ctx: dict | None = None) -> str:
         "sql": sql,
         "message": "SQL placed in the user's editor and will run automatically.",
     })
+
+
+TOOL = Tool(
+    name="run_in_editor",
+    description=(
+        "Place this SQL into the user's Database browser editor and run it. "
+        "Use this when the user wants to SEE the results in their main editor view "
+        "(asks to 'run', 'execute', 'do', 'show me', 'pull up' a query). "
+        "DO NOT use this when the user just wants the SQL text for themselves "
+        "('give me the SQL', 'just write the query', 'how would I write…') — "
+        "in those cases respond inline with a fenced ```sql block. "
+        "DO NOT use this to research a query yourself — that's `execute_sql`. "
+        "After you call this, the user sees the rows directly in their editor; "
+        "your follow-up message should NOT re-show the SQL or the rows."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "sql": {
+                "type": "string",
+                "description": "The read-only SELECT/WITH statement to run in the user's editor.",
+            },
+        },
+        "required": ["sql"],
+    },
+    handler=_run_in_editor,
+)

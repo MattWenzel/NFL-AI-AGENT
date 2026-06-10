@@ -31,7 +31,7 @@ from backend.domain.providers.types import (
     StopReason,
     TextEvent,
     ToolChoice,
-    ToolDefinition,
+    Tool,
     ToolUseEvent,
     Usage,
 )
@@ -58,7 +58,7 @@ class BaseLLMClient(ABC):
     async def create_message(
         self,
         messages: list[Message],
-        tools: list[ToolDefinition] | None = None,
+        tools: list[Tool] | None = None,
         system: str | None = None,
         model: str | None = None,
     ) -> MessageResponse:
@@ -74,7 +74,7 @@ class BaseLLMClient(ABC):
     def _stream_once(
         self,
         messages: list[Message],
-        tools: list[ToolDefinition] | None = None,
+        tools: list[Tool] | None = None,
         system: str | None = None,
         tool_choice: ToolChoice | None = None,
     ) -> AsyncIterator[TextEvent | ToolUseEvent]:
@@ -133,7 +133,7 @@ class BaseLLMClient(ABC):
     async def stream_message(
         self,
         messages: list[Message],
-        tools: list[ToolDefinition] | None = None,
+        tools: list[Tool] | None = None,
         system: str | None = None,
         tool_choice: ToolChoice | None = None,
     ) -> AsyncIterator[TextEvent | ToolUseEvent | ProviderRetryingEvent]:

@@ -334,6 +334,17 @@ class UsersMixin:
             await session.commit()
             return result.rowcount or 0
 
+    async def invalidate_all_auth_sessions(self, user_id: int) -> int:
+        """Revoke every auth session for this user — used after a password
+        reset, where the resetter may not be the holder of existing
+        sessions. Returns the number of tokens killed."""
+        async with self._async_session() as session:
+            result = await session.execute(
+                delete(AuthSessionRecord).where(AuthSessionRecord.user_id == user_id)
+            )
+            await session.commit()
+            return result.rowcount or 0
+
     async def purge_expired_auth_sessions(self) -> int:
         now = utcnow()
         async with self._async_session() as session:

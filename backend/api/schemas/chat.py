@@ -1,4 +1,4 @@
-"""Chat request/response shapes for POST /chat/message and POST /chat/stream."""
+"""Chat request shapes for POST /chat/stream and POST /chat/cancel."""
 
 from typing import Literal
 
@@ -20,14 +20,5 @@ class ChatRequest(BaseModel):
     )
 
 
-class ToolCallPreview(BaseModel):
-    tool: str
-    input: dict
-    result_preview: str
-
-
-class ChatResponse(BaseModel):
-    conversation_id: str
-    response: str
-    tool_calls: list[ToolCallPreview] = Field(default_factory=list)
-    truncated: bool = Field(False, description="True when the agent hit its iteration limit")
+class CancelChatRequest(BaseModel):
+    conversation_id: str = Field(..., description="Conversation whose in-flight stream should stop")

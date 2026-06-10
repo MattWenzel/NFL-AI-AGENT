@@ -3,8 +3,10 @@
  * SQL helper. Holds the wire message list in `useReducer` and streams
  * one turn at a time via `openSseStream` against `/database/helper-chat/stream`.
  *
- * No global context, no `chatStore` integration — refresh wipes the
- * history by design.
+ * No global context, no `chatStore` integration, no server persistence —
+ * the helper is a scratchpad. History is mirrored to `sessionStorage` so
+ * an accidental refresh doesn't eat a useful explanation, but closing the
+ * tab still wipes it (that's the ephemerality we promise).
  */
 
 import { useCallback, useEffect, useReducer, useRef } from 'react'
@@ -73,6 +75,31 @@ const initialState: HelperState = {
   messages: [],
   streaming: false,
   error: null,
+}
+
+const STORAGE_KEY = 'dbHelperChat.messages'
+
+function loadPersistedMessages(): HelperMessage[] {
+  try {
+    const raw = window.sessionStorage.getItem(STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as HelperMessage[]) : []
+  } catch {
+    return []
+  }
+}
+
+function persistMessages(messages: HelperMessage[]): void {
+  try {
+    if (messages.length === 0) {
+      window.sessionStorage.removeItem(STORAGE_KEY)
+    } else {
+      window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(messages))
+    }
+  } catch {
+    // Quota or privacy mode — persistence is best-effort.
+  }
 }
 
 function lastIndex(messages: HelperMessage[]): number {
@@ -207,8 +234,18 @@ export interface HelperSendOptions {
 }
 
 export function useDbHelperChat(options: UseDbHelperChatOptions = {}) {
-  const [state, dispatch] = useReducer(reducer, initialState)
+  const [state, dispatch] = useReducer(reducer, initialState, (base) => ({
+    ...base,
+    messages: loadPersistedMessages(),
+  }))
   const abortRef = useRef<AbortController | null>(null)
+
+  // Write-through mirror: survives refresh (sessionStorage), dies with
+  // the tab. Skipped mid-stream so a refresh during a turn restores the
+  // last settled state instead of a half-written assistant message.
+  useEffect(() => {
+    if (!state.streaming) persistMessages(state.messages)
+  }, [state.messages, state.streaming])
   // Always-fresh ref so `send` can read the latest message list when
   // building the wire payload (otherwise the closure would capture the
   // pre-dispatch state and miss the user message we just queued).

@@ -20,7 +20,7 @@ from backend.domain.providers.types import (
     StopReason,
     TextEvent,
     ToolChoice,
-    ToolDefinition,
+    Tool,
     ToolUseEvent,
     Usage,
 )
@@ -37,7 +37,7 @@ __all__ = [
     "StopReason",
     "TextEvent",
     "ToolChoice",
-    "ToolDefinition",
+    "Tool",
     "ToolUseEvent",
     "Usage",
     "create_client",

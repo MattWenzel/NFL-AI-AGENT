@@ -7,6 +7,7 @@ import logging
 import re
 import time
 
+from backend.domain.providers.types import Tool
 from backend.domain.tools.sandbox import execute_export_sql
 from backend.config import EXPORTS_DIR, format_file_size
 
@@ -79,3 +80,29 @@ def _create_csv_export(input_data: dict, ctx: dict | None = None) -> str:
     if result.truncated:
         output["note"] = f"Results truncated to {result.row_count} rows (export limit)"
     return json.dumps(output)
+
+
+TOOL = Tool(
+    name="create_csv_export",
+    description=(
+        "Export SQL query results to a downloadable CSV file. "
+        "Use this AFTER previewing data with execute_sql and confirming with the user. "
+        "Supports up to 10,000 rows with a 30-second timeout. "
+        "Returns a download link for the CSV file."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "sql": {
+                "type": "string",
+                "description": "SQL SELECT or WITH statement to export. Must be read-only.",
+            },
+            "filename": {
+                "type": "string",
+                "description": "Descriptive filename without extension (e.g. 'qb_passing_stats_2024', 'top_receivers_ppr'). Will be sanitized.",
+            },
+        },
+        "required": ["sql", "filename"],
+    },
+    handler=_create_csv_export,
+)

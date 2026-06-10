@@ -334,3 +334,69 @@ class TestSecurityEvents:
         events = await store.list_security_events_for_user(user.id, limit=50)
         types = [e.event_type for e in events]
         assert "login_failure" in types
+
+
+# ---------------- password reset ----------------
+
+
+class TestPasswordReset:
+    def _register(self, client, email="reset@e.com", password="origpw12345"):
+        r = client.post("/auth/register", json={"email": email, "password": password})
+        assert r.status_code in (200, 201), r.text
+        return r.json()
+
+    async def _latest_reset_token(self, store, user_id):
+        record = await store.get_latest_verification(user_id=user_id, purpose="password_reset")
+        assert record is not None
+        return record.token
+
+    def test_request_is_neutral_for_unknown_email(self, client):
+        r = client.post("/auth/request-password-reset", json={"email": "ghost@e.com"})
+        assert r.status_code == 200
+        assert r.json() == {"ok": True}
+
+    async def test_full_reset_flow_rotates_password_and_sessions(self, client, store):
+        body = self._register(client)
+        user_id = body["user"]["id"]
+        old_token = body["token"]
+
+        r = client.post("/auth/request-password-reset", json={"email": "reset@e.com"})
+        assert r.status_code == 200
+
+        # Pull the token straight from the store (email sending is a no-op in tests).
+        token = await self._latest_reset_token(store, user_id)
+
+        r = client.post(
+            "/auth/reset-password",
+            json={"token": token, "new_password": "newpw123456"},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["user"]["id"] == user_id
+
+        # Old password dead, new one works.
+        r = client.post("/auth/login", json={"email": "reset@e.com", "password": "origpw12345"})
+        assert r.status_code == 401
+        r = client.post("/auth/login", json={"email": "reset@e.com", "password": "newpw123456"})
+        assert r.status_code == 200
+
+        # Pre-reset session token was revoked.
+        r = client.get("/auth/status", headers={"Authorization": f"Bearer {old_token}"})
+        assert r.json()["authenticated"] is False
+
+        # Token is single-use.
+        r = client.post(
+            "/auth/reset-password",
+            json={"token": token, "new_password": "anotherpw123"},
+        )
+        assert r.status_code == 400
+
+    async def test_oauth_only_account_is_ignored(self, client, store):
+        user = await store.create_user(email="oauthonly@e.com", password_hash="!")
+        r = client.post(
+            "/auth/request-password-reset", json={"email": "oauthonly@e.com"}
+        )
+        assert r.status_code == 200  # neutral — indistinguishable from unknown
+        record = await store.get_latest_verification(
+            user_id=user.id, purpose="password_reset"
+        )
+        assert record is None

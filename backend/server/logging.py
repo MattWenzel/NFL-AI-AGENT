@@ -24,10 +24,16 @@ _SECRET_PATTERNS = [
 ]
 
 
-def _redact(value: str) -> str:
+def redact_secrets(value: str) -> str:
+    """Mask secret-shaped substrings. Shared by the log filter below and
+    the Sentry before_send scrubber (backend/server/app.py)."""
     for pattern in _SECRET_PATTERNS:
         value = pattern.sub("[REDACTED]", value)
     return value
+
+
+# Internal alias kept for the filter below.
+_redact = redact_secrets
 
 
 class RequestIDFilter(logging.Filter):

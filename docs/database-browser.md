@@ -38,7 +38,7 @@ async def run_stateless_turn(
     *,
     messages: list[Message],
     client: BaseLLMClient,
-    tools: list[ToolDefinition],
+    tools: list[Tool],
     system: str,
     tool_choice: ToolChoice | None = None,
     max_iterations: int = MAX_HELPER_ITERATIONS,  # = 8
@@ -69,7 +69,7 @@ A model that emits a tool call outside this set (`set_table`, `create_report`, `
 
 ## `run_in_editor` mechanics
 
-When the user says "run that" or "do it" (vs. "give me the SQL"), the helper agent calls `run_in_editor({sql: "..."})`. The handler in `backend/domain/tools/handlers/run_in_editor.py` does no I/O — it just `validate_sql`s the SQL and returns a JSON envelope:
+When the user says "run that" or "do it" (vs. "give me the SQL"), the helper agent calls `run_in_editor({sql: "..."})`. The handler in `backend/domain/tools/run_in_editor.py` does no I/O — it just `validate_sql`s the SQL and returns a JSON envelope:
 
 ```json
 {"status": "queued", "sql": "...", "message": "SQL placed in the user's editor and will run automatically."}
@@ -94,7 +94,7 @@ The result: the user sees "OK, running that for you" in the chat, the editor pop
 | `backend/application/db_helper_chat.py` | `DbHelperChatService` — wires provider creds + tools + the system prompt to `run_stateless_turn`. |
 | `backend/api/routes/database.py` | All four `/database/*` endpoints. |
 | `backend/domain/agent/system_prompt.py::get_db_helper_prompt` | The focused system prompt — explicitly tells the model when to use `run_in_editor` vs. responding with a fenced SQL block. |
-| `backend/domain/tools/handlers/run_in_editor.py` | The tool handler. Validates SQL, returns the queued-SQL envelope. |
+| `backend/domain/tools/run_in_editor.py` | The tool handler. Validates SQL, returns the queued-SQL envelope. |
 | `frontend/src/lib/dbHelperChat.ts` | `useDbHelperChat` hook — owns local message state, opens the SSE stream, dispatches `run_in_editor` to the parent. |
 | `frontend/src/components/database/DbHelperChat.tsx` | The chat panel rendered into `AppShell`'s `alternateInspector` slot. |
 | `frontend/src/components/database/HelperComposer.tsx` | Slim composer (textarea + provider/model/tool-choice popover + send/stop), reads/writes the same localStorage keys as the main `Composer`. |

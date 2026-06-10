@@ -24,7 +24,7 @@ from backend.config import (
 from backend.domain.auth.audit import AuditContext, audit_log
 from backend.domain.auth.errors import AuthConflictError
 from backend.domain.auth.lifecycle import IdentitySeed, create_user_account, issue_session
-from backend.domain.auth.types import PASSWORD, IssuedSession
+from backend.domain.auth.types import OAUTH_ONLY_SENTINEL_HASH, PASSWORD, IssuedSession
 from backend.data import AuditEvent, RuntimeStore
 
 logger = logging.getLogger(__name__)
@@ -259,6 +259,69 @@ class AuthService:
         except email_sender.EmailError:
             logger.exception("Resend verification failed for %s", normalized)
         await audit_log(self.store, AuditEvent.VERIFICATION_RESENT, user.id, audit, {})
+
+    async def request_password_reset(
+        self,
+        email: str,
+        *,
+        audit: AuditContext = AuditContext(),
+    ) -> None:
+        """Always appears to succeed — we don't leak account existence.
+
+        OAuth-only accounts (sentinel password hash, no password identity)
+        are silently ignored: they sign in via Google/ChatGPT, and mailing
+        them a password-set link from an unauthenticated endpoint would
+        quietly convert their account's auth surface.
+        """
+        normalized = email.strip().lower()
+        user = await self.store.get_user_by_email(normalized)
+        if user is None or user.password_hash == OAUTH_ONLY_SENTINEL_HASH:
+            await audit_log(
+                self.store,
+                AuditEvent.PASSWORD_RESET_REQUEST_IGNORED,
+                user.id if user else None,
+                audit,
+                {"email": normalized},
+            )
+            return
+        record = await self.store.create_verification(user_id=user.id, purpose="password_reset")
+        try:
+            email_sender.send_password_reset_email(to=normalized, token=record.token)
+        except email_sender.EmailError:
+            logger.exception("Password reset email send failed for %s", normalized)
+        await audit_log(self.store, AuditEvent.PASSWORD_RESET_REQUESTED, user.id, audit, {})
+
+    async def reset_password(
+        self,
+        *,
+        token: str,
+        new_password: str,
+        audit: AuditContext = AuditContext(),
+    ) -> tuple[object, IssuedSession]:
+        """Consume a reset token, set the new password, and sign the user in.
+
+        Every existing auth session is revoked — the resetter has proven
+        email ownership, but stolen tokens from before the reset must not
+        outlive it. Clicking the link also proves the mailbox works, so an
+        unverified account becomes verified (same precedent as OAuth
+        sign-ins counting as verification).
+        """
+        user_id = await self.store.consume_verification(token, purpose="password_reset")
+        if user_id is None:
+            raise AuthValidationError("Reset link is invalid or has expired. Request a new one.")
+        user = await self.store.get_user_by_id(user_id)
+        if user is None:
+            raise AuthValidationError("Account no longer exists.")
+        await self.store.update_user_password(user_id, hash_password(new_password))
+        await self.store.invalidate_all_auth_sessions(user_id)
+        await self.store.clear_login_failures(user.email)
+        if user.email_verified_at is None:
+            await self.store.mark_user_email_verified(
+                user_id, datetime.now(timezone.utc).isoformat()
+            )
+        issued = await issue_session(self.store, user_id)
+        await audit_log(self.store, AuditEvent.PASSWORD_RESET_COMPLETED, user_id, audit, {})
+        return user, issued
 
     # ---------------- internals ----------------
 

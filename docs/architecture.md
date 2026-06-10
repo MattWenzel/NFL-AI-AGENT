@@ -108,7 +108,7 @@ Following a single message from the browser back to the browser:
  │  ├─ validate_tool_input           │
  │  ├─ dispatch → handler (to_thread)│
  │  │   └─ execute_sql → sandbox     │        sandbox/runner.py
- │  ├─ inject_hint on known errors   │
+ │  ├─ append hint on known errors  │
  │  └─ return envelope (+duration)   │
  └───────────────────────────────────┘
                 │
@@ -133,7 +133,7 @@ Common "where does X happen" questions:
 | Model selects a tool | Streamed `ToolUseEvent` from the provider adapter ([providers.md](providers.md#streaming)) |
 | Tool call actually runs | `Turn._execute_one_tool` → `execute_tool_structured` ([tools.md](tools.md#data-flow-for-one-tool-call)) |
 | SQL query limits | `sandbox/runner.py` — 500 rows, ~30s, PBP auto-attach ([tools.md](tools.md#the-sql-sandbox)) |
-| Which tools are available? | `backend/domain/tools/definitions.py` — 10 tools ([tools.md](tools.md#the-ten-tools)) |
+| Which tools are available? | `backend/domain/tools/registry.py` — 10 tools, one module each ([tools.md](tools.md#the-ten-tools)) |
 | Where the Database tab's helper chat lives | `backend/domain/agent/stateless.py` + `backend/application/db_helper_chat.py` ([database-browser.md](database-browser.md)) |
 | Where Reports state lives | `backend/application/tables.py` (table_chat sessions, `TableStateRecord`) ([persistence.md](persistence.md)) |
 | What the model sees as system prompt | `get_base_prompt()` in `backend/domain/agent/system_prompt.py` ([prompts.md](prompts.md#the-base-prompt)) |
@@ -155,7 +155,7 @@ New LLM SDK? Subclass `BaseLLMClient`, translate canonical `Message` / `ToolUseE
 
 ### Tool handler (`backend/domain/tools/`)
 
-New tool? One schema in `definitions.py`, one handler function, one line in `registry.py`. Handlers are plain `(input, ctx) -> str`; no registration decorators. The drift guard catches missing entries at import time. See [tools.md](tools.md#adding-a-new-tool).
+New tool? One module exporting `TOOL = Tool(...)` (schema + handler together), one line in `registry.py`'s catalog. Handlers are plain `(input, ctx) -> str`; no registration decorators, and no second table to drift against. See [tools.md](tools.md#adding-a-new-tool).
 
 ### Guide (`backend/domain/tools/guides/`)
 

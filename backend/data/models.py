@@ -120,7 +120,6 @@ class ToolRunRecord(SQLModel, table=True):
     status: str
     result: str | None = None
     error: str | None = None
-    hint: str | None = None
     duration_ms: int | None = None
     compacted: bool = False
     created_at: str

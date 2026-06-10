@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 
-import { apiDelete, apiGet, apiPatch, ApiError } from '@/lib/api'
+import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from '@/lib/api'
 import { streamAndDispatch } from '@/lib/api/streamDispatch'
 import type {
   AssistantPartRecord,
@@ -21,7 +21,7 @@ export interface ChatState {
   streamError: string | null
 }
 
-type Action =
+export type Action =
   | { type: 'set-conversations'; conversations: ConversationInfo[] }
   | { type: 'conversations-loading' }
   | { type: 'conversations-error' }
@@ -98,7 +98,9 @@ function mergeTextParts(transcript: ConversationTranscript): ConversationTranscr
   return { ...transcript, parts: merged }
 }
 
-function reduce(state: ChatState, action: Action): ChatState {
+// Exported for unit tests — the reducer is the riskiest hand-rolled pure
+// logic in the streaming pipeline.
+export function reduce(state: ChatState, action: Action): ChatState {
   switch (action.type) {
     case 'conversations-loading':
       return { ...state, conversationsStatus: 'loading' }
@@ -217,7 +219,6 @@ function reduce(state: ChatState, action: Action): ChatState {
         status: 'running',
         result: null,
         error: null,
-        hint: null,
         duration_ms: null,
         compacted: false,
         created_at: now,
@@ -414,6 +415,15 @@ export function useChat() {
   }, [refreshConversations])
 
   const stop = useCallback(() => {
+    // Tell the server to stop generating BEFORE dropping the connection.
+    // A bare abort now reads as a tab close, which lets the turn finish in
+    // the background (finish-on-disconnect) — and keeps spending tokens.
+    const conversationId = stateRef.current.conversationId
+    if (conversationId) {
+      apiPost('/chat/cancel', { conversation_id: conversationId }).catch(() => {
+        // Best effort — the abort below still drops the stream.
+      })
+    }
     abortRef.current?.abort()
     abortRef.current = null
   }, [])

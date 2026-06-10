@@ -26,6 +26,48 @@ class PerUserLockRegistry:
         self._locks.clear()
 
 
+class StreamCancelRegistry:
+    """Cancellation events for in-flight chat streams, keyed by session id.
+
+    The chat stream registers an event when it starts producing;
+    `POST /chat/cancel` sets it to stop generation server-side. Needed
+    because a dropped SSE connection no longer aborts the turn (the
+    producer drains to completion so the answer survives a tab close) —
+    so the Stop button requires an explicit signal that genuinely stops
+    token spend.
+
+    One event per session: concurrent turns on one session are already
+    serialized by the store's session lock, so a second `open()` for the
+    same key simply replaces the (stale) first.
+    """
+
+    def __init__(self):
+        self._events: dict[str, asyncio.Event] = {}
+
+    def open(self, key: str) -> asyncio.Event:
+        event = asyncio.Event()
+        self._events[key] = event
+        return event
+
+    def close(self, key: str, event: asyncio.Event) -> None:
+        # Only remove our own registration — a replacement event from a
+        # newer stream for the same session must survive.
+        if self._events.get(key) is event:
+            self._events.pop(key, None)
+
+    def cancel(self, key: str) -> bool:
+        """Signal the active stream for `key` to stop. Returns False when
+        no stream is registered (already finished or never started)."""
+        event = self._events.get(key)
+        if event is None:
+            return False
+        event.set()
+        return True
+
+    def reset(self) -> None:
+        self._events.clear()
+
+
 @dataclass
 class PendingCodexOAuthFlow:
     """In-flight device-code OAuth state.

@@ -46,7 +46,6 @@ export interface ToolRunRecord {
   status: ToolRunStatus
   result: string | null
   error: string | null
-  hint: string | null
   duration_ms: number | null
   compacted: boolean
   created_at: string

@@ -29,8 +29,6 @@ class ProviderInfo:
     models: list[str] = field(default_factory=list)
     context_window: int = 128_000
     max_output_tokens: int = 16384
-    supports_streaming: bool = True
-    supports_tools: bool = True
     client_class: type[BaseLLMClient] | None = None
     # How the user supplies this provider's credential. "api_key" is the
     # default (paste a string in Settings); "codex_oauth" replaces the
@@ -148,8 +146,6 @@ def ensure_builtin_providers_registered() -> None:
         ],
         context_window=200_000,
         max_output_tokens=64_000,
-        supports_streaming=True,
-        supports_tools=True,
         client_class=AnthropicClient,
     ))
 
@@ -173,8 +169,6 @@ def ensure_builtin_providers_registered() -> None:
             ],
             context_window=128_000,
             max_output_tokens=16384,
-            supports_streaming=True,
-            supports_tools=True,
             client_class=OpenAIClient,
         ))
     except ImportError:
@@ -191,8 +185,6 @@ def ensure_builtin_providers_registered() -> None:
         models=["gpt-5.3-codex"],
         context_window=200_000,
         max_output_tokens=16384,
-        supports_streaming=True,
-        supports_tools=True,
         client_class=OpenAICodexClient,
         credential_shape="codex_oauth",
     ))

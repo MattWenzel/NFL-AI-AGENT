@@ -21,7 +21,7 @@ import asyncio
 import logging
 from pathlib import Path
 
-from sqlalchemy import func, update
+from sqlalchemy import func, text, update
 
 from backend.data.repositories.conversations import (
     SessionStoreMixin,
@@ -68,6 +68,12 @@ class RuntimeStore(
 
     def lock(self, session_id: str) -> asyncio.Lock:
         return self._locks.setdefault(session_id, asyncio.Lock())
+
+    async def healthcheck(self) -> None:
+        """Raise if the runtime SQLite is unreachable (detached volume,
+        corrupted file). Used by the deep /health endpoint."""
+        async with self._async_session() as session:
+            await session.execute(text("SELECT 1"))
 
     def _release_lock(self, session_id: str) -> None:
         # Called after a session is deleted so the lock registry doesn't

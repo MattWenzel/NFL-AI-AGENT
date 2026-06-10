@@ -3,6 +3,7 @@
 import logging
 import re
 import threading
+import time
 from dataclasses import dataclass
 
 import duckdb
@@ -30,6 +31,9 @@ QUERY_TIMEOUT_SECONDS = 30
 EXPORT_TIMEOUT_SECONDS = 60
 MAX_ROWS = 500
 EXPORT_MAX_ROWS = 10_000
+
+# Queries slower than this get a warning log even when they complete.
+SLOW_QUERY_LOG_SECONDS = 5.0
 
 # Strip leading whitespace + SQL comments (-- line and /* block */) before
 # checking the leading keyword. Done in two steps (strip, then match) so
@@ -126,6 +130,7 @@ def _run_sql(sql: str, max_rows: int, timeout_seconds: int, params: tuple = ()) 
     conn = duckdb.connect(str(DB_PATH), read_only=True)
     timer = threading.Timer(timeout_seconds, conn.interrupt)
     timer.start()
+    started = time.perf_counter()
 
     try:
         # Inject row limit if not already present
@@ -144,6 +149,12 @@ def _run_sql(sql: str, max_rows: int, timeout_seconds: int, params: tuple = ()) 
             )
         except duckdb.Error as e:
             raise SQLValidationError(f"SQL error: {e}")
+
+        # A query that consistently takes 25s never trips the timeout log —
+        # surface chronically slow SQL before users feel it.
+        elapsed = time.perf_counter() - started
+        if elapsed >= SLOW_QUERY_LOG_SECONDS:
+            logger.warning("Slow SQL (%.1fs): %s", elapsed, sql[:500])
 
         columns = [desc[0] for desc in cursor.description] if cursor.description else []
         truncated = len(rows) >= max_rows

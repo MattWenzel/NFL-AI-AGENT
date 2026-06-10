@@ -13,7 +13,7 @@ import type { ConversationTranscript, ToolRunRecord } from '@/lib/types'
 
 /** Detail view for a single tool run: prev/next nav across siblings in
  *  the same exchange, the tool's input (rendered as raw SQL when
- *  applicable), the result, and any error/hint payload. */
+ *  applicable), the result, and any error payload. */
 export function ToolRunInspector({
   run,
   transcript,
@@ -121,11 +121,6 @@ export function ToolRunInspector({
         {run.error ? (
           <div className="shrink-0">
             <ToolPayload label="Error" value={run.error} variant="error" />
-          </div>
-        ) : null}
-        {run.hint ? (
-          <div className="shrink-0">
-            <ToolPayload label="Hint" value={run.hint} variant="muted" />
           </div>
         ) : null}
       </div>

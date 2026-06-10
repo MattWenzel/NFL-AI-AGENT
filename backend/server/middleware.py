@@ -13,17 +13,15 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from backend.server.request_context import new_request_id, request_id
 
 
-# Content-Security-Policy. `cdn.jsdelivr.net` is permitted in `script-src`
-# because index.html loads marked.js and chart.js from there; vendoring them
-# locally and tightening this to 'self' is a worthwhile follow-up but out of
-# scope for the initial hardening pass. `style-src 'unsafe-inline'` is
-# required because several widgets build HTML via innerHTML with inline
-# `style="…"` attributes — moving those to CSS classes would tighten this
-# further. `connect-src 'self'` covers fetch + EventSource (SSE); no
-# cross-origin backends exist in this app.
+# Content-Security-Policy. `script-src 'self'` — the React app bundles all
+# of its JS; nothing loads from a CDN. `style-src 'unsafe-inline'` is
+# required because Radix/sonner inject inline `style="…"` attributes —
+# moving those to CSS classes would tighten this further. `connect-src
+# 'self'` covers fetch + EventSource (SSE); no cross-origin backends exist
+# in this app.
 _CSP = (
     "default-src 'self'; "
-    "script-src 'self' https://cdn.jsdelivr.net; "
+    "script-src 'self'; "
     "style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data:; "
     "connect-src 'self'; "

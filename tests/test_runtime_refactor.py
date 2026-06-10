@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from backend.domain.providers.base import BaseLLMClient
-from backend.domain.providers.types import MessageResponse, StopReason, TextEvent, ToolDefinition, ToolUseEvent, Usage
+from backend.domain.providers.types import MessageResponse, StopReason, TextEvent, Tool, ToolUseEvent, Usage
 from backend.domain.agent.runtime import ChatRuntime
 from backend.data import RuntimeStore
 
@@ -87,14 +87,13 @@ async def test_runtime_persists_turns_and_tool_runs(tmp_path: Path, monkeypatch)
     store = _make_store(tmp_path)
     runtime = _make_runtime(store)
     session = await store.get_or_create_session(provider="anthropic", model="stub", context_window=200)
-    tools = [ToolDefinition.from_dict(d) for d in [{"name": "search_players", "description": "", "input_schema": {"type": "object", "properties": {"name": {"type": "string"}}}}]]
+    tools = [Tool(name="search_players", description="", input_schema={"type": "object", "properties": {"name": {"type": "string"}}})]
     async def fake_execute(name, input_data, ctx=None):
         return {
             "status": "completed",
             "tool": name,
             "content": json.dumps({"data": [{"display_name": "Patrick Mahomes"}]}),
             "error": None,
-            "hint": None,
             "duration_ms": 1,
         }
     monkeypatch.setattr("backend.domain.agent.runtime.execute_tool_structured", fake_execute)
@@ -143,10 +142,10 @@ async def test_runtime_forwards_tool_choice_to_client(tmp_path: Path, monkeypatc
     store = _make_store(tmp_path)
     runtime = _make_runtime(store)
     session = await store.get_or_create_session(provider="anthropic", model="stub", context_window=200)
-    tools = [ToolDefinition.from_dict({"name": "search_players", "description": "", "input_schema": {"type": "object", "properties": {"name": {"type": "string"}}}})]
+    tools = [Tool(name="search_players", description="", input_schema={"type": "object", "properties": {"name": {"type": "string"}}})]
 
     async def fake_execute(name, input_data, ctx=None):
-        return {"status": "completed", "tool": name, "content": "{}", "error": None, "hint": None, "duration_ms": 1}
+        return {"status": "completed", "tool": name, "content": "{}", "error": None, "duration_ms": 1}
 
     monkeypatch.setattr("backend.domain.agent.runtime.execute_tool_structured", fake_execute)
     client = StubClient([
@@ -318,14 +317,13 @@ async def test_doom_loop_detection_stops_repeated_tool_calls(tmp_path: Path, mon
     store = _make_store(tmp_path)
     runtime = _make_runtime(store)
     session = await store.get_or_create_session(provider="anthropic", model="stub", context_window=200)
-    tools = [ToolDefinition.from_dict(d) for d in [{"name": "search_players", "description": "", "input_schema": {"type": "object", "properties": {"name": {"type": "string"}}}}]]
+    tools = [Tool(name="search_players", description="", input_schema={"type": "object", "properties": {"name": {"type": "string"}}})]
     async def fake_execute(name, input_data, ctx=None):
         return {
             "status": "completed",
             "tool": name,
             "content": json.dumps({"data": []}),
             "error": None,
-            "hint": None,
             "duration_ms": 1,
         }
     monkeypatch.setattr("backend.domain.agent.runtime.execute_tool_structured", fake_execute)

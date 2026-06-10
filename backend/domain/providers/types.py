@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Literal
+from typing import Callable, Literal
 
 
 # Canonical LLM provider name strings. Keys in the in-process provider
@@ -60,28 +60,30 @@ class Usage:
 
 
 @dataclass
-class ToolDefinition:
-    """Canonical tool definition (Anthropic convention)."""
+class Tool:
+    """Canonical tool: schema (Anthropic convention) + its handler.
+
+    One type for both halves of a tool. Providers consume the schema via
+    `to_dict()`; the dispatch layer (`backend.domain.tools.registry`)
+    calls `handler`. Keeping them on one object makes definition/handler
+    drift structurally impossible — there is no second registry to fall
+    out of sync with.
+    """
     name: str
     description: str
     input_schema: dict  # JSON Schema
+    # Sync handler: (input_data, ctx) -> JSON string. Runs in a worker
+    # thread (asyncio.to_thread) because the SQL sandbox is sync. None is
+    # only valid for test stubs that never get dispatched.
+    handler: Callable[[dict, dict | None], str] | None = None
 
     def to_dict(self) -> dict:
-        """Convert to Anthropic-format dict."""
+        """Convert to Anthropic-format dict (handler is not serialized)."""
         return {
             "name": self.name,
             "description": self.description,
             "input_schema": self.input_schema,
         }
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "ToolDefinition":
-        """Create from an Anthropic-format dict."""
-        return cls(
-            name=d["name"],
-            description=d.get("description", ""),
-            input_schema=d.get("input_schema", {}),
-        )
 
 
 @dataclass

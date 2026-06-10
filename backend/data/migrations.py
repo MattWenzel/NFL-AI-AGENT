@@ -223,6 +223,18 @@ def _migration_0009_table_state_locked(conn: Connection) -> None:
         ))
 
 
+def _migration_0010_drop_toolrun_hint(conn: Connection) -> None:
+    """Drop `tool_runs.hint` — remediation hints now live inside the error
+    string itself (appended by the tool registry), so the separate column,
+    envelope field, and wire field all went away. SQLite has native DROP
+    COLUMN since 3.35 (Python 3.12 ships 3.40+)."""
+    existing = {
+        row[1] for row in conn.execute(text("PRAGMA table_info(tool_runs)"))
+    }
+    if "hint" in existing:
+        conn.execute(text("ALTER TABLE tool_runs DROP COLUMN hint"))
+
+
 # Ordered migration list. `user_version` after a full apply == len(MIGRATIONS).
 # Append-only — never reorder or delete entries or the version tracker drifts.
 MIGRATIONS: list[Callable[[Connection], None]] = [
@@ -235,6 +247,7 @@ MIGRATIONS: list[Callable[[Connection], None]] = [
     _migration_0007_table_chats,
     _migration_0008_session_source_session_id,
     _migration_0009_table_state_locked,
+    _migration_0010_drop_toolrun_hint,
 ]
 
 

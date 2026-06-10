@@ -4,7 +4,7 @@ One codebase, three LLM providers — Anthropic Claude, OpenAI (Chat Completions
 
 ## File map
 
-- `backend/domain/providers/base.py` — `BaseLLMClient` ABC + canonical types (`Message`, `TextEvent`, `ToolUseEvent`, `RetryingEvent`, `Usage`, `ToolDefinition`, `ToolChoice`, `StopReason`, `LLMError`, `ContextOverflowError`).
+- `backend/domain/providers/base.py` — `BaseLLMClient` ABC + canonical types (`Message`, `TextEvent`, `ToolUseEvent`, `RetryingEvent`, `Usage`, `Tool`, `ToolChoice`, `StopReason`, `LLMError`, `ContextOverflowError`).
 - `backend/domain/providers/__init__.py` — `ProviderInfo` registry, `create_client` factory, built-in provider registration.
 - `backend/domain/providers/clients/anthropic.py` — `AnthropicClient` (official SDK, ephemeral-cache prompt caching).
 - `backend/domain/providers/clients/openai.py` — `OpenAIClient` (official SDK, Chat Completions).
@@ -53,9 +53,9 @@ The runtime's MAX_TOKENS guard (see [runtime.md](runtime.md#runtimelooperror)) r
 
 Fields: `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`. Cache fields are only populated by the Anthropic adapter; OpenAI / Codex leave them at 0.
 
-### `ToolDefinition` (`base.py:59`)
+### `Tool` (`types.py`)
 
-Anthropic-format by convention: `name`, `description`, `input_schema` (JSON Schema). `to_dict()` / `from_dict()` round-trip Anthropic's wire shape. The OpenAI adapter re-wraps these into OpenAI's `{"type": "function", "function": {...}}` envelope; Codex re-wraps into Responses-API function-tool shape with strict-mode schema rewriting.
+Anthropic-format by convention: `name`, `description`, `input_schema` (JSON Schema), plus the `handler` callable consumed by the tool registry (never serialized — `to_dict()` emits only the wire fields). The OpenAI adapter re-wraps these into OpenAI's `{"type": "function", "function": {...}}` envelope; Codex re-wraps into Responses-API function-tool shape with strict-mode schema rewriting.
 
 ### `ToolChoice` (`base.py:17`) and `CredentialShape` (`base.py:10`)
 
@@ -101,8 +101,6 @@ class ProviderInfo:
     models: list[str]
     context_window: int
     max_output_tokens: int
-    supports_streaming: bool
-    supports_tools: bool
     client_class: type[BaseLLMClient] | None
     credential_shape: CredentialShape   # "api_key" or "codex_oauth"
 ```
@@ -203,7 +201,7 @@ System prompt placement: OpenAI wants system as a message in the list; the adapt
 
 ### Tool schema translation
 
-`_convert_tools` (`openai.py:310`). Wraps each `ToolDefinition` into OpenAI's function shape:
+`_convert_tools` (`openai.py`). Wraps each `Tool` into OpenAI's function shape:
 
 ```python
 {"type": "function", "function": {"name", "description", "parameters": input_schema}}
@@ -245,7 +243,7 @@ Unlike Chat Completions, Responses API uses an `input: list[…]` where **each a
 
 ### Strict-mode tool schemas
 
-`_make_strict_schema` (`codex.py:446`) recursively rewrites every tool's `input_schema`: every property becomes `required` and every originally-optional property is made nullable (`type: ["string", "null"]`). This is what the Responses API expects. `validation.py::_strip_codex_nulls` compensates on the way in (see [tools.md](tools.md#input-validation)) so handlers don't have to care.
+`_make_strict_schema` (`codex.py`) recursively rewrites every tool's `input_schema`: every property becomes `required` and every originally-optional property is made nullable (`type: ["string", "null"]`). This is what the Responses API expects. The client strips the resulting `null` args at parse time (`_strip_null_values`) so handlers don't have to care.
 
 ### SSE streaming
 

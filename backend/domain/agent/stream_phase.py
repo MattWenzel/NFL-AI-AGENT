@@ -26,7 +26,7 @@ from backend.domain.providers.types import (
     ProviderRetryingEvent,
     TextEvent,
     ToolChoice,
-    ToolDefinition,
+    Tool,
     ToolUseEvent,
 )
 
@@ -35,7 +35,7 @@ async def iterate_agent_stream(
     client: BaseLLMClient,
     *,
     messages: list[Message],
-    tools: list[ToolDefinition],
+    tools: list[Tool],
     system: str,
     tool_choice: ToolChoice | None,
     session_id: str,

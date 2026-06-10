@@ -3,26 +3,20 @@ from __future__ import annotations
 import json
 
 import pytest
-from cryptography.fernet import Fernet
 from fastapi import HTTPException
 from pydantic import ValidationError
 
 from backend.domain.agent.events import TextDeltaEvent
-from backend.domain.auth import encryption
 from backend.domain.auth.types import AuthenticatedUser
-from backend.api.dependencies import get_chat_service, get_current_user
 from backend.server.process_state import AppProcessState
-from backend.data import RuntimeStore, SessionRecord
+from backend.data import SessionRecord
 from backend.api.routes import chat as chat_router
-from backend.api.routes.chat import router as chat_router_module
 from backend.application.chat import (
     ChatConfigurationError,
     ChatNotFoundError,
     ChatService,
-    ChatServiceError,
 )
 from backend.application.chat import PreparedChat
-from tests.app_factory import build_test_app, managed_test_client
 
 
 def _make_service():
@@ -30,38 +24,6 @@ def _make_service():
     monkeypatch the methods they exercise, so the injected collaborators are
     never actually called."""
     return ChatService.__new__(ChatService)
-
-
-@pytest.mark.asyncio
-async def test_chat_message_returns_error_for_runtime_failure_and_closes_client(monkeypatch):
-    user = AuthenticatedUser(id=1, email="t@e.com")
-    service = _make_service()
-
-    async def fake_run_message(
-        self,
-        *,
-        message,
-        conversation_id,
-        provider,
-        model,
-        tool_choice,
-        user,
-        **_extra,
-    ):
-        raise ChatServiceError("Detected repeated tool loop on search_players with identical input")
-
-    monkeypatch.setattr(ChatService, "run_message", fake_run_message)
-
-    with pytest.raises(HTTPException) as exc:
-        await chat_router.chat_message(
-            chat_router.ChatRequest(message="hi"),
-            service=service,
-            process_state=AppProcessState(),
-            user=user,
-        )
-
-    assert exc.value.status_code == 500
-    assert "repeated tool loop" in exc.value.detail.lower()
 
 
 def test_chat_request_accepts_valid_tool_choice_values():
@@ -77,105 +39,6 @@ def test_chat_request_accepts_valid_tool_choice_values():
 def test_chat_request_rejects_bogus_tool_choice():
     with pytest.raises(ValidationError):
         chat_router.ChatRequest(message="hi", tool_choice="force")
-
-
-@pytest.fixture
-def _encryption_key(monkeypatch):
-    monkeypatch.setenv("SETTINGS_ENCRYPTION_KEY", Fernet.generate_key().decode())
-    encryption.reset_cache()
-    yield
-    encryption.reset_cache()
-
-
-async def test_chat_message_route_resolves_service_through_depends_chain(tmp_path, monkeypatch, _encryption_key):
-    """Integration: a POST to /chat/message must resolve get_chat_service
-    through FastAPI's Depends chain with the authenticated user and return
-    the service's response. Proves runtime + repositories + refresh_locks
-    all plumb correctly without the route constructing the service inline."""
-    store = RuntimeStore(tmp_path / "r.sqlite3")
-    user = await store.create_user(email="a@e.com", password_hash="h")
-
-    captured: dict = {}
-
-    async def fake_run_message(
-        self,
-        *,
-        message,
-        conversation_id,
-        provider,
-        model,
-        tool_choice,
-        user,
-        **_extra,
-    ):
-        captured["service_class"] = type(self).__name__
-        captured["caller_id"] = user.id
-        captured["message"] = message
-        # Prove the injected dependencies reached the service.
-        assert isinstance(self, ChatService)
-        assert self.store is not None
-        assert self.credentials is not None
-        assert self.runtime is not None
-        return {
-            "conversation_id": "session-x",
-            "response": "wired correctly",
-            "tool_calls": [],
-            "truncated": False,
-        }
-
-    monkeypatch.setattr(ChatService, "run_message", fake_run_message)
-
-    app = build_test_app(runtime_store=store)
-    app.include_router(chat_router_module)
-    app.dependency_overrides[get_current_user] = lambda: AuthenticatedUser(id=user.id, email=user.email)
-
-    with managed_test_client(app) as client:
-        r = client.post("/chat/message", json={"message": "hello"})
-        assert r.status_code == 200, r.text
-        assert r.json()["response"] == "wired correctly"
-
-    assert captured["service_class"] == "ChatService"
-    assert captured["caller_id"] == user.id
-    assert captured["message"] == "hello"
-
-
-@pytest.mark.asyncio
-async def test_chat_message_forwards_tool_choice_to_service(monkeypatch):
-    """The route delegates non-streaming orchestration to ChatService."""
-    user = AuthenticatedUser(id=1, email="t@e.com")
-    service = _make_service()
-
-    captured: dict = {}
-
-    async def fake_run_message(
-        self,
-        *,
-        message,
-        conversation_id,
-        provider,
-        model,
-        tool_choice,
-        user,
-        **_extra,
-    ):
-        captured["tool_choice"] = tool_choice
-        return {
-            "conversation_id": "s1",
-            "response": "ok",
-            "tool_calls": [],
-            "truncated": False,
-        }
-
-    monkeypatch.setattr(ChatService, "run_message", fake_run_message)
-
-    await chat_router.chat_message(
-        chat_router.ChatRequest(message="hi", tool_choice="required"),
-        service=service,
-        process_state=AppProcessState(),
-        user=user,
-    )
-
-    assert captured["tool_choice"] == "required"
 
 
 # ---------------------------------------------------------------------------
@@ -425,15 +288,28 @@ async def test_chat_stream_emits_rate_limit_as_sse_without_holding_resources(mon
     assert gate.active == 0
 
 
+async def _wait_for(predicate, *, timeout: float = 2.0) -> None:
+    """Poll an async-loop-friendly predicate until true or timeout."""
+    import asyncio as _asyncio
+    deadline = _asyncio.get_event_loop().time() + timeout
+    while not predicate():
+        if _asyncio.get_event_loop().time() > deadline:
+            raise AssertionError("condition not met within timeout")
+        await _asyncio.sleep(0.01)
+
+
 @pytest.mark.asyncio
-async def test_chat_stream_cleans_up_runtime_source_and_client_on_early_close(monkeypatch):
-    """If the client disconnects mid-stream (Starlette aborts iteration), the
-    generator's finally must close the runtime source (which releases the
-    session lock and reconciles pending tool runs) and close the LLM client."""
+async def test_chat_stream_finishes_turn_in_background_on_early_close(monkeypatch):
+    """Finish-on-disconnect: when the client drops mid-stream, the turn keeps
+    running on a detached drain task so the answer persists; the LLM client,
+    stream slot, and runtime source are released only after the turn ends."""
+    import asyncio as _asyncio
+
     gate = _CountingStreamGate()
     service = _make_service()
     stub_client = _TrackingClient()
     source_closed = {"called": False}
+    release_turn = _asyncio.Event()
 
     async def fake_prepare(self, *, conversation_id, provider, model, user):
         return PreparedChat(
@@ -443,17 +319,21 @@ async def test_chat_stream_cleans_up_runtime_source_and_client_on_early_close(mo
     def fake_stream_events(self, prepared, *, message, tool_choice, **_extra):
         async def _slow_events():
             try:
-                # Hand control back once so the outer generator yields the
-                # conversation_id event, then block until cancelled. That
-                # models a runtime mid-turn when the client disconnects.
                 yield TextDeltaEvent(
                     session_id=prepared.session.id,
                     turn_id="turn-stream",
                     text="hello",
                     iterations=1,
                 )
-                import asyncio as _asyncio
-                await _asyncio.Event().wait()
+                # Models a turn still mid-flight when the client drops; the
+                # test releases this to simulate the turn completing.
+                await release_turn.wait()
+                yield TextDeltaEvent(
+                    session_id=prepared.session.id,
+                    turn_id="turn-stream",
+                    text=" world",
+                    iterations=1,
+                )
             finally:
                 source_closed["called"] = True
 
@@ -470,22 +350,132 @@ async def test_chat_stream_cleans_up_runtime_source_and_client_on_early_close(mo
         user=AuthenticatedUser(id=1, email="t@e.com"),
     )
 
-    # Pull the first chunk (conversation_id SSE) so the generator is past
-    # acquisition and into the streaming loop, then close abruptly.
     it = response.body_iterator
     first = await it.__anext__()
     assert '"type": "conversation_id"' in first
-
-    # Pull the first streamed runtime event so the `async for event in source`
-    # inside the producer task has actually entered source's body — without
-    # this, aclose() on an async generator that was never started is a no-op
-    # and source's finally never runs.
     second = await it.__anext__()
     assert '"type": "text"' in second
 
+    # Client disconnects abruptly mid-turn.
     await it.aclose()
 
-    assert source_closed["called"], "runtime source.aclose() did not fire"
-    assert stub_client.closed, "LLM client was not closed on early abort"
-    assert gate.releases == 1
+    # The turn is still running in the background — nothing released yet.
+    assert not source_closed["called"]
+    assert not stub_client.closed
+    assert gate.releases == 0
+
+    # Turn completes → drain task closes the source, client, and slot.
+    release_turn.set()
+    await _wait_for(lambda: gate.releases == 1)
+    assert source_closed["called"], "runtime source did not finish/close after drain"
+    assert stub_client.closed, "LLM client was not closed after drain"
     assert gate.active == 0
+
+
+@pytest.mark.asyncio
+async def test_chat_cancel_stops_detached_turn(monkeypatch):
+    """POST /chat/cancel must stop a turn that survived a disconnect —
+    otherwise Stop would silently keep spending the user's tokens."""
+    import asyncio as _asyncio
+
+    gate = _CountingStreamGate()
+    service = _make_service()
+    stub_client = _TrackingClient()
+    process_state = AppProcessState(chat_stream_limiter=gate)
+    source_closed = {"called": False}
+
+    async def fake_prepare(self, *, conversation_id, provider, model, user):
+        return PreparedChat(
+            client=stub_client, provider_name="anthropic", session=_stub_session()
+        )
+
+    def fake_stream_events(self, prepared, *, message, tool_choice, **_extra):
+        async def _hung_events():
+            try:
+                yield TextDeltaEvent(
+                    session_id=prepared.session.id,
+                    turn_id="turn-stream",
+                    text="hello",
+                    iterations=1,
+                )
+                await _asyncio.Event().wait()  # hangs until cancelled
+            finally:
+                source_closed["called"] = True
+
+        return _hung_events()
+
+    monkeypatch.setattr(ChatService, "prepare_chat", fake_prepare)
+    monkeypatch.setattr(ChatService, "stream_events", fake_stream_events)
+
+    response = await chat_router.chat_stream(
+        _StubRequest(),
+        chat_router.ChatRequest(message="hi"),
+        service=service,
+        process_state=process_state,
+        user=AuthenticatedUser(id=1, email="t@e.com"),
+    )
+
+    it = response.body_iterator
+    await it.__anext__()  # conversation_id
+    await it.__anext__()  # first text event
+    await it.aclose()  # disconnect → detach
+
+    assert gate.releases == 0  # still draining in background
+
+    # The Stop button's signal: cancel the session's active stream.
+    assert process_state.chat_cancel_events.cancel("session-stream") is True
+
+    await _wait_for(lambda: gate.releases == 1)
+    assert source_closed["called"]
+    assert stub_client.closed
+    assert gate.active == 0
+    # Registry entry cleaned up — a second cancel finds nothing.
+    assert process_state.chat_cancel_events.cancel("session-stream") is False
+
+
+# ---------------------------------------------------------------------------
+# POST /chat/cancel — ownership + idempotence
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_chat_cancel_route_scopes_to_owner_and_is_idempotent(tmp_path):
+    from backend.data import RuntimeStore
+
+    store = RuntimeStore(tmp_path / "r.sqlite3")
+    owner = await store.create_user(email="owner@e.com", password_hash="h")
+    other = await store.create_user(email="other@e.com", password_hash="h")
+    session = await store.get_or_create_session(
+        provider="anthropic", model="stub", context_window=100, user_id=owner.id
+    )
+    process_state = AppProcessState()
+
+    # Someone else's conversation → 404, indistinguishable from unknown id.
+    with pytest.raises(HTTPException) as exc:
+        await chat_router.chat_cancel(
+            chat_router.CancelChatRequest(conversation_id=session.id),
+            store=store,
+            process_state=process_state,
+            user=AuthenticatedUser(id=other.id, email=other.email),
+        )
+    assert exc.value.status_code == 404
+
+    # Owner, no active stream → cancelled: false (idempotent no-op).
+    result = await chat_router.chat_cancel(
+        chat_router.CancelChatRequest(conversation_id=session.id),
+        store=store,
+        process_state=process_state,
+        user=AuthenticatedUser(id=owner.id, email=owner.email),
+    )
+    assert result == {"cancelled": False}
+
+    # Active stream registered → cancelled: true and the event fires.
+    event = process_state.chat_cancel_events.open(session.id)
+    result = await chat_router.chat_cancel(
+        chat_router.CancelChatRequest(conversation_id=session.id),
+        store=store,
+        process_state=process_state,
+        user=AuthenticatedUser(id=owner.id, email=owner.email),
+    )
+    assert result == {"cancelled": True}
+    assert event.is_set()

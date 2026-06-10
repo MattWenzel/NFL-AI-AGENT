@@ -1,6 +1,6 @@
 # Runtime
 
-The runtime is the heart of the agent: one class, `ChatRuntime`, drives every user turn through the model → tool loop → persistence pipeline. It is transport-agnostic — the same runtime powers `/chat/stream`, `/chat/message`, and any future non-HTTP entry point.
+The runtime is the heart of the agent: one class, `ChatRuntime`, drives every user turn through the model → tool loop → persistence pipeline. It is transport-agnostic — the same runtime powers `/chat/stream` and any future non-HTTP entry point.
 
 This doc covers the iteration loop, the event stream, the session lock, doom-loop protection, context-overflow recovery, and cleanup on early exit. Compaction and tools have their own docs ([compaction.md](compaction.md), [tools.md](tools.md)).
 
@@ -232,7 +232,6 @@ Tool dispatch goes through the same `execute_tool` registry as `ChatRuntime`, wi
 Not here. `run_session` is always an async generator. Callers choose how to consume it:
 
 - `/chat/stream` — iterate and forward each event as SSE.
-- `/chat/message` — iterate, aggregate into a response object, return once `turn_finished` or `runtime_error` arrives.
 - `/database/helper-chat/stream` — iterates the stateless loop's events instead, but the same SSE framing.
 - any future non-HTTP caller — iterate and handle events directly.
 

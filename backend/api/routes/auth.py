@@ -40,7 +40,9 @@ from backend.api.schemas.auth import (
     PasswordChangeRequest,
     RegisterRequest,
     RegistrationPendingResponse,
+    RequestPasswordResetRequest,
     ResendVerificationRequest,
+    ResetPasswordRequest,
     VerifyEmailRequest,
 )
 from backend.api.schemas.common import OkResponse
@@ -177,6 +179,46 @@ async def resend_verification(
     # Always return ok=True to avoid leaking which emails are registered.
     await service.resend_verification(payload.email, audit=audit_from_request(request))
     return OkResponse(ok=True)
+
+
+@router.post("/request-password-reset", response_model=OkResponse)
+async def request_password_reset(
+    payload: RequestPasswordResetRequest,
+    request: Request,
+    service: AuthService = Depends(get_auth_service),
+    process_state: AppProcessState = Depends(get_process_state),
+) -> OkResponse:
+    process_state.register_limiter.check(request)
+    # Per-email cap on top of the per-IP one — shared with verification
+    # resends, since both burn the Resend sending quota.
+    process_state.email_resend_limiter.check_key(payload.email.strip().lower())
+    # Always return ok=True to avoid leaking which emails are registered.
+    await service.request_password_reset(payload.email, audit=audit_from_request(request))
+    return OkResponse(ok=True)
+
+
+@router.post("/reset-password", response_model=AuthTokenResponse)
+async def reset_password(
+    payload: ResetPasswordRequest,
+    request: Request,
+    response: Response,
+    service: AuthService = Depends(get_auth_service),
+    process_state: AppProcessState = Depends(get_process_state),
+) -> AuthTokenResponse:
+    process_state.login_limiter.check(request)
+    try:
+        user, session = await service.reset_password(
+            token=payload.token,
+            new_password=payload.new_password,
+            audit=audit_from_request(request),
+        )
+    except AuthValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    set_auth_cookies(response=response, session=session, request=request)
+    return AuthTokenResponse(
+        token=session.token,
+        user=AuthUser(id=user.id, email=user.email, role=user.role),
+    )
 
 
 @router.post("/logout", dependencies=[Depends(verify_csrf)])

@@ -14,6 +14,7 @@ from backend.runtime_state import (
     PendingCodexOAuthFlows,
     PendingGoogleOAuthFlows,
     PerUserLockRegistry,
+    StreamCancelRegistry,
 )
 
 
@@ -36,8 +37,8 @@ class AppProcessState:
     chat_stream_limiter: ConcurrencyLimiter = field(
         default_factory=lambda: ConcurrencyLimiter(max_active=CHAT_STREAM_MAX_PER_USER)
     )
-    # Per-user request volume on the LLM-spending endpoints (/chat/message,
-    # /chat/stream, /database/helper-chat/stream). The concurrency limiter
+    # Per-user request volume on the LLM-spending endpoints (/chat/stream,
+    # /database/helper-chat/stream). The concurrency limiter
     # above bounds parallelism; this bounds how many turns a single account
     # can start per window. Keyed by user id via check_key().
     chat_request_limiter: RateLimiter = field(
@@ -68,6 +69,14 @@ class AppProcessState:
     google_oauth_flows: PendingGoogleOAuthFlows = field(
         default_factory=PendingGoogleOAuthFlows
     )
+    # Cancellation events for in-flight chat streams (POST /chat/cancel).
+    chat_cancel_events: StreamCancelRegistry = field(
+        default_factory=StreamCancelRegistry
+    )
+    # Set by the SIGTERM handler when the process is shutting down. Active
+    # SSE loops poll this and end their streams with a structured
+    # "server restarting" error instead of a dead socket.
+    draining: bool = False
 
     async def aclose(self) -> None:
         await self.codex_pending_flows.cancel_all()

@@ -32,6 +32,11 @@ class AuditEvent(str, Enum):
     VERIFICATION_RESENT = "verification_resent"
     VERIFICATION_RESENT_IGNORED = "verification_resent_ignored"
 
+    # Password reset
+    PASSWORD_RESET_REQUESTED = "password_reset_requested"
+    PASSWORD_RESET_REQUEST_IGNORED = "password_reset_request_ignored"
+    PASSWORD_RESET_COMPLETED = "password_reset_completed"
+
     # OAuth (Codex + Google)
     OAUTH_SIGNIN_STARTED = "oauth_signin_started"
     OAUTH_SIGNIN_SUCCEEDED = "oauth_signin_succeeded"

@@ -85,8 +85,8 @@ def send_verification_email(*, to: str, token: str) -> None:
 
 
 def send_password_reset_email(*, to: str, token: str) -> None:
-    """Stub for the future password reset flow. Kept here so landing reset
-    later doesn't require adding a new module."""
+    """Reset link for POST /auth/request-password-reset. The frontend's
+    AuthWall parses the `#/reset?token=…` hash into its reset form."""
     link = f"{APP_BASE_URL}/#/reset?{urlencode({'token': token})}"
     subject = "Reset your NFL StatSource password"
     text = (
