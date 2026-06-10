@@ -31,6 +31,7 @@ from backend.application.oauth.google import (
     GoogleOAuthInvalidStateError,
     GoogleOAuthService,
     GoogleOAuthServiceError,
+    GoogleOAuthUnverifiedAccountError,
     SignInOutcome,
 )
 
@@ -91,6 +92,8 @@ async def callback(
         return _redirect_error("invalid_state")
     except GoogleOAuthEmailUnverifiedError:
         return _redirect_error("email_unverified")
+    except GoogleOAuthUnverifiedAccountError:
+        return _redirect_error("account_unverified")
     except GoogleOAuthDisabledError:
         return _redirect_error("oauth_disabled")
     except GoogleOAuthServiceError as exc:

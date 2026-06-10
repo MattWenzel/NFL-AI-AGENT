@@ -24,6 +24,7 @@ from dataclasses import dataclass
 
 from backend.data import AuditEvent, IdentityConflictError, RuntimeStore
 from backend.domain.auth.audit import AuditContext, audit_log
+from backend.domain.auth.errors import UnverifiedAccountAutoLinkError
 from backend.domain.auth.lifecycle import (
     IdentitySeed,
     create_user_account,
@@ -95,6 +96,26 @@ async def resolve_oauth_signin(
 
     existing_via_email = await store.get_user_by_email(claims.email)
     if existing_via_email is not None:
+        # The provider vouches for the person signing in, not for the
+        # account being linked into. If that account never proved it owns
+        # the email (registered while verification was off, or before
+        # clicking the link), auto-linking would hand this OAuth user's
+        # session to whoever pre-registered the address. Refuse; the
+        # account owner can still link from Settings after signing in
+        # with their password, which proves ownership directly.
+        if existing_via_email.email_verified_at is None:
+            await audit_log(
+                store,
+                AuditEvent.OAUTH_SIGNIN_FAILED,
+                existing_via_email.id,
+                audit,
+                {"provider": claims.provider, "reason": "unverified_account_auto_link"},
+            )
+            raise UnverifiedAccountAutoLinkError(
+                "An account with this email already exists but hasn't verified "
+                "the address. Sign in with your password instead, then link this "
+                "provider from Settings."
+            )
         try:
             await store.create_identity(
                 user_id=existing_via_email.id,

@@ -21,7 +21,7 @@ import secrets
 from dataclasses import dataclass
 
 from backend.domain.auth import google_oauth
-from backend.domain.auth.errors import GoogleOAuthError
+from backend.domain.auth.errors import GoogleOAuthError, UnverifiedAccountAutoLinkError
 from backend.domain.auth.identity_resolver import (
     IdentityClaims,
     SignInOutcome,
@@ -67,6 +67,11 @@ class GoogleOAuthEmailUnverifiedError(GoogleOAuthServiceError):
 
 class GoogleOAuthLinkConflictError(GoogleOAuthServiceError):
     """Raised when the Google identity is already linked to a different user."""
+
+
+class GoogleOAuthUnverifiedAccountError(GoogleOAuthServiceError):
+    """Raised when sign-in would auto-link onto an account whose email was
+    never verified — refused to block account pre-hijack."""
 
 
 class GoogleOAuthLastIdentityError(GoogleOAuthServiceError):
@@ -181,9 +186,11 @@ class GoogleOAuthService:
     ) -> SignInOutcome:
         """Delegate to the shared OAuth identity resolver.
 
-        Google already verified `identity.email` for us (we checked
-        `email_verified` upstream in `complete_callback`), so the
-        auto-link-on-email branch in the resolver is safe.
+        Google verified `identity.email` for the person signing in (we
+        checked `email_verified` upstream in `complete_callback`). The
+        resolver separately refuses to auto-link onto an existing account
+        that never verified this email — that account's ownership of the
+        address is unproven, so linking would be a pre-hijack vector.
         """
         try:
             return await resolve_oauth_signin(
@@ -195,6 +202,8 @@ class GoogleOAuthService:
                 ),
                 audit=audit,
             )
+        except UnverifiedAccountAutoLinkError as exc:
+            raise GoogleOAuthUnverifiedAccountError(str(exc)) from exc
         except Exception as exc:
             # The resolver already audits OAUTH_SIGNIN_FAILED on the
             # paths that need it. Translate to the service's exception

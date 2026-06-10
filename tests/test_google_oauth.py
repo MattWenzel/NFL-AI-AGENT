@@ -15,6 +15,7 @@ import base64
 import hashlib
 import os
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 import pytest
 from cryptography.fernet import Fernet
@@ -29,6 +30,7 @@ from backend.application.oauth.google import (
     GoogleOAuthInvalidStateError,
     GoogleOAuthLastIdentityError,
     GoogleOAuthLinkConflictError,
+    GoogleOAuthUnverifiedAccountError,
 )
 from backend.application.oauth.google import GoogleOAuthService
 from backend.domain.auth.audit import AuditContext
@@ -188,14 +190,19 @@ class TestCompleteCallback:
     async def test_auto_link_on_email_match_for_existing_password_user(
         self, svc, store, auth_svc, pending_flows, monkeypatch
     ):
-        # Pre-create a password user.
+        # Pre-create a password user. Must be email-verified — the resolver
+        # refuses to auto-link onto unverified accounts (pre-hijack guard).
         await auth_svc.register(
             email="alice@e.com",
             password="pw12345678",
             invite_code=None,
             audit=AuditContext(),
         )
-        pre_password_hash = (await store.get_user_by_email("alice@e.com")).password_hash
+        alice = await store.get_user_by_email("alice@e.com")
+        await store.mark_user_email_verified(
+            alice.id, datetime.now(timezone.utc).isoformat()
+        )
+        pre_password_hash = alice.password_hash
         _patch_identity(monkeypatch, sub="goog-sub-2", email="alice@e.com")
         await svc.begin_signin(AuditContext())
         state = list(pending_flows._flows.keys())[0]
@@ -214,6 +221,28 @@ class TestCompleteCallback:
         events = await store.list_security_events_for_user(user.id, limit=50)
         assert any(e.event_type == "oauth_linked" for e in events)
         assert any(e.event_type == "oauth_signin_succeeded" for e in events)
+
+    async def test_auto_link_refused_for_unverified_password_user(
+        self, svc, store, auth_svc, pending_flows, monkeypatch
+    ):
+        # Same setup as the auto-link test but WITHOUT email verification:
+        # whoever registered this account never proved it owns the address,
+        # so linking a Google sign-in into it would be a pre-hijack.
+        await auth_svc.register(
+            email="mallory@e.com",
+            password="pw12345678",
+            invite_code=None,
+            audit=AuditContext(),
+        )
+        _patch_identity(monkeypatch, sub="goog-sub-3", email="mallory@e.com")
+        await svc.begin_signin(AuditContext())
+        state = list(pending_flows._flows.keys())[0]
+        with pytest.raises(GoogleOAuthUnverifiedAccountError):
+            await svc.complete_callback(code="abc", state=state, audit=AuditContext())
+        # No identity attached, and no session issued.
+        user = await store.get_user_by_email("mallory@e.com")
+        ids = await store.list_identities_for_user(user.id)
+        assert {i.provider for i in ids} == {"password"}
 
     async def test_returning_user_reuses_existing_identity(
         self, svc, store, pending_flows, monkeypatch
@@ -294,6 +323,10 @@ class TestUnlink:
             email="carol@e.com", password="pw12345678", invite_code=None, audit=AuditContext()
         )
         user = await store.get_user_by_email("carol@e.com")
+        # Verified, so the sign-in below auto-links instead of being refused.
+        await store.mark_user_email_verified(
+            user.id, datetime.now(timezone.utc).isoformat()
+        )
         _patch_identity(monkeypatch, sub="goog-carol", email="carol@e.com")
         await svc.begin_signin(AuditContext())
         state = list(pending_flows._flows.keys())[0]

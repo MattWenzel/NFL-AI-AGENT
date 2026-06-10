@@ -28,6 +28,19 @@ interface ChatGPTSigninStatus {
   error: string | null
 }
 
+// Google OAuth failures arrive as a redirect to /?oauth_error=<code>
+// (backend/api/routes/oauth_google.py). Map codes to banner copy here.
+const OAUTH_ERROR_MESSAGES: Record<string, string> = {
+  account_unverified:
+    'An account with this email already exists but hasn’t verified the address. ' +
+    'Sign in with your password instead, then link Google from Settings.',
+  email_unverified:
+    'Your Google account email isn’t verified. Verify it with Google first.',
+  oauth_disabled: 'Google sign-in is not configured on this deployment.',
+  cancelled: 'Google sign-in was cancelled.',
+}
+const OAUTH_ERROR_FALLBACK = 'Google sign-in failed — try again.'
+
 export function AuthWall({ onLogin, onRegister, errorMessage }: AuthWallProps) {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin')
   const [email, setEmail] = useState('')
@@ -50,6 +63,22 @@ export function AuthWall({ onLogin, onRegister, errorMessage }: AuthWallProps) {
     }
   }
   useEffect(() => stopPolling, [])
+
+  // Surface OAuth redirect errors once, then scrub the param so a refresh
+  // doesn't re-show a stale banner.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const code = params.get('oauth_error')
+    if (!code) return
+    setError(OAUTH_ERROR_MESSAGES[code] ?? OAUTH_ERROR_FALLBACK)
+    params.delete('oauth_error')
+    const qs = params.toString()
+    window.history.replaceState(
+      null,
+      '',
+      qs ? `${window.location.pathname}?${qs}` : window.location.pathname,
+    )
+  }, [])
 
   const copyCode = async (code: string) => {
     try {

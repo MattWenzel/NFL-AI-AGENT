@@ -25,7 +25,12 @@ from dataclasses import dataclass
 
 from backend.domain.auth import codex_oauth, encryption
 from backend.domain.auth.audit import AuditContext
-from backend.domain.auth.errors import AuthConflictError, CodexOAuthError, DeviceCodeExpired
+from backend.domain.auth.errors import (
+    AuthConflictError,
+    CodexOAuthError,
+    DeviceCodeExpired,
+    UnverifiedAccountAutoLinkError,
+)
 from backend.domain.auth.identity_resolver import (
     IdentityClaims,
     SignInOutcome,
@@ -173,6 +178,13 @@ class CodexOAuthService:
                 rec.status = "expired"
         except asyncio.CancelledError:
             raise
+        except UnverifiedAccountAutoLinkError as exc:
+            # Resolver refused to auto-link onto an unverified account
+            # (pre-hijack guard). The message is user-facing — surface it
+            # verbatim so the poller UI explains the password-then-link path.
+            async with rec.lock:
+                rec.status = "error"
+                rec.error = str(exc)
         except (CodexOAuthError, ValueError, AuthConflictError, IdentityConflictError):
             logger.exception("Codex OAuth failed for user=%s", rec.user_id)
             async with rec.lock:

@@ -13,6 +13,13 @@ class AuthConflictError(Exception):
     """Raised when account creation collides with an existing email."""
 
 
+class UnverifiedAccountAutoLinkError(Exception):
+    """Raised when an OAuth sign-in matches an existing account by email but
+    that account never verified the address. Auto-linking would let whoever
+    pre-registered the email capture the OAuth user's session (account
+    pre-hijack), so the resolver refuses. The message is user-facing."""
+
+
 # ---------------- Codex (ChatGPT) OAuth ----------------
 
 class CodexOAuthError(Exception):
