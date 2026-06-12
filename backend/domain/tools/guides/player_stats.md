@@ -199,15 +199,15 @@ Joining ngs → games directly gives you `g.game_type` (WC/DIV/CON/SB round labe
 
 **Columns NOT in `pfr_advanced`:** yards per route run (`yprr`), routes run, target separation (those live in `ngs_stats`: `avg_separation`, `avg_cushion`). Don't guess `yprr`/`ypc`/`ypr` — the table doesn't have them.
 
-### `qbr` — ESPN QBR (9.6K rows, 2006–2023)
+### `qbr` — ESPN QBR (10.7K rows, 2006–2025)
 
-- **ID**: `player_espn_id` — direct join to `players.player_espn_id` (VARCHAR, no CAST required).
+- **ID**: `player_gsis_id` (backfilled, ~100%) or `player_espn_id` — both join `players` directly (VARCHAR, no CAST required).
+- **`game_id` is canonical** — `JOIN games g USING (game_id)` works (FK declared). ESPN's numeric id is preserved as `espn_game_id`.
 - **`game_week` is INTEGER** (1, 2, …). Also has `week_text` ("Week 1"/"Wild Card").
 - **No season-total rows exist.** Compute with `AVG(qbr_total)`, `SUM(pts_added)` GROUP BY player+season.
 - **`season_type`**: `'Regular'` / `'Postseason'` (NOT `REG`/`POST` — different from every other table).
 - **Includes trick-play non-QBs** (WRs, RBs) with tiny samples and inflated QBR. Filter `qualified = 1` or `qb_plays >= 200`.
 - **`name_display`** (NOT `player_name`).
-- **Coverage ends 2023.** No 2024–2025 QBR data. For recent QB efficiency, use `passing_epa` / `passing_cpoe` on `season_stats` or `completion_percentage_above_expectation` on `ngs_stats` instead.
 
 ## Player joins — direct, no bridge needed
 

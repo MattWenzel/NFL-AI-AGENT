@@ -17,7 +17,7 @@ Collapsing rules for pairs with multiple FKs:
   rusher_player_id, …) all FK to `player_gsis_id`. Use `passer_player_id`
   as the representative; the full set is documented in the play_by_play
   guide and available via `get_schema("play_by_play")`.
-- `depth_charts_2025 ↔ players`, `draft_picks ↔ players`: two FKs each
+- `depth_charts_daily ↔ players`, `draft_picks ↔ players`: two FKs each
   (GSIS + PFR or ESPN). Prefer `player_gsis_id` as the canonical column.
 """
 
@@ -54,7 +54,7 @@ TABLE_ALIASES: dict[str, str] = {
     "tss": "team_season_stats",
     # Depth charts
     "dc": "depth_charts",
-    "dc25": "depth_charts_2025",
+    "dcd": "depth_charts_daily",
     "vdc": "v_depth_charts",
     # Player meta / contracts
     "dp": "draft_picks",
@@ -156,7 +156,7 @@ def _load_join_edges_from_db() -> dict[tuple[str, str], tuple[str, str, bool]]:
 # Views can't carry FK declarations, so their join edges are hand-coded.
 # Keep this list small and justified; every entry here is drift risk.
 _VIEW_JOIN_EDGES: dict[tuple[str, str], tuple[str, str, bool]] = {
-    # v_depth_charts is a UNION over depth_charts + depth_charts_2025.
+    # v_depth_charts is a UNION over depth_charts + depth_charts_daily.
     # Primary use: cross-era depth-chart queries joined to players via GSIS.
     ("players", "v_depth_charts"): ("player_gsis_id", "player_gsis_id", False),
 }

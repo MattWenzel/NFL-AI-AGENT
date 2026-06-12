@@ -112,7 +112,8 @@ SELECT cb.team,
        SUM(cb.cap_number) AS total_cap_number,
        AVG(cb.cap_percent) AS avg_cap_pct
 FROM contracts_cap_breakdown cb
-WHERE cb.cap_year = '2025' AND cb.team = 'Cowboys';
+WHERE cb.cap_year = '2025' AND cb.team = 'Cowboys'
+GROUP BY cb.team;
 ```
 
 **Biggest-guarantee deals ever signed (inflation-adjusted)**

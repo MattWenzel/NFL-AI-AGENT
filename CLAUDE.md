@@ -6,9 +6,9 @@ NFL player stats database built from [nflverse](https://github.com/nflverse/nflv
 
 | Database | Size | Tables | Rows | Years |
 |----------|------|--------|------|-------|
-| `nflverse.duckdb` | ~1.2 GB | 25 + 1 view | ~5M | 1999-2025 |
+| `nflverse.duckdb` | ~1.4 GB | 27 + 3 views | ~6.1M | 1999-2026 |
 
-Single DuckDB file with **78 FK constraints** enforced at build time. Accessed read-only by the chat agent via `backend/domain/tools/sandbox/runner.py` (raw `duckdb.connect(..., read_only=True)`); no ORM involvement.
+Single DuckDB file with **81 FK constraints** enforced at build time. Accessed read-only by the chat agent via `backend/domain/tools/sandbox/runner.py` (raw `duckdb.connect(..., read_only=True)`); no ORM involvement.
 
 **Full schema**: `../NFLVERSE/docs/CONSUMER_GUIDE.md` (short, gotcha-focused) + `../NFLVERSE/docs/DATABASE.md` (full reference). Sibling repo.
 
@@ -22,7 +22,7 @@ Single DuckDB file with **78 FK constraints** enforced at build time. Accessed r
 
 **Player meta / contracts**: `draft_picks` (1980+), `combine` (2000+), `contracts` (apy in millions of dollars), `contracts_cap_breakdown` (year-by-year cap)
 
-**Depth charts**: `v_depth_charts` (preferred — UNION view). Base tables `depth_charts` (2001-2024), `depth_charts_2025` (daily grain).
+**Depth charts**: `v_depth_charts` (preferred — UNION view). Base tables `depth_charts` (2001-2024), `depth_charts_daily` (2025+, daily grain, year-partitioned with a `season` column).
 
 **Play-by-play**: `play_by_play` (1.28M plays, 372 cols), `pbp_participation` (2016+), `ftn_charting` (2022+).
 

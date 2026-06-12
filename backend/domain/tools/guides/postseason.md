@@ -139,7 +139,8 @@ SELECT p.display_name,
 FROM season_stats ss
 JOIN players p ON p.player_gsis_id = ss.player_gsis_id
 WHERE p.display_name = 'Patrick Mahomes'
-  AND ss.season_type = 'POST';
+  AND ss.season_type = 'POST'
+GROUP BY p.display_name;
 ```
 
 **Individual playoff game logs (by round)**
@@ -187,7 +188,7 @@ ORDER BY playoff_games DESC
 LIMIT 25;
 ```
 
-**Playoff QBR leaders (2006–2023 only — QBR coverage ends 2023)**
+**Playoff QBR leaders (2006–2025)**
 ```sql
 SELECT p.display_name, q.season,
        ROUND(AVG(q.qbr_total), 1) AS playoff_qbr,

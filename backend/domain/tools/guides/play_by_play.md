@@ -70,7 +70,7 @@ Every `*_player_id` column uses GSIS ID format (`00-0035228`) and joins to `play
 **Clutch WPA swings (second half, competitive game)**
 ```sql
 SELECT season, week, posteam, defteam, qtr, down, ydstogo, yardline_100,
-       play_type, desc, wpa, wp, yards_gained, touchdown
+       play_type, "desc", wpa, wp, yards_gained, touchdown
 FROM play_by_play
 WHERE season = 2024 AND wpa IS NOT NULL
   AND play_type IN ('pass','run')

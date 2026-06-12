@@ -40,7 +40,7 @@ Three tables/views. **Default to `v_depth_charts`** — it's a DuckDB view that 
 
 ### `v_depth_charts` (1.35M rows, 2001–2025) — preferred
 
-Normalized UNION of `depth_charts` + `depth_charts_2025`. Columns:
+Normalized UNION of `depth_charts` + `depth_charts_daily`. Columns:
 
 `season` (BIGINT), `week` (INTEGER, NULL for preseason), `dt` (VARCHAR, NULL on legacy / ISO 8601 on 2025), `team`, `player_gsis_id`, `player_espn_id` (NULL on legacy), `position` (general: QB/WR/CB/DE/OLB/T/G/K/P/FS/SS/…), `pos_abb` (slot-specific: RCB/LDE/WLB/LT/LG/…), `depth_rank` (1–3 legacy, 1–15 on 2025), `formation` (Offense/Defense/Special Teams), `pos_grp` (2025 only), `source` (`'legacy'` / `'v2025'`).
 
@@ -57,28 +57,28 @@ WHERE v.team = 'KC' AND v.depth_rank = 1 AND v.position = 'QB'
 ORDER BY v.season, v.source;
 ```
 
-**2025 grain caveat:** on the v2025 side, a single season-team-position can have multiple `depth_rank = 1` rows because 2025 is daily-snapshot grain (starter can change across `dt` values). For "primary 2025 starter," aggregate with `argmax(player_gsis_id, dt)` per (team, season, position) or filter by a specific `dt`. For any point-in-time / deep-rank (≥4) query, drop to `depth_charts_2025` directly.
+**Daily grain caveat (2025+):** on the v2025 side, a single season-team-position can have multiple `depth_rank = 1` rows because 2025+ is daily-snapshot grain (starter can change across `dt` values). For "primary starter," aggregate with `argmax(player_gsis_id, dt)` per (team, season, position) or filter by a specific `dt`. For any point-in-time / deep-rank (≥4) query, drop to `depth_charts_daily` directly.
 
 ### `depth_charts` (869K rows, 2001–2024) — legacy base table
 
 Use directly when you need `game_type` ('REG'/'WC'/'DIV'/'CON'/'SB' — NOT in the view) for playoff filtering, or legacy columns `elias_id`, `first_name`, `last_name`. ID: `player_gsis_id`. Depth string is `depth_team` = `'1'`/`'2'`/`'3'`; rank column `depth_rank` is the same value but integer.
 
-### `depth_charts_2025` (477K rows, 2025 only) — daily base table
+### `depth_charts_daily` (787K rows, 2025+, one season per upstream file; has a `season` column) — daily base table
 
 Use directly for:
 - Point-in-time queries (filter by `dt` directly)
-- Deep-rank queries (`pos_rank >= 4` — only 2025 tracks these)
+- Deep-rank queries (`pos_rank >= 4` — only 2025+ tracks these)
 - Detailed 2025 columns not in the view: `pos_grp_id`, `pos_id`, `pos_name`, `pos_slot`, `player_name`
 
 ```sql
 -- current starting QBs (latest snapshot per team, 2025-specific)
 WITH latest AS (
   SELECT team, MAX(dt) AS most_recent
-  FROM depth_charts_2025
+  FROM depth_charts_daily
   GROUP BY team
 )
 SELECT d.team, d.player_name, d.pos_abb, d.pos_rank, d.dt
-FROM depth_charts_2025 d
+FROM depth_charts_daily d
 JOIN latest l ON l.team = d.team AND l.most_recent = d.dt
 WHERE d.pos_abb = 'QB' AND d.pos_rank = 1
 ORDER BY d.team;
@@ -152,7 +152,7 @@ WHERE p.display_name = 'Patrick Mahomes';
 - `combine.pos` (NOT `position`), `combine.school` (NOT `college`).
 - **Default to `v_depth_charts`** for depth-chart queries. It UNIONs the two base tables with a normalized 12-col schema and a `source` provenance tag.
 - The view has no `game_type` column — for playoff-round filtering (`game_type IN ('WC','DIV','CON','SB')`) drop to `depth_charts` (legacy) directly. `depth_charts.game_type` never takes `'POST'`.
-- `v_depth_charts.depth_rank` is 1–3 on legacy and 1–15 on 2025. `WHERE depth_rank >= 4` returning only 2025 rows is correct — pre-2025 nflverse didn't track it.
-- 2025 is daily grain — multiple `depth_rank = 1` rows per (team, season, position) can exist as the starter changed across snapshots. Aggregate with `argmax(player_gsis_id, dt)` or filter by a specific `dt` in `depth_charts_2025`.
+- `v_depth_charts.depth_rank` is 1–3 on legacy and 1–15 on 2025+. `WHERE depth_rank >= 4` returning only 2025+ rows is correct — pre-2025 nflverse didn't track it.
+- 2025+ is daily grain — multiple `depth_rank = 1` rows per (team, season, position) can exist as the starter changed across snapshots. Aggregate with `argmax(player_gsis_id, dt)` or filter by a specific `dt` in `depth_charts_daily`.
 - 2025 signings / roster changes flow into `players.latest_team` over time — latest_team is the most current team, not a snapshot of any given season.
 - `player_ids` uses short names (`gsis_id`, `pfr_id`, `espn_id`) rather than the `player_*_id` convention used on the other tables, because each row represents an identity mapping rather than a reference to a player.
