@@ -226,3 +226,19 @@ Use this join instead of calling `search_players` to decode abbreviated `*_playe
 ## Column not listed here?
 
 The 372-column catalog is exhaustive for this table. If you need a column not mentioned above (e.g., a rarely used slot like `tackle_with_assist_2_team`, or a specific EPA breakdown), call `get_schema({"table_name": "play_by_play"})` for the full column list.
+
+
+## Don't rebuild season totals from play_by_play
+
+Audited agreement between pbp-derived totals and `season_stats`: 99.4-100% of
+player-seasons match exactly — which means a pbp-built leaderboard will be
+subtly wrong for somebody. Two causes: laterals (pbp role columns credit the
+original ball-carrier; official stats split with the lateral runner) and
+official scoring corrections never retrofitted into pbp.
+
+**Use `season_stats`/`game_stats` for totals and leaderboards** (they agree
+exactly with each other at all grains). Use `play_by_play` for play-level
+detail only: situational splits, EPA/WPA, specific plays. If you must
+aggregate yards from pbp, also add `lateral_rushing_yards` /
+`lateral_receiving_yards` grouped by `lateral_rusher_player_id` /
+`lateral_receiver_player_id`.
