@@ -138,3 +138,18 @@ Use `games.game_type` for round granularity:
 - `roof` values: `outdoors`, `dome`, `closed`, `open`. "Closed" = retractable roof closed, "open" = retractable roof open.
 - `home_coach` / `away_coach` are head coach names — no FK to any other table.
 - For a team's season record, group `CASE WHEN` by whether the team was home vs. away and whether they outscored the other.
+
+
+## Relocated franchises — all-time team queries
+
+Stat tables use era-correct team codes (`OAK` through 2019 then `LV`; `SD` then `LAC`; `STL` then `LA`). `teams.team_id` is shared across a franchise's eras, so "Raiders all-time X" is:
+
+```sql
+SELECT SUM(tss.passing_yards) AS pass_yds
+FROM team_season_stats tss
+JOIN teams t ON t.team_abbr = tss.team
+WHERE t.team_id = (SELECT team_id FROM teams WHERE team_abbr = 'LV')
+  AND tss.season_type = 'REG';
+```
+
+Don't filter a single modern code across history — `WHERE team = 'LV'` silently drops the Oakland years.

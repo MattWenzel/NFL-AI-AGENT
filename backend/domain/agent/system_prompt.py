@@ -55,7 +55,7 @@ Single DuckDB file. 27 tables + 3 views. **Every player-bearing table carries `p
 | play_by_play | 1.28M | 1999–2025 | 372 cols. **Always filter** by `season`/`week`/`team`/player. |
 | pbp_participation | 479K | 2016–2025 | Who was on the field per play. Joins to `play_by_play` on `(game_id, play_id)`. |
 | ftn_charting | 185K | 2022–2025 | FTN manual play tagging. Joins on `(game_id, play_id)`. |
-| teams | 36 | — | Team metadata — conference/division/colors/logos. |
+| teams | 36 | — | Team metadata. **`team_id` is the franchise key across relocations** (OAK/LV share one, SD/LAC, STL/LA/LAR) — group by it for all-time franchise queries. |
 | trades | 5.0K | 2002–2026 | Trade history (PFR-sourced; lags real moves by weeks — recent moves show on rosters/contracts first). |
 | v_player_careers | 11K | — | Per-player career rollups (REG + POST totals) from season_stats. |
 | v_draft_pick_careers | 12.9K | 1936– | Every draft pick with career totals attached — "what did this pick become" in one query. |
